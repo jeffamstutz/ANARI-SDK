@@ -102,7 +102,7 @@ void Viewport::buildUI()
   updateImage();
   updateCamera();
 
-  ImGui::Image((void *)(intptr_t)m_framebufferTexture,
+  ImGui::Image((ImTextureID)(intptr_t)m_framebufferTexture,
       ImGui::GetContentRegionAvail(),
       ImVec2(1, 0),
       ImVec2(0, 1));
@@ -329,10 +329,10 @@ void Viewport::ui_handleInput()
 
   const bool dolly = ImGui::IsMouseDown(ImGuiMouseButton_Right)
       || (ImGui::IsMouseDown(ImGuiMouseButton_Left)
-          && io.KeysDown[GLFW_KEY_LEFT_SHIFT]);
+          && io.KeyShift);
   const bool pan = ImGui::IsMouseDown(ImGuiMouseButton_Middle)
       || (ImGui::IsMouseDown(ImGuiMouseButton_Left)
-          && io.KeysDown[GLFW_KEY_LEFT_ALT]);
+          && io.KeyAlt);
   const bool orbit = ImGui::IsMouseDown(ImGuiMouseButton_Left);
 
   const bool anyMovement = dolly || pan || orbit;

@@ -4,12 +4,13 @@
 #include "Application.h"
 // glad
 #include "glad/glad.h"
-// glfw
-#include <GLFW/glfw3.h>
+// sdl
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_opengl.h>
 // imgui
 #define IMGUI_DISABLE_INCLUDE_IMCONFIG_H
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl2.h"
+#include "imgui_impl_sdl3.h"
+#include "imgui_impl_opengl3.h"
 // std
 #include <chrono>
 #include <cstdio>
@@ -18,14 +19,10 @@
 
 namespace anari_viewer {
 
-static void glfw_error_callback(int error, const char *description)
-{
-  fprintf(stderr, "Glfw Error %d: %s\n", error, description);
-}
-
 struct AppImpl
 {
-  GLFWwindow *window{nullptr};
+  SDL_Window *window{nullptr};
+  SDL_GLContext gl_context;
   int width{0};
   int height{0};
   bool windowResized{true};
@@ -44,7 +41,6 @@ struct AppImpl
 Application::Application()
 {
   m_impl = std::make_shared<AppImpl>();
-  glfwSetErrorCallback(glfw_error_callback);
 }
 
 void Application::uiFrameStart()
@@ -87,19 +83,28 @@ void Application::mainLoop()
 {
   auto window = m_impl->window;
 
-  while (!glfwWindowShouldClose(window)) {
+  bool open = true;
+  while (open) {
     m_impl->frameStartTime = m_impl->frameEndTime;
     m_impl->frameEndTime = std::chrono::steady_clock::now();
-    glfwPollEvents();
+    SDL_Event event;
+    while (SDL_PollEvent(&event))
+    {
+        ImGui_ImplSDL3_ProcessEvent(&event);
+        if (event.type == SDL_EVENT_QUIT)
+            open = false;
+        if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event.window.windowID == SDL_GetWindowID(window))
+            open = false;
+    }
 
-    ImGui_ImplOpenGL2_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplSDL3_NewFrame();
 
     ImGui::NewFrame();
 
     ImGuiIO &io = ImGui::GetIO();
-    if (io.KeysDown[GLFW_KEY_Q] && io.KeysDown[GLFW_KEY_LEFT_CONTROL])
-      glfwSetWindowShouldClose(window, 1);
+    // if (io.KeysDown[GLFW_KEY_Q] && io.KeysDown[GLFW_KEY_LEFT_CONTROL])
+    //   open = false;
 
     uiFrameStart();
 
@@ -128,12 +133,14 @@ void Application::mainLoop()
     ImGui::End();
 
     ImGui::Render();
-
+    m_impl->width = io.DisplaySize.x;
+    m_impl->height = io.DisplaySize.y;
+    glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
     glClearColor(0.1f, 0.1f, 0.1f, 1.f);
     glClear(GL_COLOR_BUFFER_BIT);
-    ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-    glfwSwapBuffers(window);
+    SDL_GL_SwapWindow(window);
     m_impl->windowResized = false;
 
     uiFrameEnd();
@@ -142,38 +149,49 @@ void Application::mainLoop()
 
 void AppImpl::init()
 {
-  if (!glfwInit())
-    throw std::runtime_error("failed to initialize GLFW");
+  if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
+    throw std::runtime_error("failed to initialize SDL");
 
-  glfwWindowHint(GLFW_SRGB_CAPABLE, GLFW_TRUE);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
 
-  window = glfwCreateWindow(width, height, name.c_str(), nullptr, nullptr);
+  SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+  SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+  SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+
+  Uint32 window_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN;
+  window = SDL_CreateWindow(name.c_str(), width, height, window_flags);
+
   if (window == nullptr)
-    throw std::runtime_error("failed to create GLFW window");
+    throw std::runtime_error("failed to create SDL window");
 
-  glfwSetWindowUserPointer(window, this);
-
-  glfwMakeContextCurrent(window);
-  glfwSwapInterval(1);
-
-  if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-    glfwTerminate();
-    throw std::runtime_error("Failed to load GL");
+  SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+  gl_context = SDL_GL_CreateContext(window);
+  if (gl_context == nullptr)
+  {
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+    throw std::runtime_error("Failed to create GL context");
   }
 
-  glfwSetFramebufferSizeCallback(
-      window, [](GLFWwindow *w, int newWidth, int newHeight) {
-        auto *app = (AppImpl *)glfwGetWindowUserPointer(w);
-        app->width = newWidth;
-        app->height = newHeight;
-        app->windowResized = true;
-      });
+  SDL_GL_MakeCurrent(window, gl_context);
+  SDL_GL_SetSwapInterval(1);
+  SDL_ShowWindow(window);
+
+  if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
+    SDL_GL_DestroyContext(gl_context);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+    throw std::runtime_error("Failed to load GL");
+  }
 
   ImGui::CreateContext();
   ImGui::StyleColorsDark();
 
-  ImGui_ImplGlfw_InitForOpenGL(window, true);
-  ImGui_ImplOpenGL2_Init();
+  ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
+  ImGui_ImplOpenGL3_Init("#version 150");
 
   ImGuiIO &io = ImGui::GetIO();
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
@@ -204,13 +222,13 @@ void AppImpl::cleanup()
 {
   windows.clear();
 
-  ImGui_ImplOpenGL2_Shutdown();
-  ImGui_ImplGlfw_Shutdown();
-
+  ImGui_ImplOpenGL3_Shutdown();
+  ImGui_ImplSDL3_Shutdown();
   ImGui::DestroyContext();
 
-  glfwDestroyWindow(window);
-  glfwTerminate();
+  SDL_GL_DestroyContext(gl_context);
+  SDL_DestroyWindow(window);
+  SDL_Quit();
 
   window = nullptr;
 }
