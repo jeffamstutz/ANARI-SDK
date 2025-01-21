@@ -2,15 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "Application.h"
-// glad
-#include "glad/glad.h"
+#include "windows/Window.h"
 // sdl
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_opengl.h>
 // imgui
 #define IMGUI_DISABLE_INCLUDE_IMCONFIG_H
 #include "imgui_impl_sdl3.h"
-#include "imgui_impl_opengl3.h"
+#include "imgui_impl_sdlrenderer3.h"
 // std
 #include <chrono>
 #include <cstdio>
@@ -22,7 +21,7 @@ namespace anari_viewer {
 struct AppImpl
 {
   SDL_Window *window{nullptr};
-  SDL_GLContext gl_context;
+  SDL_Renderer *sdl_renderer{nullptr};
   int width{0};
   int height{0};
   bool windowResized{true};
@@ -51,6 +50,11 @@ void Application::uiFrameStart()
 void Application::uiFrameEnd()
 {
   // no-op
+}
+
+SDL_Renderer* Application::sdlRenderer()
+{
+  return m_impl->sdl_renderer;
 }
 
 void Application::run(int width, int height, const char *name)
@@ -97,7 +101,7 @@ void Application::mainLoop()
             open = false;
     }
 
-    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplSDLRenderer3_NewFrame();
     ImGui_ImplSDL3_NewFrame();
 
     ImGui::NewFrame();
@@ -135,12 +139,13 @@ void Application::mainLoop()
     ImGui::Render();
     m_impl->width = io.DisplaySize.x;
     m_impl->height = io.DisplaySize.y;
-    glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-    glClearColor(0.1f, 0.1f, 0.1f, 1.f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-    SDL_GL_SwapWindow(window);
+    auto sdl_renderer = m_impl->sdl_renderer;
+    SDL_SetRenderDrawColorFloat(sdl_renderer, 0.1f, 0.1f, 0.1f, 1.f);
+    SDL_RenderClear(sdl_renderer);
+    ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), sdl_renderer);
+    SDL_RenderPresent(sdl_renderer);
+
     m_impl->windowResized = false;
 
     uiFrameEnd();
@@ -152,14 +157,6 @@ void AppImpl::init()
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
     throw std::runtime_error("failed to initialize SDL");
 
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
-
-  SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-  SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-  SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
   Uint32 window_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN;
   window = SDL_CreateWindow(name.c_str(), width, height, window_flags);
@@ -167,31 +164,23 @@ void AppImpl::init()
   if (window == nullptr)
     throw std::runtime_error("failed to create SDL window");
 
+  sdl_renderer = SDL_CreateRenderer(window, nullptr);
+
   SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
-  gl_context = SDL_GL_CreateContext(window);
-  if (gl_context == nullptr)
+  if (sdl_renderer == nullptr)
   {
     SDL_DestroyWindow(window);
     SDL_Quit();
-    throw std::runtime_error("Failed to create GL context");
+    throw std::runtime_error("Failed to create SDL renderer");
   }
 
-  SDL_GL_MakeCurrent(window, gl_context);
-  SDL_GL_SetSwapInterval(1);
   SDL_ShowWindow(window);
-
-  if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
-    SDL_GL_DestroyContext(gl_context);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
-    throw std::runtime_error("Failed to load GL");
-  }
 
   ImGui::CreateContext();
   ImGui::StyleColorsDark();
 
-  ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
-  ImGui_ImplOpenGL3_Init("#version 150");
+  ImGui_ImplSDL3_InitForSDLRenderer(window, sdl_renderer);
+  ImGui_ImplSDLRenderer3_Init(sdl_renderer);
 
   ImGuiIO &io = ImGui::GetIO();
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
@@ -222,11 +211,11 @@ void AppImpl::cleanup()
 {
   windows.clear();
 
-  ImGui_ImplOpenGL3_Shutdown();
+  ImGui_ImplSDLRenderer3_Shutdown();
   ImGui_ImplSDL3_Shutdown();
   ImGui::DestroyContext();
 
-  SDL_GL_DestroyContext(gl_context);
+  SDL_DestroyRenderer(sdl_renderer);
   SDL_DestroyWindow(window);
   SDL_Quit();
 

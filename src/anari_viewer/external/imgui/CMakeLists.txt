@@ -25,7 +25,7 @@ INTERFACE
   ${anari_viewer_imgui_sdl_LOCATION}/imgui_tables.cpp
   ${anari_viewer_imgui_sdl_LOCATION}/imgui_widgets.cpp
   ${anari_viewer_imgui_sdl_LOCATION}/backends/imgui_impl_sdl3.cpp
-  ${anari_viewer_imgui_sdl_LOCATION}/backends/imgui_impl_opengl3.cpp
+  ${anari_viewer_imgui_sdl_LOCATION}/backends/imgui_impl_sdlrenderer3.cpp
   ${anari_viewer_imgui_sdl_LOCATION}/misc/cpp/imgui_stdlib.cpp
 )
 
