@@ -7,8 +7,6 @@
 #include "../ui_anari.h"
 // glad
 #include "glad/glad.h"
-// glfw
-#include <GLFW/glfw3.h>
 // anari
 #include <anari/anari_cpp/ext/linalg.h>
 #include <anari/anari_cpp.hpp>
