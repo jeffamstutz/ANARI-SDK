@@ -5,8 +5,8 @@ project(anari_viewer_imgui_sdl LANGUAGES CXX)
 
 anari_sdk_fetch_project(
   NAME ${PROJECT_NAME}
-  URL https://github.com/ocornut/imgui/archive/refs/tags/v1.91.7-docking.zip
-  MD5 2cfbf7b7790076d6debe5060ec1fb47f
+  URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.1-docking.zip
+  MD5 6a10c65dcc92c6ec75e70912293cc694
 )
 
 find_package(SDL3 QUIET)

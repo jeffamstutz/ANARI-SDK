@@ -5,8 +5,8 @@ project(cat_implot LANGUAGES CXX)
 
 anari_sdk_fetch_project(
   NAME ${PROJECT_NAME}
-  URL https://github.com/epezent/implot/archive/refs/tags/v0.16.zip
-  MD5 0529747ea75870e9c2f7648581a55583
+  URL https://github.com/epezent/implot/archive/refs/heads/master.zip
+  MD5 eba31c68909d28c84aabc051a3aed03d
 )
 
 include(CMakeFindDependencyMacro)

@@ -124,7 +124,7 @@ void PerformanceMetricsViewer::drawMetric(
         ImPlotStyleVar_FitPadding, ImVec2(0.f, 0.2f));
 
     const auto plotSize = ImVec2(280, 80);
-    const auto plotFlags = ImPlotFlags_CanvasOnly | ImPlotFlags_NoChild;
+    const auto plotFlags = ImPlotFlags_CanvasOnly;
     ImPlot::PushStyleColor(ImPlotCol_PlotBg, ImVec4{0, 0, 0, 0});
     ImPlot::PushStyleColor(ImPlotCol_FrameBg, ImVec4{0, 0, 0, 0});
     if (ImPlot::BeginPlot("##anariCatPerf", plotSize, plotFlags)) {
