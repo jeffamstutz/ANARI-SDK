@@ -7,12 +7,15 @@
 #include <anari/anari_cpp/ext/linalg.h>
 #include <anari/anari_cpp.hpp>
 // std
+#include <algorithm>
 #include <cstring>
 #include <limits>
 
 namespace helium::math {
 
 // Types //////////////////////////////////////////////////////////////////////
+
+// range_t //
 
 template <typename T>
 struct range_t
@@ -45,23 +48,75 @@ using box1 = range_t<float>;
 using box2 = range_t<anari::math::float2>;
 using box3 = range_t<anari::math::float3>;
 
-template <typename T>
-inline typename range_t<T>::element_t size(const range_t<T> &r)
-{
-  return r.upper - r.lower;
-}
+// Fixed-point types //
 
 template <typename T>
-inline typename range_t<T>::element_t clamp(
-    const typename range_t<T>::element_t &t, const range_t<T> &r)
+struct fixed_t
 {
-  return linalg::max(r.lower, linalg::min(t, r.upper));
-}
+  constexpr fixed_t() = default;
+  constexpr explicit fixed_t(const T &v) : value(v) {}
+  constexpr fixed_t<T> &operator=(const T &v)
+  {
+    value = v;
+    return *this;
+  };
 
-inline float position(float v, const box1 &r)
+  constexpr fixed_t(const float &f)
+      : value(static_cast<T>(std::clamp(f, -1.f, 1.f)
+            * static_cast<float>(std::numeric_limits<T>::max())))
+  {}
+
+  constexpr operator T() const
+  {
+    return value;
+  }
+
+  constexpr operator float() const
+  {
+    return static_cast<float>(value) / std::numeric_limits<T>::max();
+  }
+
+ private:
+  T value{0};
+};
+
+using fixed8 = fixed_t<int8_t>;
+using fixed16 = fixed_t<int16_t>;
+using fixed32 = fixed_t<int32_t>;
+
+template <typename T>
+struct ufixed_t
 {
-  return (v - r.lower) * (1.f / size(r));
-}
+  constexpr ufixed_t() = default;
+  constexpr explicit ufixed_t(const T &v) : value(v) {}
+  constexpr ufixed_t<T> &operator=(const T &v)
+  {
+    value = v;
+    return *this;
+  };
+
+  constexpr ufixed_t(const float &f)
+      : value(static_cast<T>(std::clamp(f, 0.f, 1.f)
+            * static_cast<float>(std::numeric_limits<T>::max())))
+  {}
+
+  constexpr operator T() const
+  {
+    return value;
+  }
+
+  constexpr operator float() const
+  {
+    return static_cast<float>(value) / std::numeric_limits<T>::max();
+  }
+
+ private:
+  T value{0};
+};
+
+using ufixed8 = ufixed_t<uint8_t>;
+using ufixed16 = ufixed_t<uint16_t>;
+using ufixed32 = ufixed_t<uint32_t>;
 
 constexpr anari::math::float4 DEFAULT_ATTRIBUTE_VALUE(0.f, 0.f, 0.f, 1.f);
 
@@ -91,6 +146,24 @@ enum class AlphaMode
 };
 
 // Functions //////////////////////////////////////////////////////////////////
+
+template <typename T>
+inline typename range_t<T>::element_t size(const range_t<T> &r)
+{
+  return r.upper - r.lower;
+}
+
+template <typename T>
+inline typename range_t<T>::element_t clamp(
+    const typename range_t<T>::element_t &t, const range_t<T> &r)
+{
+  return linalg::max(r.lower, linalg::min(t, r.upper));
+}
+
+inline float position(float v, const box1 &r)
+{
+  return (v - r.lower) * (1.f / size(r));
+}
 
 constexpr anari::math::mat3 extractRotation(const anari::math::mat4 &m)
 {
@@ -353,9 +426,21 @@ using namespace ::helium::math;
 namespace anari {
 
 ANARI_TYPEFOR_SPECIALIZATION(helium::box1, ANARI_FLOAT32_BOX1);
+ANARI_TYPEFOR_SPECIALIZATION(helium::fixed8, ANARI_FIXED8);
+ANARI_TYPEFOR_SPECIALIZATION(helium::fixed16, ANARI_FIXED16);
+ANARI_TYPEFOR_SPECIALIZATION(helium::fixed32, ANARI_FIXED32);
+ANARI_TYPEFOR_SPECIALIZATION(helium::ufixed8, ANARI_UFIXED8);
+ANARI_TYPEFOR_SPECIALIZATION(helium::ufixed16, ANARI_UFIXED16);
+ANARI_TYPEFOR_SPECIALIZATION(helium::ufixed32, ANARI_UFIXED32);
 
-#ifdef helium_ANARI_DEFINITIONS
+#ifdef HELIUM_ANARI_DEFINITIONS
 ANARI_TYPEFOR_DEFINITION(helium::box1);
+ANARI_TYPEFOR_DEFINITION(helium::fixed8);
+ANARI_TYPEFOR_DEFINITION(helium::fixed16);
+ANARI_TYPEFOR_DEFINITION(helium::fixed32);
+ANARI_TYPEFOR_DEFINITION(helium::ufixed8);
+ANARI_TYPEFOR_DEFINITION(helium::ufixed16);
+ANARI_TYPEFOR_DEFINITION(helium::ufixed32);
 #endif
 
 } // namespace anari
