@@ -48,8 +48,15 @@ void HdAnariRenderSettings::_Sync(HdSceneDelegate *sceneDelegate,
   if (!rs)
     return;
 
+#if PXR_VERSION >= 2511
+  // GetNamespacedSettings() returns an HdSampledDataSourceContainerSchema
+  // wrapper; unwrap it to the underlying container handle.
   const HdContainerDataSourceHandle settings =
       rs.GetNamespacedSettings().GetContainer();
+#else
+  // Older USD returns the container handle directly.
+  const HdContainerDataSourceHandle settings = rs.GetNamespacedSettings();
+#endif
   if (!settings)
     return;
 
