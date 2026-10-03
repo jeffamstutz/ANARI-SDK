@@ -55,9 +55,22 @@ void DeferredCommitBuffer::addObjectToFinalize(BaseObject *obj)
 
 void DeferredCommitBuffer::flush()
 {
-  if (empty())
-    return;
   std::lock_guard<std::recursive_mutex> guard(m_flushMutex);
+  // Only the thread holding m_flushMutex sees m_flushing set: this call is
+  // nested in its flush (e.g. a status callback from commitParameters() or
+  // finalize() issuing an ANARI_WAIT query). Swapping the buffers the outer
+  // flush is walking would corrupt it; what's staged waits for the next flush.
+  if (m_flushing || empty())
+    return;
+  m_flushing = true;
+  struct FlushingScope
+  {
+    bool &flushing;
+    ~FlushingScope()
+    {
+      flushing = false;
+    }
+  } scope{m_flushing};
   swapBuffers();
   flushCommits();
   flushFinalizations();
@@ -83,7 +96,10 @@ void DeferredCommitBuffer::clear()
 
 bool DeferredCommitBuffer::empty() const
 {
-  std::lock_guard<std::recursive_mutex> guard(m_flushMutex);
+  // m_flushMutex makes flush() wait out a flush running on another thread;
+  // m_swapMutex guards the staging buffers against a concurrent add.
+  std::lock_guard<std::recursive_mutex> flushGuard(m_flushMutex);
+  std::lock_guard<std::recursive_mutex> swapGuard(m_swapMutex);
   return m_commitBufferStaging.empty() && m_finalizationBufferStaging.empty();
 }
 
@@ -105,8 +121,9 @@ void DeferredCommitBuffer::flushCommits()
       // Read the committed snapshot (taken at anariCommitParameters() time),
       // not the live store, so a setParam that arrived after the commit call
       // does not leak into this commit. ReadCommittedScope holds the object's
-      // snapshot mutex (not its object lock -- frameReady() holds the object
-      // lock while blocked on this flush, so that would deadlock), serializing
+      // snapshot mutex (not its object lock -- a frame call such as a
+      // device's renderFrame() may hold the object lock while blocked on this
+      // flush, so that would deadlock), serializing
       // the read against a concurrent re-commit of the same object.
       //
       // markCommitted() reads the snapshot's parameter-change time, so it runs

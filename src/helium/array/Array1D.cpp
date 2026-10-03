@@ -65,9 +65,16 @@ size_t Array1D::size() const
   return m_end - m_begin;
 }
 
+const void *Array1D::elementsBegin() const
+{
+  return begin();
+}
+
 void Array1D::privatize()
 {
-  makePrivatizedCopy(size());
+  // Copy the whole capacity: begin() offsets into the copy by 'begin', and a
+  // later commit may move [begin, end) anywhere within the capacity.
+  makePrivatizedCopy(totalCapacity());
 }
 
 } // namespace helium
