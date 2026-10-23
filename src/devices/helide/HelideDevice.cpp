@@ -30,22 +30,6 @@ void HelideDevice::unmapArray(ANARIArray a)
   deviceState()->renderingSemaphore.arrayMapRelease(a);
 }
 
-// Frame Rendering ////////////////////////////////////////////////////////////
-
-void HelideDevice::renderFrame(ANARIFrame f)
-{
-  // The render may end, and its completion callback release the frame's last
-  // public reference, before this call returns (and unlocks the frame's
-  // object lock). Keep the frame alive until then.
-  helium::IntrusivePtr<Frame> frame = &helium::referenceFromHandle<Frame>(f);
-  // Wait for the frame's previous render before taking the frame's object
-  // lock, as helium does for anariFrameReady() and anariMapFrame(), so that
-  // another frame's completion callback can call into this frame meanwhile.
-  // helium reports it if this thread can't wait.
-  frame->waitWithoutObjectLock();
-  helium::BaseDevice::renderFrame(f);
-}
-
 // API Objects ////////////////////////////////////////////////////////////////
 
 ANARIArray1D HelideDevice::newArray1D(const void *appMemory,

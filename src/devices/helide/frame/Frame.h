@@ -44,6 +44,8 @@ struct Frame : public helium::BaseFrame
   int frameReady(ANARIWaitMask m) override;
   void discard() override;
 
+  // helium waits for the frame's render without its object lock, then calls
+  // renderFrame(), map() and frameReady() with the frame ready.
   bool waitsWithoutObjectLock() const override;
   const char *waitWithoutObjectLock() override;
 

@@ -131,14 +131,6 @@ void Frame::renderFrame()
     return;
   }
 
-  if (const char *why = waitIfThisThreadCan()) {
-    reportMessage(ANARI_SEVERITY_ERROR,
-        "anariRenderFrame() would deadlock waiting for the frame's previous "
-        "render: %s; not rendering",
-        why);
-    return;
-  }
-
   auto *state = deviceState();
 
   auto render = [this, state]() {
@@ -230,16 +222,6 @@ void *Frame::map(std::string_view channel,
     uint32_t *height,
     ANARIDataType *pixelType)
 {
-  if (const char *why = waitIfThisThreadCan()) {
-    reportMessage(ANARI_SEVERITY_ERROR,
-        "anariMapFrame() would deadlock: %s; not waiting",
-        why);
-    *width = 0;
-    *height = 0;
-    *pixelType = ANARI_UNKNOWN;
-    return nullptr;
-  }
-
   *width = m_frameData.size.x;
   *height = m_frameData.size.y;
 
@@ -273,15 +255,8 @@ void Frame::unmap(std::string_view channel)
 
 int Frame::frameReady(ANARIWaitMask m)
 {
-  if (m == ANARI_NO_WAIT)
-    return ready();
-  if (const char *why = waitIfThisThreadCan()) {
-    reportMessage(ANARI_SEVERITY_ERROR,
-        "anariFrameReady() with ANARI_WAIT would deadlock: %s; not waiting",
-        why);
-    return 0;
-  }
-  return 1;
+  // helium calls this with ANARI_WAIT only once the frame is ready.
+  return m == ANARI_WAIT || ready();
 }
 
 void Frame::discard()
