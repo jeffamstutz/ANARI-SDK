@@ -240,13 +240,13 @@ B-spline or Catmull-Rom (`HALCYON_GEOMETRY_CURVE_BASIS`), not Bézier or ribbons
   renderer has no refraction, and a surface coplanar with one in front of it is hidden.
 - A thread that has an array mapped and waits on the device (`anariFrameReady` with
   `ANARI_WAIT`, `anariMapFrame`, `anariGetProperty` with `ANARI_WAIT`) gets an error instead of
-  a wait. `anariRenderFrame` from such a thread, on a frame whose previous render is still
-  queued, is dropped with an error; its completion callback still fires, after the queued
-  render.
+  a wait (`anariMapFrame` returns NULL). `anariRenderFrame` from such a thread, on a frame
+  whose previous render is still queued, reports an error and renders nothing; no completion
+  callback fires for it.
 - Waiting on, mapping or rendering another frame from a completion callback, while that frame's
-  render is still queued, also reports an error instead of waiting (a render dropped this way
-  still fires its completion callback). Rendering a frame from its own completion callback is
-  ignored with a warning and fires no callback.
+  render is still queued, also reports an error instead of waiting, even while an app thread
+  waits on that frame. Rendering a frame from its own completion callback is ignored with a
+  warning and fires no callback.
 - Every other `anariRenderFrame` fires the completion callback once, including renders of an
   incomplete frame (which report an error and clear only the color channel) and renders
   skipped because nothing changed.

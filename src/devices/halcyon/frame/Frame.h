@@ -12,6 +12,7 @@
 // std
 #include <atomic>
 #include <functional>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -46,9 +47,13 @@ struct Frame : public helium::BaseFrame
   int frameReady(ANARIWaitMask m) override;
   void discard() override;
 
+  // helium waits for the frame's queued job without its object lock, then
+  // calls renderFrame(), map() and frameReady(ANARI_WAIT) with the frame
+  // ready
+  bool waitsWithoutObjectLock() const override;
+  const char *waitWithoutObjectLock() override;
+
   bool ready() const;
-  // False, with an ERROR, if the wait would deadlock
-  bool wait();
 
   // What a renderer's render() reads of the frame: the ISPC struct its
   // kernels take, the frame's size, its world (valid while rendering) and
@@ -67,6 +72,11 @@ struct Frame : public helium::BaseFrame
       const std::function<void(int x, int y)> &spanFcn, int stride = 1);
 
  private:
+  // Waits for the frame's queued job unless the calling thread can't (it
+  // would deadlock); then returns why, without waiting. nullptr once waited.
+  // Waiting on a finished job drops its reference to this frame, which may
+  // delete the frame. Safe without the frame's object lock.
+  const char *waitIfThisThreadCan();
   void flushAndRender();
   // Replaces the renderer's state with 'state' (made by 'owner'), under
   // m_rendererStateMutex
@@ -115,15 +125,20 @@ struct Frame : public helium::BaseFrame
   helium::TimeStamp m_frameLastRendered{0};
 
   std::atomic<float> m_duration{0.f};
-  // This frame's queued jobs that may still wait on device work: a render
-  // until its device work (flush and render) ends, a dropped render's
-  // callback job until it starts (renders queued ahead of it may be waiting)
+  // This frame's queued render, until its device work (flush and render)
+  // ends: until then it may still wait on device work
   std::atomic<int> m_jobsAwaitingDeviceWork{0};
 
   anari::FrameCompletionCallback m_callback{nullptr};
   const void *m_callbackUserPtr{nullptr};
 
-  mutable helium::tasking::Future m_future;
+  // The queued job (render and callback) and its number. Guarded by
+  // m_jobMutex, not the frame's object lock: helium waits for the frame
+  // without that lock, while another thread may queue a render. Waiters wait
+  // on a copy; the first to find the job finished drops its reference.
+  mutable std::mutex m_jobMutex;
+  std::shared_future<void> m_future;
+  uint64_t m_jobTicket{0};
 };
 
 } // namespace halcyon

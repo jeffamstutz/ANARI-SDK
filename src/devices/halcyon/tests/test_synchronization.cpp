@@ -4,13 +4,14 @@
 // KHR_DEVICE_SYNCHRONIZATION: frames wait for mapped arrays to be unmapped,
 // arrays mapped while frames render are never read half-written, completion
 // callbacks may map arrays, waiting on another frame from a completion
-// callback reports an error instead of deadlocking, anariGetProperty() with
-// ANARI_WAIT runs behind in-flight renders, waiting on the device from a
-// thread that has an array mapped reports an error instead of deadlocking,
-// renders dropped for either reason still fire the completion callback,
-// device work nested in a render joins it, racing maps and unmaps of one array
-// stay consistent, a mapped array's release unmaps it, and a frame released
-// without being waited on isn't leaked. Hangs show up as a ctest timeout.
+// callback reports an error instead of deadlocking, even while an app thread
+// waits on that frame, anariGetProperty() with ANARI_WAIT runs behind
+// in-flight renders, waiting on the device from a thread that has an array
+// mapped reports an error instead of deadlocking, renders refused for either
+// reason fire no completion callback, device work nested in a render joins it,
+// racing maps and unmaps of one array stay consistent, a mapped array's release
+// unmaps it, and a frame released without being waited on isn't leaked. Hangs
+// show up as a ctest timeout.
 
 // anari
 #define ANARI_LINALG_DEFINITIONS
@@ -471,6 +472,93 @@ bool testCrossFrameWait(Scene &s)
   return report("cross frame wait", pass);
 }
 
+struct WaitedOnFrameState
+{
+  anari::Device device{nullptr};
+  anari::Frame other{nullptr};
+  std::atomic<bool> appWaiting{false};
+  int readyWait{-1};
+  bool mapped{true};
+  std::atomic<bool> done{false};
+};
+
+// Once an app thread is waiting on the other frame, waits on, maps and
+// renders it
+void waitedOnFrameCallback(const void *userData, ANARIDevice, ANARIFrame)
+{
+  auto *cb = (WaitedOnFrameState *)userData;
+  while (!cb->appWaiting)
+    std::this_thread::sleep_for(1ms);
+  // give the app thread time to block in its wait
+  std::this_thread::sleep_for(100ms);
+  // the other frame's render is queued behind the one running this callback
+  cb->readyWait = anariFrameReady(cb->device, cb->other, ANARI_WAIT);
+  uint32_t width = 0, height = 0;
+  ANARIDataType type = ANARI_UNKNOWN;
+  cb->mapped =
+      anariMapFrame(
+          cb->device, cb->other, "channel.color", &width, &height, &type)
+      != nullptr;
+  if (cb->mapped)
+    anariUnmapFrame(cb->device, cb->other, "channel.color");
+  anariRenderFrame(cb->device, cb->other);
+  cb->done = true;
+}
+
+// While an app thread waits on a frame, a completion callback ahead of that
+// frame's render waiting on, mapping or rendering it reports an error for
+// each instead of blocking on the frame: the app thread doesn't hold the
+// frame's lock while it waits
+bool testCallbackIntoFrameAppWaitsOn(Scene &s)
+{
+  g_messages.clear();
+  bool pass = true;
+  auto d = s.device;
+  auto a = makeFrame(s);
+  auto b = makeFrame(s);
+
+  WaitedOnFrameState cb;
+  cb.device = d;
+  cb.other = b;
+  anari::setParameter(d,
+      a,
+      "frameCompletionCallback",
+      (ANARIFrameCompletionCallback)waitedOnFrameCallback);
+  anari::setParameter(d, a, "frameCompletionCallbackUserData", (void *)&cb);
+  anari::commitParameters(d, a);
+
+  anari::render(d, a);
+  anari::render(d, b);
+  std::thread app([&]() {
+    cb.appWaiting = true;
+    anari::wait(d, b);
+  });
+  app.join();
+  anari::wait(d, a);
+
+  if (!cb.done || cb.readyWait != 0 || cb.mapped) {
+    std::printf(
+        "FAIL callback into frame app waits on: done %d, frameReady() "
+        "returned %d, mapped %d\n",
+        int(cb.done.load()),
+        cb.readyWait,
+        int(cb.mapped));
+    pass = false;
+  }
+  for (const char *call : {"anariFrameReady() with ANARI_WAIT would deadlock",
+           "anariMapFrame() would deadlock",
+           "anariRenderFrame() would deadlock"}) {
+    if (!g_messages.hasError(call)) {
+      std::printf(
+          "FAIL callback into frame app waits on: no '%s' error\n", call);
+      pass = false;
+    }
+  }
+  anari::release(d, a);
+  anari::release(d, b);
+  return report("callback into frame app waits on", pass);
+}
+
 // anariGetProperty(ANARI_WAIT) runs behind renders already issued, so a
 // frame's duration is that of its latest render
 bool testWaitPropertyAfterRender(Scene &s)
@@ -496,7 +584,7 @@ bool testWaitPropertyAfterRender(Scene &s)
 // A thread that has an array mapped and waits on the device (getProperty
 // with ANARI_WAIT, frameReady with ANARI_WAIT, anariMapFrame, rendering a
 // frame again) on work that can't start until the array is unmapped gets an
-// error instead of a hang (the render is dropped);
+// error instead of a hang (no buffer is mapped and no render is queued);
 // waits that don't need that work still succeed, other threads still block
 // until the array is unmapped, and the device works normally afterwards
 bool testWaitWhileMapped(Scene &s)
@@ -551,20 +639,19 @@ bool testWaitWhileMapped(Scene &s)
   const bool readyError = g_messages.has("mapped");
   g_messages.clear();
 
-  // rendering again has to wait on the queued render: dropped
+  // rendering again has to wait on the queued render: refused
   anari::render(d, frame);
   const bool renderError = g_messages.has("mapped");
   g_messages.clear();
 
   uint32_t width = 0, height = 0;
   ANARIDataType pixelType = ANARI_UNKNOWN;
-  auto *pixels = anariMapFrame(
-      d, frame, "channel.color", &width, &height, &pixelType);
-  if (!pixels || width != IMAGE_SIZE.x || height != IMAGE_SIZE.y) {
-    std::printf("FAIL wait while mapped: anariMapFrame returned no buffer\n");
+  auto *pixels =
+      anariMapFrame(d, frame, "channel.color", &width, &height, &pixelType);
+  if (pixels || width != 0 || height != 0) {
+    std::printf("FAIL wait while mapped: anariMapFrame returned a buffer\n");
     pass = false;
   }
-  anariUnmapFrame(d, frame, "channel.color");
   const bool mapError = g_messages.has("mapped");
 
   if (!propertyError || !readyError || !renderError || !mapError) {
@@ -622,10 +709,10 @@ void setCallback(anari::Device d,
   anari::commitParameters(d, frame);
 }
 
-// A render dropped because this thread has an array mapped and the frame's
-// previous render is queued reports an error and still fires the completion
-// callback once, after the queued render; waiting on the frame waits for it
-bool testDroppedRenderFiresCallback(Scene &s)
+// A render refused because this thread has an array mapped and the frame's
+// previous render is queued reports an error and isn't queued: only the
+// queued render fires the completion callback
+bool testRefusedRenderFiresNoCallback(Scene &s)
 {
   g_messages.clear();
   bool pass = true;
@@ -636,7 +723,7 @@ bool testDroppedRenderFiresCallback(Scene &s)
 
   anari::map<float4>(d, s.colors);
   anari::render(d, frame);
-  anari::render(d, frame); // dropped
+  anari::render(d, frame); // refused
   const bool dropError = g_messages.has("mapped") && g_messages.numErrors();
   std::this_thread::sleep_for(50ms);
   const int callsWhileMapped = calls;
@@ -644,84 +731,25 @@ bool testDroppedRenderFiresCallback(Scene &s)
   anari::wait(d, frame);
 
   if (!dropError) {
-    std::printf("FAIL dropped render fires callback: no error reported\n");
+    std::printf("FAIL refused render fires no callback: no error reported\n");
     pass = false;
   }
   if (callsWhileMapped != 0) {
     std::printf(
-        "FAIL dropped render fires callback: %d callbacks before the queued "
+        "FAIL refused render fires no callback: %d callbacks before the queued "
         "render\n",
         callsWhileMapped);
     pass = false;
   }
-  if (calls != 2) {
+  if (calls != 1) {
     std::printf(
-        "FAIL dropped render fires callback: callback ran %d times for 2 "
-        "renders\n",
+        "FAIL refused render fires no callback: callback ran %d times for 1 "
+        "render\n",
         calls.load());
     pass = false;
   }
   anari::release(d, frame);
-  return report("dropped render fires callback", pass);
-}
-
-struct GateCallbackState
-{
-  std::atomic<bool> entered{false};
-  std::atomic<bool> open{false};
-};
-
-// Signals that it runs, then holds the worker until the gate opens
-void gateCallback(const void *userData, ANARIDevice, ANARIFrame)
-{
-  auto *cb = (GateCallbackState *)userData;
-  cb->entered = true;
-  while (!cb->open)
-    std::this_thread::sleep_for(1ms);
-}
-
-// Waiting, with an array mapped, on a frame whose dropped render's callback
-// is queued behind another frame's render reports an error instead of a hang
-// (that render can't start until the array is unmapped)
-bool testWaitOnDroppedBehindOtherRender(Scene &s)
-{
-  g_messages.clear();
-  bool pass = true;
-  auto d = s.device;
-  auto a = makeFrame(s);
-  auto c = makeFrame(s);
-  GateCallbackState gate;
-  setCallback(d, a, (ANARIFrameCompletionCallback)gateCallback, &gate);
-
-  anari::map<float4>(d, s.colors);
-  anari::render(d, a);
-  anari::render(d, c);
-  anari::render(d, a); // dropped: its callback is queued behind c's render
-  anari::unmap(d, s.colors);
-
-  // a's render is done and its callback holds the worker, ahead of c
-  while (!gate.entered)
-    std::this_thread::sleep_for(1ms);
-  anari::map<float4>(d, s.colors);
-  gate.open = true;
-  g_messages.clear();
-  const int ready = anariFrameReady(d, a, ANARI_WAIT);
-  const size_t errors = g_messages.numErrors();
-  anari::unmap(d, s.colors);
-  anari::wait(d, a);
-  anari::wait(d, c);
-
-  if (ready != 0 || errors == 0) {
-    std::printf(
-        "FAIL wait on dropped behind other render: frameReady returned %d "
-        "with %zu errors\n",
-        ready,
-        errors);
-    pass = false;
-  }
-  anari::release(d, a);
-  anari::release(d, c);
-  return report("wait on dropped render behind another render", pass);
+  return report("refused render fires no callback", pass);
 }
 
 struct CrossFrameRenderState
@@ -738,9 +766,9 @@ void crossFrameRenderCallback(const void *userData, ANARIDevice, ANARIFrame)
 }
 
 // Rendering, from a completion callback, a frame whose render is queued
-// behind it reports an error, drops the render and still fires that frame's
-// completion callback once for it
-bool testCrossFrameDroppedRenderFiresCallback(Scene &s)
+// behind it reports an error and doesn't render it: only its queued render
+// fires its completion callback
+bool testCrossFrameRefusedRender(Scene &s)
 {
   g_messages.clear();
   bool pass = true;
@@ -765,19 +793,19 @@ bool testCrossFrameDroppedRenderFiresCallback(Scene &s)
   anari::wait(d, b);
 
   if (!g_messages.has("deadlock") || g_messages.numErrors() == 0) {
-    std::printf("FAIL cross frame dropped render: no error reported\n");
+    std::printf("FAIL cross frame refused render: no error reported\n");
     pass = false;
   }
-  if (bCalls != 2) {
+  if (bCalls != 1) {
     std::printf(
-        "FAIL cross frame dropped render: callback ran %d times for 2 "
-        "renders\n",
+        "FAIL cross frame refused render: callback ran %d times for 1 "
+        "render\n",
         bCalls.load());
     pass = false;
   }
   anari::release(d, a);
   anari::release(d, b);
-  return report("cross frame dropped render fires callback", pass);
+  return report("cross frame refused render", pass);
 }
 
 struct MappedWaitCallbackState
@@ -968,7 +996,8 @@ bool testCallbackReleasesDuringMapWait(Scene &s)
     std::this_thread::sleep_for(1ms);
   anari::map<float4>(d, s.colors);
   if (!callbackDone) {
-    std::printf("FAIL callback releases during map wait: mapped during render\n");
+    std::printf(
+        "FAIL callback releases during map wait: mapped during render\n");
     pass = false;
   }
   anari::unmap(d, s.colors);
@@ -1095,8 +1124,9 @@ bool testReleaseWhileMapped(Scene &s)
   // exactly one ERROR: the release's
   if (g_messages.numErrors() != 1
       || !g_messages.hasError("released while mapped")) {
-    std::printf("FAIL release while mapped: expected exactly the release's "
-                "ERROR\n");
+    std::printf(
+        "FAIL release while mapped: expected exactly the release's "
+        "ERROR\n");
     pass = false;
   }
   anari::wait(d, frame);
@@ -1229,11 +1259,11 @@ int main(int argc, const char **argv)
   pass &= testUnbalancedMapping(s);
   pass &= testCallbackMapsArray(s);
   pass &= testCrossFrameWait(s);
+  pass &= testCallbackIntoFrameAppWaitsOn(s);
   pass &= testWaitPropertyAfterRender(s);
   pass &= testWaitWhileMapped(s);
-  pass &= testDroppedRenderFiresCallback(s);
-  pass &= testCrossFrameDroppedRenderFiresCallback(s);
-  pass &= testWaitOnDroppedBehindOtherRender(s);
+  pass &= testRefusedRenderFiresNoCallback(s);
+  pass &= testCrossFrameRefusedRender(s);
   pass &= testCallbackWaitWhileMapped(s);
   pass &= testCommitFrameWhileMapped(s);
   pass &= testNestedDeviceWork(s);

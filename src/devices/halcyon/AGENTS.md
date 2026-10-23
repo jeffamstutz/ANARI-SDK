@@ -444,9 +444,9 @@ that override; halcyon keeps its own while it supports helium 0.15 and 0.16.
    helpers both renderers' kernels use (channel writes, `background()`, `missColor()`,
    `traceFirstVisibleSurface()`) are in `shading/halcyon_frame.isph`.
 5. After the device work ends, the completion callback runs on the worker. It fires once per
-   `anariRenderFrame`, also for invalid frames, skipped renders and dropped renders (see
-   [Synchronization](#synchronization)); only a render issued from the frame's own callback
-   fires none.
+   queued render, also for invalid frames and skipped renders; a render refused because the
+   calling thread can't wait for the frame's previous one (see
+   [Synchronization](#synchronization)), or issued from the frame's own callback, fires none.
 
 Details that are easy to get wrong:
 
@@ -2535,19 +2535,26 @@ honours it; the `renderer_extensions` ctest pins both renderers' lists and the u
   `ANARI_WAIT` query during a render's flush) joins the outer work: it doesn't wait, flush again
   or end the outer work. Mapping never waits for device work while holding `m_arrayMapMutex`,
   so such a callback may also unmap or release arrays.
-- A thread holding a mapped array cannot wait on device work. Instead of hanging, halcyon reports
-  an ERROR and does not wait: `anariGetProperty(..., ANARI_WAIT)` returns 0,
-  `anariFrameReady(WAIT)` returns 0, `anariMapFrame` returns the current buffers (a queued
-  render will overwrite them), and `anariRenderFrame` on a frame whose previous render is still
-  queued is **dropped**. A dropped render still fires the completion callback once, from a job
-  queued behind the frame's render; that job replaces the frame's future (and takes over its
-  internal reference), so waiting on the frame also waits for the callback. Until that job
-  starts, a thread holding a mapped array is refused a wait on the frame too, since other
-  frames' renders may be queued ahead of it (`Frame::m_jobsAwaitingDeviceWork`).
+- Frames opt in to helium waiting for them without their object lock
+  (`Frame::waitsWithoutObjectLock()`): for `anariFrameReady(WAIT)`, `anariMapFrame` and
+  `anariRenderFrame`, helium waits through `Frame::waitWithoutObjectLock()`, then calls
+  `frameReady()`, `map()` and `renderFrame()` under the lock only once the frame is ready. So
+  another frame's completion callback can call into a frame an app thread waits on. A frame's
+  queued job (`m_future`, `m_jobTicket`) is therefore guarded by the frame's own `m_jobMutex`;
+  waiters wait on a copy of the job's `std::shared_future`, and the first to find it finished
+  drops the render's internal reference.
+- A thread holding a mapped array cannot wait on device work. Instead of hanging, it gets an
+  ERROR and no wait: `anariGetProperty(..., ANARI_WAIT)` returns 0, `anariFrameReady(WAIT)`
+  returns 0, `anariMapFrame` returns NULL, and `anariRenderFrame` on a frame whose previous
+  render is still queued renders nothing and fires no callback. helium reports the frame calls'
+  errors ("`anariMapFrame()` would deadlock: ..."), from the reason
+  `Frame::waitWithoutObjectLock()` returns; the one wait helium makes under the lock, releasing
+  a frame whose render is queued (`helium::BaseFrame::on_NoPublicReferences()`), is reported by
+  `Frame::frameReady()` itself.
 - A completion callback waiting on, mapping or rendering a *different* frame whose job is still
-  queued gets the same ERROR-and-carry-on treatment (the single worker would deadlock); a
-  render dropped this way also fires the callback. Rendering a frame from its own completion
-  callback is ignored with a warning and fires no callback (it would recurse).
+  queued gets the same ERROR-and-carry-on treatment (the single worker would deadlock), also
+  while an app thread waits on that frame. Rendering a frame from its own completion callback
+  is ignored with a warning and fires no callback (it would recurse).
 - The callback runs after the render's device work ends, so it may map arrays (helide 0.16
   and older deadlock there).
 - **Known remaining deadlocks** (no test covers them):
@@ -2562,10 +2569,6 @@ honours it; the `renderer_extensions` ctest pins both renderers' lists and the u
     waits on the device (`ANARI_WAIT` queries, frame waits), it waits for the render, which
     waits for the callback. No such callback is known today: Embree reports errors, including
     BVH build errors, on the thread that called its API, which is the worker.
-  - An app thread waiting on or mapping frame B holds B's helium object lock while it waits for
-    B's job. If another frame's completion callback, running ahead of that job, waits on, maps
-    or renders B, it blocks on that lock before reaching the ERROR-and-carry-on path above, and
-    both threads hang (`cross frame wait` waits on the frames in queue order).
 - Every commit buffer flush runs on the worker (a render's, or an object `ANARI_WAIT` query's),
   after the renders queued before it, so a frame's commit never waits for its render;
   `Frame::finalize()` asserts it runs on the worker. A new flush path must go through the task
@@ -2617,16 +2620,15 @@ in every reader. Against helide 0.16 and older those still differ. What differs 
 
 Other maintainer decisions (keep them):
 
-- **Frames:** every `anariRenderFrame` fires the completion callback once, including a render
-  skipped because nothing changed, an invalid frame and a dropped render (helide fires none
-  for these); the ERROR is still reported. The exception is a render requested from the
-  frame's own completion callback, which is ignored with a warning and fires none. A device
+- **Frames:** every queued render fires the completion callback once, including a render
+  skipped because nothing changed and an invalid frame (helide fires none for these); the
+  ERROR is still reported. A render refused because the calling thread can't wait for the
+  frame's previous one, or requested from the frame's own completion callback, fires none. A device
   parameter commit counts as a change, so the next render of every frame renders (helide skips
   it and keeps the old image). The callback runs after the render's device work ends, and waits
   that helide 0.16 and older deadlock on report errors (see
   [Synchronization](#synchronization)); helide 0.17 reports errors for them too, by rules of
-  its own (`src/devices/helide/AGENTS.md`), which differ in detail (its `anariMapFrame`
-  returns NULL where halcyon's returns the current buffers).
+  its own (`src/devices/helide/AGENTS.md`), which differ in detail.
 - **Defaults:** the code uses the defaults the specification and `HalcyonDefinitions.json`
   declare, where helide's code doesn't: `ambientRadiance` 0 (helide 1; only visible with
   `ignoreAmbientLighting` false) and matte `color` 0.8 grey (helide white), in both

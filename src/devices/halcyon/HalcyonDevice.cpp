@@ -298,9 +298,11 @@ int HalcyonDevice::getProperty(ANARIObject o,
 
   auto query = [&]() -> int {
     auto &obj = helium::referenceFromHandle(o);
-    // Frame properties are only written by the task queue, and an app thread
-    // waiting on a frame (frameReady, map) holds its lock: taking it here
-    // would deadlock a completion callback querying that frame.
+    // Frame properties are only written by the task queue, and a thread may
+    // hold a frame's lock while it waits for the frame's previous render
+    // (helium waits without it, but a frame released under the lock waits
+    // there): taking it here would deadlock a completion callback querying
+    // that frame.
     std::unique_lock<std::mutex> lock;
     if (obj.type() != ANARI_FRAME)
       lock = obj.scopeLockObject();

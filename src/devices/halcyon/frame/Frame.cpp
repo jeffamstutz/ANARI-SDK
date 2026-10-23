@@ -41,7 +41,7 @@ Frame::Frame(HalcyonDeviceGlobalState *s) : helium::BaseFrame(s)
 
 Frame::~Frame()
 {
-  wait();
+  waitIfThisThreadCan();
   auto &state = *deviceState();
   state.registry.frames.erase(m_ispcIndex);
 }
@@ -178,27 +178,15 @@ void Frame::renderFrame()
     return;
   }
 
-  auto *state = deviceState();
-  if (!wait()) {
-    // Dropped: waiting on the queued render would deadlock (wait() reported
-    // the error). The completion callback still fires once for this request,
-    // from a job queued behind that render. The render's internal reference
-    // and the duty to drop it in wait() pass to the new future: the single
-    // worker runs jobs in order, so it completes after the render's.
-    // Its duration stays that of the last render.
-    m_jobsAwaitingDeviceWork++;
-    m_future = state->taskQueue.enqueue([this, state]() {
-      m_jobsAwaitingDeviceWork--;
-      invokeCompletionCallback(
-          m_callback, m_callbackUserPtr, state->anariDevice);
-    });
-    return;
-  }
+  // helium calls this once the frame's previous job has finished; waiting
+  // on it drops its reference to this frame (helium holds one meanwhile)
+  waitIfThisThreadCan();
 
+  auto *state = deviceState();
   this->refInc(helium::RefType::INTERNAL);
   m_jobsAwaitingDeviceWork++;
 
-  m_future = state->taskQueue.enqueue([this, state]() {
+  auto future = state->taskQueue.enqueue([this, state]() {
     auto start = std::chrono::steady_clock::now();
 
     // Commits copy array data and renders read it, so both wait for any
@@ -223,6 +211,10 @@ void Frame::renderFrame()
     auto end = std::chrono::steady_clock::now();
     m_duration = std::chrono::duration<float>(end - start).count();
   });
+
+  std::lock_guard<std::mutex> lock(m_jobMutex);
+  m_future = future.share();
+  m_jobTicket++;
 }
 
 void Frame::flushAndRender()
@@ -309,10 +301,9 @@ void *Frame::map(std::string_view channel,
     uint32_t *height,
     ANARIDataType *pixelType)
 {
-  // from another frame's completion callback, or from a thread with an array
-  // mapped, reports an error and maps the current buffers, which a queued
-  // render will overwrite
-  wait();
+  // helium calls this once the frame is ready: waiting doesn't block, and
+  // drops the finished job's reference to this frame
+  waitIfThisThreadCan();
 
   *width = m_size.x;
   *height = m_size.y;
@@ -359,7 +350,16 @@ int Frame::frameReady(ANARIWaitMask m)
   // this frame: a frame released after it was polled, or after it finished
   // without being waited on (see helium::BaseFrame::on_NoPublicReferences()),
   // is destroyed instead of leaked. That may delete this frame.
-  return wait() ? 1 : 0;
+  //
+  // helium waits for the frame before calling this with ANARI_WAIT, except
+  // from helium::BaseFrame::on_NoPublicReferences(), which waits here.
+  if (const char *why = waitIfThisThreadCan()) {
+    reportMessage(ANARI_SEVERITY_ERROR,
+        "waiting on a released frame would deadlock: %s; not waiting",
+        why);
+    return 0;
+  }
+  return 1;
 }
 
 void Frame::discard()
@@ -367,43 +367,86 @@ void Frame::discard()
   // no-op
 }
 
-bool Frame::ready() const
+bool Frame::waitsWithoutObjectLock() const
 {
-  return completingOnThisThread() || helium::tasking::isReady(m_future);
+  return true;
 }
 
-bool Frame::wait()
+const char *Frame::waitWithoutObjectLock()
+{
+  return waitIfThisThreadCan();
+}
+
+static bool isReady(const std::shared_future<void> &f)
+{
+  return !f.valid()
+      || f.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+}
+
+bool Frame::ready() const
+{
+  if (completingOnThisThread())
+    return true;
+  std::lock_guard<std::mutex> lock(m_jobMutex);
+  return isReady(m_future);
+}
+
+const char *Frame::waitIfThisThreadCan()
 {
   // A completion callback runs inside the job m_future tracks; that job has
   // finished rendering, and waiting on it from there would never return.
   if (completingOnThisThread())
-    return true;
-  if (!m_future.valid())
-    return true;
-  // Elsewhere on the worker (another frame's completion callback), a job not
-  // yet finished is queued behind the running one
-  if (deviceState()->taskQueue.onWorkerThread()
-      && !helium::tasking::isReady(m_future)) {
-    reportMessage(ANARI_SEVERITY_ERROR,
-        "waiting on a frame from another frame's completion callback would "
-        "deadlock; not waiting");
-    return false;
+    return nullptr;
+
+  std::shared_future<void> future;
+  uint64_t jobTicket = 0;
+  {
+    std::lock_guard<std::mutex> lock(m_jobMutex);
+    future = m_future;
+    jobTicket = m_jobTicket;
   }
-  // Device work this frame's jobs wait for can't start while this thread
-  // holds it off
-  if (m_jobsAwaitingDeviceWork > 0) {
-    if (const char *why =
-            deviceState()->renderingSemaphore.whyThisThreadCantWait()) {
-      reportMessage(ANARI_SEVERITY_ERROR,
-          "waiting on a frame would deadlock: %s; not waiting",
-          why);
-      return false;
+  if (!future.valid())
+    return nullptr;
+  if (!isReady(future)) {
+    // Elsewhere on the worker (another frame's completion callback), a job
+    // not yet finished is queued behind the running one
+    if (deviceState()->taskQueue.onWorkerThread()) {
+      return "this is halcyon's worker thread (e.g. another frame's "
+             "completion callback), which runs the frame's queued job only "
+             "after returning";
+    }
+    // Device work the frame's render waits for can't start while this
+    // thread holds it off
+    if (m_jobsAwaitingDeviceWork > 0) {
+      if (const char *why =
+              deviceState()->renderingSemaphore.whyThisThreadCantWait())
+        return why;
     }
   }
-  m_future.get();
-  // may delete this frame
-  this->refDec(helium::RefType::INTERNAL);
-  return true;
+
+  // The first waiter to find the job finished drops its reference (also if
+  // it threw, passing the exception to that waiter).
+  auto dropJobReference = [&]() {
+    bool drop = false;
+    {
+      std::lock_guard<std::mutex> lock(m_jobMutex);
+      if (m_jobTicket == jobTicket && m_future.valid()) {
+        m_future = {};
+        drop = true;
+      }
+    }
+    // may delete this frame
+    if (drop)
+      this->refDec(helium::RefType::INTERNAL);
+  };
+  try {
+    future.get();
+  } catch (...) {
+    dropJobReference();
+    throw;
+  }
+  dropJobReference();
+  return nullptr;
 }
 
 void *Frame::getIE()
