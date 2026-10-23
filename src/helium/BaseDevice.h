@@ -26,13 +26,13 @@ namespace helium {
  * BaseObject, BaseArray, or BaseFrame. The device owns m_state and is expected
  * to populate it with a concrete BaseGlobalDeviceState subclass.
  *
- * Waiting for a frame can be the exception to the per-object locks:
- * frameReady(ANARI_WAIT) and frameBufferMap() first call
- * BaseFrame::waitWithoutObjectLock() without the frame's lock (holding an
- * internal reference to it instead), and only then lock the frame to call
- * BaseFrame::frameReady() or map(). A frame opts in by overriding
- * waitWithoutObjectLock(); by default it does nothing, and the wait happens
- * under the lock.
+ * Waiting for a frame can be the exception to the per-object locks: for a
+ * frame that opts in (BaseFrame::waitsWithoutObjectLock()),
+ * frameReady(ANARI_WAIT), frameBufferMap() and renderFrame() first call
+ * BaseFrame::waitWithoutObjectLock() without the frame's lock, and only lock
+ * the frame to call BaseFrame::frameReady(), map() or renderFrame() once it is
+ * ready. By default a frame doesn't opt in, and the wait happens under the
+ * lock.
  */
 struct BaseDevice : public anari::DeviceImpl,
                     ParameterizedObject,
@@ -153,6 +153,16 @@ struct BaseDevice : public anari::DeviceImpl,
   // Holds the object's lock; empty for a frame whose completion callback is
   // running on this thread (see BaseFrame::completingOnThisThread()).
   std::unique_lock<std::mutex> getObjectLock(ANARIObject object);
+
+  // A frame held and locked by lockFrameAfterWait() (see BaseDevice.cpp).
+  struct LockedFrame;
+  // Locks frame 'f' for 'call' (e.g. "anariMapFrame()"), which waits for the
+  // frame's render. A frame that waitsWithoutObjectLock() is waited for
+  // without its lock, and locked once ready. If the calling thread can't wait,
+  // reports "<call> would deadlock: <why>; <consequence>" and returns no
+  // frame.
+  LockedFrame lockFrameAfterWait(
+      ANARIFrame f, const char *call, const char *consequence);
 
   void deviceGetProperty(const char *id, ANARIDataType type, const void *mem);
   void deviceSetParameter(const char *id, ANARIDataType type, const void *mem);

@@ -295,11 +295,14 @@ void Frame::on_NoPublicReferences()
   // frame outlives the release: nothing to wait for.
 }
 
-void Frame::waitWithoutObjectLock()
+bool Frame::waitsWithoutObjectLock() const
 {
-  // If this thread can't wait, frameReady(), map() or renderFrame() reports
-  // why under the lock.
-  waitIfThisThreadCan();
+  return true;
+}
+
+const char *Frame::waitWithoutObjectLock()
+{
+  return waitIfThisThreadCan();
 }
 
 static bool isReady(const std::shared_future<void> &f)

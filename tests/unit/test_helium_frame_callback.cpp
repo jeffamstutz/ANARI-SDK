@@ -21,9 +21,11 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <future>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -60,8 +62,8 @@ struct Event
 // renderFrame() completes on its own thread once 'renderGate' is set (by
 // default, once an app thread is blocked waiting on the frame), then invokes
 // the completion callback there. Like a device's, frameReady(ANARI_WAIT) and
-// map() wait for that, except from the frame's own callback. It opts in to
-// waiting without its object lock.
+// map() wait for that, if rendered, except from the frame's own callback. It
+// opts in to waiting without its object lock.
 struct TestFrame : public helium::BaseFrame
 {
   TestFrame(helium::BaseGlobalDeviceState *s) : BaseFrame(s) {}
@@ -89,6 +91,7 @@ struct TestFrame : public helium::BaseFrame
 
   void renderFrame() override
   {
+    started = true;
     m_worker = std::thread([this]() {
       (renderGate ? renderGate : &appWaiting)->wait();
       rendered = true;
@@ -114,16 +117,21 @@ struct TestFrame : public helium::BaseFrame
   int frameReady(ANARIWaitMask m) override
   {
     if (m == ANARI_NO_WAIT)
-      return rendered;
+      return !started || rendered;
     waitForRender();
     return 1;
   }
 
   void discard() override {}
 
-  void waitWithoutObjectLock() override
+  bool waitsWithoutObjectLock() const override
+  {
+    return true;
+  }
+  const char *waitWithoutObjectLock() override
   {
     waitForRender();
+    return nullptr;
   }
 
   ANARIFrameCompletionCallback callback{nullptr};
@@ -138,18 +146,19 @@ struct TestFrame : public helium::BaseFrame
  private:
   void waitForRender()
   {
-    if (completingOnThisThread())
+    if (completingOnThisThread() || !started)
       return;
     appWaiting.set();
     done.wait();
   }
 
+  std::atomic<bool> started{false};
   std::thread m_worker;
 };
 
 using helium_test::TestDevice;
 
-// A frame that doesn't override waitWithoutObjectLock(). Its frameReady()
+// A frame that doesn't opt in to waitWithoutObjectLock(). Its frameReady()
 // with ANARI_WAIT and map() record whether its object lock is held meanwhile:
 // whether another thread's setParameter() on it is still blocked after a
 // while.
@@ -444,6 +453,171 @@ bool renderAndWait(anari::Device d, anari::Frame frame)
     p.set_value();
   }).detach();
   return waitResult.wait_for(10s) == std::future_status::ready;
+}
+
+// Opts in to waiting without its object lock. A render runs until a wait
+// finishes it. Its calls under the object lock (renderFrame(), and
+// frameReady() with ANARI_WAIT and map(), which finish the render) record
+// whether every render had finished. 'onFirstWait' runs once, at the end of
+// the first unlocked wait, e.g. to start a render before the waiting call
+// takes the lock.
+struct WindowFrame : public helium::BaseFrame
+{
+  WindowFrame(helium::BaseGlobalDeviceState *s) : BaseFrame(s) {}
+
+  bool isValid() const override
+  {
+    return true;
+  }
+  bool getProperty(const std::string_view &,
+      ANARIDataType,
+      void *,
+      uint64_t,
+      uint32_t) override
+  {
+    return false;
+  }
+  void commitParameters() override {}
+  void finalize() override {}
+
+  void renderFrame() override
+  {
+    readyUnderLock.push_back(ready());
+    m_started++;
+  }
+
+  void *map(std::string_view,
+      uint32_t *width,
+      uint32_t *height,
+      ANARIDataType *pixelType) override
+  {
+    readyUnderLock.push_back(ready());
+    finish();
+    *width = 1;
+    *height = 1;
+    *pixelType = ANARI_FLOAT32;
+    return &pixel;
+  }
+
+  void unmap(std::string_view) override {}
+
+  int frameReady(ANARIWaitMask m) override
+  {
+    if (m == ANARI_NO_WAIT)
+      return ready();
+    readyUnderLock.push_back(ready());
+    finish();
+    return 1;
+  }
+
+  void discard() override {}
+
+  bool waitsWithoutObjectLock() const override
+  {
+    return true;
+  }
+  const char *waitWithoutObjectLock() override
+  {
+    finish();
+    if (onFirstWait && !m_waited) {
+      m_waited = true;
+      onFirstWait();
+    }
+    return nullptr;
+  }
+
+  std::function<void()> onFirstWait;
+  std::vector<bool> readyUnderLock;
+  float pixel{0.5f};
+
+ private:
+  bool ready() const
+  {
+    return m_finished == m_started;
+  }
+  void finish()
+  {
+    m_finished = m_started;
+  }
+
+  int m_started{0};
+  int m_finished{0};
+  bool m_waited{false};
+};
+
+// What an InlineFrame's destructor observed.
+struct Destruction
+{
+  bool destroyed{false};
+  // Whether another thread could take the frame's object lock meanwhile: not
+  // if the thread destroying the frame holds it.
+  bool lockFree{false};
+  std::thread probe;
+};
+
+// renderFrame() completes at once, invoking the completion callback on the
+// calling thread. Its memory is never freed, so that a caller still holding
+// its object lock after destroying it unlocks valid memory.
+struct InlineFrame : public helium::BaseFrame
+{
+  InlineFrame(helium::BaseGlobalDeviceState *s) : BaseFrame(s) {}
+
+  ~InlineFrame() override
+  {
+    std::promise<void> locked;
+    auto lockedResult = locked.get_future();
+    destruction->probe = std::thread([this, p = std::move(locked)]() mutable {
+      auto lock = scopeLockObject();
+      p.set_value();
+    });
+    destruction->lockFree =
+        lockedResult.wait_for(5s) == std::future_status::ready;
+    destruction->destroyed = true;
+  }
+
+  static void operator delete(void *) {}
+
+  bool isValid() const override
+  {
+    return true;
+  }
+  bool getProperty(const std::string_view &,
+      ANARIDataType,
+      void *,
+      uint64_t,
+      uint32_t) override
+  {
+    return false;
+  }
+  void commitParameters() override {}
+  void finalize() override {}
+
+  void renderFrame() override
+  {
+    invokeCompletionCallback(callback, callbackUserPtr, device);
+  }
+
+  void *map(std::string_view, uint32_t *, uint32_t *, ANARIDataType *) override
+  {
+    return nullptr;
+  }
+  void unmap(std::string_view) override {}
+  int frameReady(ANARIWaitMask) override
+  {
+    return 1;
+  }
+  void discard() override {}
+
+  ANARIFrameCompletionCallback callback{nullptr};
+  const void *callbackUserPtr{nullptr};
+  ANARIDevice device{nullptr};
+  Destruction *destruction{nullptr};
+};
+
+// Releases the frame's (last) public reference.
+void releaseFromCallback(const void *, ANARIDevice d, ANARIFrame f)
+{
+  ((TestDevice *)d)->release(f);
 }
 
 } // namespace
@@ -788,5 +962,66 @@ SCENARIO(
   CHECK(frame->getParam<int>("value", 0) == 1);
 
   frame->refDec(helium::RefType::PUBLIC);
+  delete device;
+}
+
+SCENARIO(
+    "a frame that waits without its object lock is ready once the lock is "
+    "taken",
+    "[helium_frame_callback]")
+{
+  auto *device = new TestDevice;
+  auto *frame = new WindowFrame(device->state());
+  auto f = (ANARIFrame)frame;
+  device->renderFrame(f);
+  frame->readyUnderLock.clear();
+
+  // Another thread renders the frame again between the waiting call's
+  // unlocked wait and its taking the lock.
+  frame->onFirstWait = [&]() {
+    std::thread([&]() { device->renderFrame(f); }).join();
+  };
+
+  GIVEN("frameReady(ANARI_WAIT)")
+  {
+    CHECK(device->frameReady(f, ANARI_WAIT) == 1);
+  }
+
+  GIVEN("map")
+  {
+    uint32_t w = 0, h = 0;
+    ANARIDataType type = ANARI_UNKNOWN;
+    CHECK(device->frameBufferMap(f, "channel.color", &w, &h, &type) != nullptr);
+  }
+
+  GIVEN("renderFrame")
+  {
+    device->renderFrame(f);
+  }
+
+  // The other thread's render, then the waiting call's.
+  CHECK(frame->readyUnderLock == std::vector<bool>{true, true});
+
+  frame->refDec(helium::RefType::PUBLIC);
+  delete device;
+}
+
+SCENARIO(
+    "a frame whose render releases its last reference outlives "
+    "anariRenderFrame()",
+    "[helium_frame_callback]")
+{
+  auto *device = new TestDevice;
+  auto *frame = new InlineFrame(device->state());
+  Destruction destruction;
+  frame->destruction = &destruction;
+  frame->callback = releaseFromCallback;
+  frame->device = (ANARIDevice)device;
+
+  device->renderFrame((ANARIFrame)frame);
+  destruction.probe.join();
+  CHECK(destruction.destroyed);
+  CHECK(destruction.lockFree);
+
   delete device;
 }

@@ -44,7 +44,8 @@ struct Frame : public helium::BaseFrame
   int frameReady(ANARIWaitMask m) override;
   void discard() override;
 
-  void waitWithoutObjectLock() override;
+  bool waitsWithoutObjectLock() const override;
+  const char *waitWithoutObjectLock() override;
 
   bool ready() const;
 

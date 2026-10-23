@@ -41,7 +41,7 @@ void HelideDevice::renderFrame(ANARIFrame f)
   // Wait for the frame's previous render before taking the frame's object
   // lock, as helium does for anariFrameReady() and anariMapFrame(), so that
   // another frame's completion callback can call into this frame meanwhile.
-  // Frame::renderFrame() reports it if this thread can't wait.
+  // helium reports it if this thread can't wait.
   frame->waitWithoutObjectLock();
   helium::BaseDevice::renderFrame(f);
 }

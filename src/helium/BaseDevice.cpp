@@ -9,6 +9,14 @@
 
 namespace helium {
 
+// A frame held (by an INTERNAL reference, should the call drop its last one)
+// and locked. Members are destroyed in reverse order: unlocked, then released.
+struct BaseDevice::LockedFrame
+{
+  IntrusivePtr<BaseFrame> frame;
+  std::unique_lock<std::mutex> lock;
+};
+
 // Data Arrays ////////////////////////////////////////////////////////////////
 
 void *BaseDevice::mapArray(ANARIArray a)
@@ -224,11 +232,14 @@ const void *BaseDevice::frameBufferMap(ANARIFrame f,
     uint32_t *h,
     ANARIDataType *pixelType)
 {
-  // Wait for the frame before taking its object lock, as frameReady() does.
-  IntrusivePtr<BaseFrame> frame = &referenceFromHandle<BaseFrame>(f);
-  frame->waitWithoutObjectLock();
-  auto lock = getObjectLock(f);
-  return frame->map(channel, w, h, pixelType);
+  auto locked = lockFrameAfterWait(f, "anariMapFrame()", "not waiting");
+  if (!locked.frame) {
+    *w = 0;
+    *h = 0;
+    *pixelType = ANARI_UNKNOWN;
+    return nullptr;
+  }
+  return locked.frame->map(channel, w, h, pixelType);
 }
 
 void BaseDevice::frameBufferUnmap(ANARIFrame f, const char *channel)
@@ -241,23 +252,20 @@ void BaseDevice::frameBufferUnmap(ANARIFrame f, const char *channel)
 
 void BaseDevice::renderFrame(ANARIFrame f)
 {
-  auto lock = getObjectLock(f);
-  referenceFromHandle<BaseFrame>(f).renderFrame();
+  auto locked = lockFrameAfterWait(f, "anariRenderFrame()", "not rendering");
+  if (locked.frame)
+    locked.frame->renderFrame();
 }
 
 int BaseDevice::frameReady(ANARIFrame f, ANARIWaitMask m)
 {
-  // Wait for the frame without its object lock, if the frame supports it:
-  // while an app thread waits, another frame's completion callback may call
-  // into this frame, and on a device that runs this frame's render after that
-  // callback, a callback waiting for the lock would deadlock. The reference
-  // keeps the frame alive meanwhile, should its render or callback drop the
-  // frame's last one.
-  IntrusivePtr<BaseFrame> frame = &referenceFromHandle<BaseFrame>(f);
-  if (m == ANARI_WAIT)
-    frame->waitWithoutObjectLock();
-  auto lock = getObjectLock(f);
-  return frame->frameReady(m);
+  if (m == ANARI_NO_WAIT) {
+    auto lock = getObjectLock(f);
+    return referenceFromHandle<BaseFrame>(f).frameReady(m);
+  }
+  auto locked =
+      lockFrameAfterWait(f, "anariFrameReady() with ANARI_WAIT", "not waiting");
+  return locked.frame ? locked.frame->frameReady(m) : 0;
 }
 
 void BaseDevice::discardFrame(ANARIFrame f)
@@ -369,6 +377,39 @@ std::unique_lock<std::mutex> BaseDevice::getObjectLock(ANARIObject object)
       && static_cast<BaseFrame &>(o).completingOnThisThread())
     return {};
   return o.scopeLockObject();
+}
+
+BaseDevice::LockedFrame BaseDevice::lockFrameAfterWait(
+    ANARIFrame f, const char *call, const char *consequence)
+{
+  // The reference keeps the frame alive until the lock is released, should
+  // the call (its render or completion callback) drop the frame's last one.
+  LockedFrame locked;
+  locked.frame = &referenceFromHandle<BaseFrame>(f);
+  if (!locked.frame->waitsWithoutObjectLock()) {
+    locked.lock = getObjectLock(f);
+    return locked;
+  }
+  // Wait without the lock: while an app thread waits, another frame's
+  // completion callback may call into this frame, and on a device that runs
+  // this frame's render after that callback, a callback waiting for the lock
+  // would deadlock. Then lock the frame, and wait again if another thread
+  // started a render meanwhile, so the call never waits under the lock.
+  while (true) {
+    if (const char *why = locked.frame->waitWithoutObjectLock()) {
+      reportMessage(ANARI_SEVERITY_ERROR,
+          "%s would deadlock: %s; %s",
+          call,
+          why,
+          consequence);
+      return {};
+    }
+    // No lock (and no render to wait for) in the frame's own callback.
+    locked.lock = getObjectLock(f);
+    if (!locked.lock || locked.frame->frameReady(ANARI_NO_WAIT))
+      return locked;
+    locked.lock.unlock();
+  }
 }
 
 } // namespace helium

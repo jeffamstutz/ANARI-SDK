@@ -21,9 +21,15 @@ void BaseFrame::on_NoPublicReferences()
   }
 }
 
-void BaseFrame::waitWithoutObjectLock()
+bool BaseFrame::waitsWithoutObjectLock() const
 {
   // Opt-in (see BaseFrame.h): by default the wait happens under the lock.
+  return false;
+}
+
+const char *BaseFrame::waitWithoutObjectLock()
+{
+  return nullptr;
 }
 
 bool BaseFrame::completingOnThisThread() const

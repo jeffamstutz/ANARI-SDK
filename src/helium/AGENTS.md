@@ -67,14 +67,18 @@ An object `getProperty()` with `ANARI_WAIT` flushes the buffer and then queries 
 
 ### Object Locks and Waiting on Frames
 
-`BaseDevice` takes an object's lock (`LockableObject`) around each API call on it. For a frame, the lock serializes parameter changes, commit snapshots, `renderFrame()`, `unmap()`, `discard()`, `frameReady()` and `map()`. A frame can opt out of holding it while *waiting*: `anariFrameReady()` with `ANARI_WAIT` and `anariMapFrame()` first call `BaseFrame::waitWithoutObjectLock()` without the lock (holding an INTERNAL reference so the frame outlives a render or callback dropping its last one), then lock the frame and call `frameReady()`/`map()`. The default `waitWithoutObjectLock()` does nothing, so a frame that doesn't override it waits under the lock, as before. Overriding it (helide does) lets frame A's completion callback call into frame B while an app thread waits on B; on a single-worker device, where B's render waits for A's callback to return, a wait holding B's lock would deadlock.
+`BaseDevice` takes an object's lock (`LockableObject`) around each API call on it. For a frame, the lock serializes parameter changes, commit snapshots, `renderFrame()`, `unmap()`, `discard()`, `frameReady()` and `map()`. A frame can opt out of holding it while *waiting* by overriding `BaseFrame::waitsWithoutObjectLock()` to return true (helide does). Then `anariFrameReady()` with `ANARI_WAIT`, `anariMapFrame()` and `anariRenderFrame()` go through `BaseDevice::lockFrameAfterWait()`, which:
+1. holds an INTERNAL reference to the frame until the call is done, so the frame outlives a render or callback dropping its last one;
+2. calls `BaseFrame::waitWithoutObjectLock()` without the lock;
+3. takes the lock, and if `frameReady(ANARI_NO_WAIT)` is 0 (another thread started a render meanwhile), unlocks and goes back to 2.
+
+So `frameReady()`, `map()` and `renderFrame()` run under the lock with the frame ready and never wait there. This lets frame A's completion callback call into frame B while an app thread waits on B; on a single-worker device, where B's render waits for A's callback to return, a wait holding B's lock would deadlock. By default a frame doesn't opt in: it waits in `frameReady()`/`map()`/`renderFrame()` under the lock, as before.
 
 An override of `waitWithoutObjectLock()` must:
 - be safe concurrently with any of the frame's calls (`renderFrame()`, commits, `map()`, waits on other threads): the render state it reads (a future, a render counter) needs the frame's own synchronization;
-- not report anything. If the calling thread can't wait (e.g. a callback on the device's worker waiting for a frame queued behind it), return without waiting; `frameReady()`/`map()` then report an ERROR under the lock and don't wait either. It may rethrow the render's exception, as `frameReady()` would.
+- not report anything. If the calling thread can't wait (e.g. a callback on the device's worker waiting for a frame queued behind it), return why without waiting (nullptr once waited). `lockFrameAfterWait()` then reports "`<call>` would deadlock: `<why>`; not waiting" (or "not rendering") as an ERROR, and the call returns 0, nullptr or renders nothing. It may rethrow the render's exception, as `frameReady()` would.
 
 Also:
-- A render started (by another thread) between the unlocked wait and the lock is waited for under the lock, so in that narrow race a callback touching the frame can still deadlock.
 - A frame's own completion callback skips the frame's lock altogether (`BaseFrame::completingOnThisThread()`), as a thread may hold it while waiting for that callback (e.g. a device's `renderFrame()` waiting for the previous render).
 
 ### Change Observer Pattern
