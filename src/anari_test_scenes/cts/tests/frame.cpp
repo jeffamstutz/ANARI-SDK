@@ -28,8 +28,6 @@ namespace {
 using anari::math::float3;
 using V = std::vector<Any>;
 
-const char *kTriangle = "ANARI_KHR_GEOMETRY_TRIANGLE";
-
 // A single lit triangle surface (the subject for the simple channel tests).
 anari::World triangleSurfaceWorld(BuildContext &ctx, float3 color, int count)
 {
@@ -128,11 +126,12 @@ BehaviorResult checkFrameCompletionCallback(anari::Device d,
   anari::setParameter(d,
       f,
       "frameCompletionCallback",
-      (anari::FrameCompletionCallback)(
-          +[](const void *userPtr, ANARIDevice, ANARIFrame) {
-            if (userPtr)
-              ++*static_cast<int *>(const_cast<void *>(userPtr));
-          }));
+      (anari::FrameCompletionCallback)(+[](const void *userPtr,
+                                            ANARIDevice,
+                                            ANARIFrame) {
+        if (userPtr)
+          ++*static_cast<int *>(const_cast<void *>(userPtr));
+      }));
   anari::setParameter(
       d, f, "frameCompletionCallbackUserData", static_cast<void *>(&fired));
   anari::commitParameters(d, f);
@@ -213,7 +212,7 @@ void registerFrameTests(Catalog &catalog)
       })
       .permute("frame_color_type", colorTypes)
       .channels({Channel::Color})
-      .requireFeature(kTriangle)
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- depth channel --------------------------------------------------------
@@ -223,7 +222,7 @@ void registerFrameTests(Catalog &catalog)
         return triangleSurfaceWorld(ctx, float3(0.7f, 0.5f, 0.3f), 16);
       })
       .channels({Channel::Depth})
-      .requireFeature(kTriangle)
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- albedo channel output types (skips where unsupported) ----------------
@@ -239,7 +238,8 @@ void registerFrameTests(Catalog &catalog)
       .permute("frame_albedo_type",
           {"UFIXED8_VEC3", "UFIXED8_RGB_SRGB", "FLOAT32_VEC3"})
       .channels({Channel::Albedo})
-      .requireFeature("ANARI_KHR_FRAME_CHANNEL_ALBEDO")
+      .covers("ANARI_KHR_FRAME_CHANNEL_ALBEDO")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- normal channel output types ------------------------------------------
@@ -251,7 +251,8 @@ void registerFrameTests(Catalog &catalog)
       })
       .permute("frame_normal_type", {"FIXED16_VEC3", "FLOAT32_VEC3"})
       .channels({Channel::Normal})
-      .requireFeature("ANARI_KHR_FRAME_CHANNEL_NORMAL")
+      .covers("ANARI_KHR_FRAME_CHANNEL_NORMAL")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- primitive id channel -------------------------------------------------
@@ -274,7 +275,8 @@ void registerFrameTests(Catalog &catalog)
         return world;
       })
       .channels({Channel::PrimitiveId})
-      .requireFeature("ANARI_KHR_FRAME_CHANNEL_PRIMITIVE_ID")
+      .covers("ANARI_KHR_FRAME_CHANNEL_PRIMITIVE_ID")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- object id channel (per-surface ids) ----------------------------------
@@ -292,7 +294,8 @@ void registerFrameTests(Catalog &catalog)
         return world;
       })
       .channels({Channel::ObjectId})
-      .requireFeature("ANARI_KHR_FRAME_CHANNEL_OBJECT_ID")
+      .covers("ANARI_KHR_FRAME_CHANNEL_OBJECT_ID")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- object id channel (fallback to group/instance index) -----------------
@@ -311,7 +314,9 @@ void registerFrameTests(Catalog &catalog)
         return world;
       })
       .channels({Channel::ObjectId})
-      .requireFeature("ANARI_KHR_FRAME_CHANNEL_OBJECT_ID")
+      .covers("ANARI_KHR_FRAME_CHANNEL_OBJECT_ID")
+      .requireFeatures(kSupportMatteTriangle)
+      .requireFeature("ANARI_KHR_INSTANCE_TRANSFORM")
       .registerInto(catalog);
 
   // ---- object id channel (per-volume ids) -----------------------------------
@@ -341,8 +346,8 @@ void registerFrameTests(Catalog &catalog)
         return world;
       })
       .channels({Channel::ObjectId})
-      .requireFeatures({"ANARI_KHR_FRAME_CHANNEL_OBJECT_ID",
-          "ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR",
+      .covers("ANARI_KHR_FRAME_CHANNEL_OBJECT_ID")
+      .requireFeatures({"ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR",
           "ANARI_KHR_VOLUME_TRANSFER_FUNCTION1D"})
       .registerInto(catalog);
 
@@ -361,7 +366,9 @@ void registerFrameTests(Catalog &catalog)
         return world;
       })
       .channels({Channel::InstanceId})
-      .requireFeature("ANARI_KHR_FRAME_CHANNEL_INSTANCE_ID")
+      .covers("ANARI_KHR_FRAME_CHANNEL_INSTANCE_ID")
+      .requireFeatures(kSupportMatteTriangle)
+      .requireFeature("ANARI_KHR_INSTANCE_TRANSFORM")
       .registerInto(catalog);
 
   // ---- behavioral checks (verified by the runner's behavior hook) -----------
@@ -372,7 +379,8 @@ void registerFrameTests(Catalog &catalog)
         return triangleSurfaceWorld(ctx, float3(0.7f, 0.5f, 0.3f), 1);
       })
       .behavior(checkFrameCompletionCallback)
-      .requireFeature("ANARI_KHR_FRAME_COMPLETION_CALLBACK")
+      .covers("ANARI_KHR_FRAME_COMPLETION_CALLBACK")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   makeTest("frame", "progressive_rendering")
@@ -382,7 +390,8 @@ void registerFrameTests(Catalog &catalog)
         return triangleSurfaceWorld(ctx, float3(0.7f, 0.5f, 0.3f), 1);
       })
       .behavior(checkProgressiveRendering)
-      .requireFeature("ANARI_KHR_FRAME_ACCUMULATION")
+      .covers("ANARI_KHR_FRAME_ACCUMULATION")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 }
 

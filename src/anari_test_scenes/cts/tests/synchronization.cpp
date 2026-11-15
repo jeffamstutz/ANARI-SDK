@@ -43,8 +43,6 @@ constexpr auto kCallbackDeadline = 10s;
 // Every Case finishes in well under a second on a conforming device.
 constexpr auto kCaseTimeout = 30s;
 
-const char *kTriangle = "ANARI_KHR_GEOMETRY_TRIANGLE";
-
 // A world with one triangle whose vertex positions are a shared array over
 // app memory, which a check maps to hold renders of the world off.
 struct SharedArrayWorld
@@ -370,7 +368,7 @@ void registerSynchronizationTests(Catalog &catalog)
       .behavior(checkNoWaitNeverBlocks)
       .timeout(kCaseTimeout)
       .failOnDeviceErrors()
-      .requireFeature(kTriangle)
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   makeTest("synchronization", "completion_callback_reentry")
@@ -383,7 +381,8 @@ void registerSynchronizationTests(Catalog &catalog)
       .behavior(checkCallbackReentry)
       .timeout(kCaseTimeout)
       .failOnDeviceErrors()
-      .requireFeatures({kTriangle, "ANARI_KHR_FRAME_COMPLETION_CALLBACK"})
+      .covers("ANARI_KHR_FRAME_COMPLETION_CALLBACK")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 }
 

@@ -19,8 +19,6 @@ namespace {
 using anari::math::float3;
 using V = std::vector<Any>;
 
-const char *kTriangle = "ANARI_KHR_GEOMETRY_TRIANGLE";
-
 // The subject lies in the z = 0 plane; from this side the default direction
 // (0, 0, -1) faces it.
 const float3 kEye(0.5f, 0.5f, 1.f);
@@ -83,7 +81,8 @@ void registerCameraTests(Catalog &catalog)
       .permute("direction", V{none(), Any(float3(0.20601f, 0.f, -0.97855f))})
       .permute("up", V{none(), Any(float3(0.f, -0.97855f, 0.20601f))})
       .permute("imageRegion", V{none(), box2(0.25f, 0.3f, 0.75f, 0.8f)})
-      .requireFeatures({"ANARI_KHR_CAMERA_PERSPECTIVE", kTriangle})
+      .covers("ANARI_KHR_CAMERA_PERSPECTIVE")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- perspective: intrinsics ----------------------------------------------
@@ -107,7 +106,8 @@ void registerCameraTests(Catalog &catalog)
       .permute("aspect", V{none(), Any(1.77f)})
       .permute("near", V{Any(0.01f), Any(1.0f)})
       .permute("far", V{Any(100.0f), Any(1.0f)})
-      .requireFeatures({"ANARI_KHR_CAMERA_PERSPECTIVE", kTriangle})
+      .covers("ANARI_KHR_CAMERA_PERSPECTIVE")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- orthographic ---------------------------------------------------------
@@ -130,7 +130,8 @@ void registerCameraTests(Catalog &catalog)
       .permute("height", V{none(), Any(0.5f)})
       .permute("near", V{Any(0.01f), Any(1.0f)})
       .permute("far", V{Any(100.0f), Any(1.0f)})
-      .requireFeatures({"ANARI_KHR_CAMERA_ORTHOGRAPHIC", kTriangle})
+      .covers("ANARI_KHR_CAMERA_ORTHOGRAPHIC")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- omnidirectional ------------------------------------------------------
@@ -146,7 +147,8 @@ void registerCameraTests(Catalog &catalog)
         return c;
       })
       .permute("layout", V{none(), Any("equirectangular")})
-      .requireFeatures({"ANARI_KHR_CAMERA_OMNIDIRECTIONAL", kTriangle})
+      .covers("ANARI_KHR_CAMERA_OMNIDIRECTIONAL")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 }
 

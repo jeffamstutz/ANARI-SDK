@@ -65,7 +65,8 @@ void registerRendererTests(Catalog &catalog)
               Any(float3(0.f, 0.f, 0.f)),
               Any(float3(1.f, 1.f, 1.f))})
       .permute("ambientRadiance", V{Any(0.5f), Any(4.0f), Any(0.0f)})
-      .requireFeature("ANARI_KHR_RENDERER_AMBIENT_LIGHT")
+      .covers("ANARI_KHR_RENDERER_AMBIENT_LIGHT")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   makeTest("renderer", "renderer_background_color")
@@ -80,7 +81,7 @@ void registerRendererTests(Catalog &catalog)
               Any(float4(0.5f, 0.5f, 0.5f, 1.f)),
               Any(float4(0.f, 0.f, 1.f, 1.f)),
               Any(float4(0.f, 0.f, 1.f, 0.5f))})
-      .requireFeature("ANARI_KHR_RENDERER_BACKGROUND_COLOR")
+      .covers("ANARI_KHR_RENDERER_BACKGROUND_COLOR")
       .registerInto(catalog);
 
   makeTest("renderer", "renderer_background_image")
@@ -93,7 +94,7 @@ void registerRendererTests(Catalog &catalog)
         anari::setAndReleaseParameter(
             d, r, "background", anari::newArray2D(d, img.data(), res, res));
       })
-      .requireFeature("ANARI_KHR_RENDERER_BACKGROUND_IMAGE")
+      .covers("ANARI_KHR_RENDERER_BACKGROUND_IMAGE")
       .registerInto(catalog);
 }
 

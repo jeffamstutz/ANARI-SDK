@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "TestBuilder.h"
+// std
+#include <algorithm>
 
 namespace anari {
 namespace cts {
@@ -77,14 +79,24 @@ TestBuilder &TestBuilder::simplified(bool on)
 TestBuilder &TestBuilder::requireFeatures(std::vector<std::string> features)
 {
   for (auto &f : features)
-    m_def.requiredFeatures.push_back(std::move(f));
+    requireFeature(std::move(f));
   return *this;
 }
 
 TestBuilder &TestBuilder::requireFeature(std::string feature)
 {
-  m_def.requiredFeatures.push_back(std::move(feature));
+  auto &required = m_def.requiredFeatures;
+  if (std::find(required.begin(), required.end(), feature) == required.end())
+    required.push_back(std::move(feature));
   return *this;
+}
+
+TestBuilder &TestBuilder::covers(std::string feature)
+{
+  auto &covered = m_def.coveredFeatures;
+  if (std::find(covered.begin(), covered.end(), feature) == covered.end())
+    covered.push_back(feature);
+  return requireFeature(std::move(feature));
 }
 
 TestBuilder &TestBuilder::threshold(std::string metric, double value)

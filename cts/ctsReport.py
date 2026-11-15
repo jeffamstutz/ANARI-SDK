@@ -14,8 +14,10 @@ metrics.
 Command:
   report <workdir> --pdf report.pdf [--all]   write a PDF from one run.
 
-The sidecar schema is versioned (schemaVersion); this reader targets version 2
-(which added the producing-device identity) and warns on a mismatch.
+The sidecar schema is versioned (schemaVersion); this reader targets version 3
+(v2 added the producing-device identity; v3 the extensions behind a Case:
+requiredFeatures, coveredFeatures, missingFeatures and device.extensions) and
+warns on a mismatch.
 """
 
 import argparse
@@ -24,7 +26,7 @@ import json
 import sys
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Metrics shown in the PDF, in display order. The C++ reporters keep their own
 # copy (kReportMetrics); both are independent readers of the one contract.
@@ -121,6 +123,22 @@ def device_label(results, fallback):
 
 
 # --- Aggregation -------------------------------------------------------------
+
+
+def case_features(data):
+    """A Case's extensions (schema v3) as (required, covered, missing) lists.
+
+    Each reads as empty from an older sidecar.
+    """
+
+    def strings(value):
+        return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
+
+    return (
+        strings(data.get("requiredFeatures")),
+        strings(data.get("coveredFeatures")),
+        strings(data.get("missingFeatures")),
+    )
 
 
 def summarize(results):
@@ -243,6 +261,15 @@ def generate_pdf(workdir, results, out_path, *, include_all=False):
             if include_all:
                 verdict = data.get("verdict", "skipped").capitalize()
                 story.append(Paragraph(f"Verdict: {verdict}", styles["Normal"]))
+            _, covered, missing = case_features(data)
+            if covered:
+                story.append(
+                    Paragraph(f"Covers: {', '.join(covered)}", styles["Normal"])
+                )
+            if missing:
+                story.append(
+                    Paragraph(f"Device lacks: {', '.join(missing)}", styles["Normal"])
+                )
             # Cases with no channels (behavioral, or a failed render) carry a
             # reason note instead of channel images.
             if not data.get("channels"):

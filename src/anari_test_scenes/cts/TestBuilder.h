@@ -60,6 +60,10 @@ struct TestBuilder
   TestBuilder &simplified(bool on = true);
   TestBuilder &requireFeatures(std::vector<std::string> features);
   TestBuilder &requireFeature(std::string feature);
+  // Name a primary extension: one the Test is evidence for (call once per
+  // extension). It is also required. Support extensions the Test merely needs
+  // to build its scene go in requireFeatures().
+  TestBuilder &covers(std::string feature);
   // Test-wide metric threshold (applies to every channel).
   TestBuilder &threshold(std::string metric, double value);
   // Per-channel metric threshold, overriding the test-wide one for that

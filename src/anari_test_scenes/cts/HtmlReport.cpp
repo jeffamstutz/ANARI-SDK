@@ -224,6 +224,33 @@ header {
 .no-images { color: var(--muted3); font-size: 12px; font-style: italic;
   padding: 20px; text-align: center; border: 1px dashed #ccd3da; border-radius: 9px;
   background: #fff; grid-column: 1 / -1; }
+/* per-extension matrix */
+.coverage { margin-top: 26px; }
+.coverage .lbl { font-size: 11px; color: var(--muted2); text-transform: uppercase;
+  letter-spacing: .07em; margin-bottom: 9px; }
+.ext-tbl { border: 1px solid var(--border); border-radius: 9px; overflow: hidden;
+  background: #fff; }
+.ext-tbl .thead, .ext-tbl .ext { display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px 60px 60px 60px 210px;
+  gap: 8px; padding: 7px 14px; align-items: center; }
+.ext-tbl .thead { background: var(--thead); font-size: 10.5px; color: var(--muted2);
+  text-transform: uppercase; letter-spacing: .05em; }
+.ext-tbl .ext { border-top: 1px solid var(--border-soft); font-size: 12.5px; }
+.ext-tbl .ext .n { font-family: var(--mono); text-align: right; }
+.ext-tbl .ext .x { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.ext-tbl .ext[data-cases] { cursor: pointer; }
+.ext-tbl .ext[data-cases]:hover { background: #f1f5f8; }
+.ext-tbl .ext.active { background: rgba(72,122,144,.12); }
+.state { display: inline-block; padding: 1px 8px; border-radius: 5px; font-size: 11.5px;
+  font-weight: 600; color: #fff; background: var(--skip); }
+.state.st-passed { background: var(--pass); }
+.state.st-failed { background: var(--fail); }
+.state.st-notest { background: #fff; color: var(--muted2); border: 1px dashed #ccd3da; }
+.extchip { font-size: 12.5px; color: var(--dark); display: flex; align-items: center;
+  gap: 6px; }
+.extchip button { font: inherit; font-size: 12px; cursor: pointer; border: 1px solid
+  var(--border); background: #fff; border-radius: 4px; color: var(--muted); }
 .empty { text-align: center; padding: 70px 20px; color: var(--muted3); }
 .empty .h { font-size: 15px; font-weight: 600; color: #9aa4ad; }
 .empty .s { font-size: 13px; margin-top: 6px; }
@@ -241,6 +268,10 @@ const search = document.getElementById('search');
 const statusSegs = Array.from(document.querySelectorAll('.statusseg'));
 const sortSegs = Array.from(document.querySelectorAll('.sortseg'));
 let status = 'all';
+// The extension the Case list is restricted to (a matrix row), or ''.
+let extFilter = '';
+const extRows = Array.from(document.querySelectorAll('.ext[data-cases]'));
+const extChip = document.getElementById('extchip');
 const activeSort = document.querySelector('.sortseg.active');
 let sort = activeSort ? activeSort.dataset.sort : 'category';
 
@@ -269,7 +300,8 @@ function applyFilter() {
   let shown = 0;
   for (const r of rows) {
     const ok = (status === 'all' || r.dataset.verdict === status)
-      && (!q || r.dataset.search.includes(q));
+      && (!q || r.dataset.search.includes(q))
+      && (!extFilter || r.dataset.ext.split(' ').includes(extFilter));
     r.hidden = !ok;
     if (ok) shown++;
   }
@@ -309,6 +341,21 @@ sortSegs.forEach(b => b.addEventListener('click', () => {
   applyFilter();
 }));
 search.addEventListener('input', applyFilter);
+function setExt(ext) {
+  extFilter = ext;
+  extRows.forEach(x => x.classList.toggle('active', x.dataset.extension === ext));
+  if (extChip) {
+    extChip.hidden = !ext;
+    extChip.querySelector('.kmono').textContent = ext;
+  }
+  applyFilter();
+}
+extRows.forEach(row => row.addEventListener('click', () => {
+  setExt(extFilter === row.dataset.extension ? '' : row.dataset.extension);
+  if (extFilter) list.scrollIntoView({behavior: 'smooth', block: 'start'});
+}));
+if (extChip)
+  extChip.querySelector('button').addEventListener('click', () => setExt(''));
 
 // Expand / collapse a test row; initialize its difference-mask canvases the
 // first time it opens (lazy — most rows are never expanded).
@@ -771,9 +818,13 @@ void appendTestRow(std::ostringstream &os,
       ? std::string("—")
       : fixed(r.durationMs, 2) + " ms";
 
+  std::string extList;
+  for (const auto &ext : r.coveredFeatures)
+    extList += (extList.empty() ? "" : " ") + ext;
   os << "<div class=\"test\" data-verdict=\"" << vc << "\" data-category=\""
-     << htmlEscape(r.category) << "\" data-key=\"" << htmlEscape(key)
-     << "\" data-search=\"" << htmlEscape(searchText) << "\">";
+     << htmlEscape(r.category) << "\" data-ext=\"" << htmlEscape(extList)
+     << "\" data-key=\"" << htmlEscape(key) << "\" data-search=\""
+     << htmlEscape(searchText) << "\">";
 
   // Collapsed row.
   os << "<div class=\"row\"><div><span class=\"badge " << vc << "\">"
@@ -812,6 +863,48 @@ void appendTestRow(std::ostringstream &os,
   }
   os << "</div>"; // panel
   os << "</div>"; // test
+}
+
+const char *coverageStateClass(CoverageState state)
+{
+  switch (state) {
+  case CoverageState::Passed:
+    return "st-passed";
+  case CoverageState::Failed:
+    return "st-failed";
+  case CoverageState::AdvertisedNoTest:
+  case CoverageState::NotAdvertisedNoTest:
+    return "st-notest";
+  default:
+    return "st-skipped";
+  }
+}
+
+// The per-extension matrix: one row per extension, the ones with Cases
+// clickable to filter the Case list to them.
+void appendCoverageMatrix(
+    std::ostringstream &os, const std::vector<ExtensionCoverage> &coverage)
+{
+  os << "<section class=\"coverage\"><div class=\"lbl\">Extensions — Cases "
+        "for which each is primary; click a row to list them</div>"
+        "<div class=\"ext-tbl\"><div class=\"thead\"><span>Extension</span>"
+        "<span>Advertised</span><span style=\"text-align:right\">Passed</span>"
+        "<span style=\"text-align:right\">Failed</span><span "
+        "style=\"text-align:right\">Skipped</span><span>State</span></div>";
+  for (const auto &c : coverage) {
+    const bool hasCases = c.passed + c.failed + c.skipped > 0;
+    os << "<div class=\"ext\" data-extension=\"" << htmlEscape(c.extension)
+       << "\"" << (hasCases ? " data-cases" : "") << ">"
+       << "<span class=\"x\">" << htmlEscape(c.extension) << "</span>"
+       << "<span class=\"" << (c.advertised ? "dark-fg" : "skip-fg") << "\">"
+       << (c.advertised ? "yes" : "no") << "</span>"
+       << "<span class=\"n pass-fg\">" << c.passed << "</span>"
+       << "<span class=\"n fail-fg\">" << c.failed << "</span>"
+       << "<span class=\"n skip-fg\">" << c.skipped << "</span>"
+       << "<span><span class=\"state " << coverageStateClass(c.state) << "\">"
+       << htmlEscape(coverageStateName(c.state)) << "</span></span></div>";
+  }
+  os << "</div></section>";
 }
 
 std::string ringStyle(int passed, int failed, int total)
@@ -928,6 +1021,11 @@ std::string generateHtml(const std::filesystem::path &workdir,
         "letter-spacing:0;\">"
      << htmlEscape(runName) << "</span></div></header>";
 
+  // The per-extension matrix leads: what the device implements, gets wrong,
+  // and lacks.
+  if (!opts.coverage.empty())
+    appendCoverageMatrix(os, opts.coverage);
+
   // Summary: pass-rate ring + stat cards.
   os << "<section class=\"summary\"><div class=\"ring-card\"><div class=\"ring\" "
         "style=\""
@@ -993,6 +1091,8 @@ std::string generateHtml(const std::filesystem::path &workdir,
         "<button type=\"button\" class=\"sortseg"
      << (failedFirstDefault ? "" : " active")
      << "\" data-sort=\"category\">By category</button></div>";
+  os << "<div class=\"extchip\" id=\"extchip\" hidden>Extension <span "
+        "class=\"kmono\"></span><button type=\"button\">clear</button></div>";
   os << "<div class=\"showing\">Showing <span class=\"kmono\" "
         "id=\"shown\">"
      << s.total << "</span> of <span class=\"kmono\">" << s.total

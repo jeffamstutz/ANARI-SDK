@@ -32,7 +32,7 @@ def make_sidecar(
     description="Checks triangle geometry rendering.",
 ):
     return {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "category": category,
         "test": test,
         "description": description,
@@ -41,7 +41,11 @@ def make_sidecar(
             "library": device_library,
             "device": "default",
             "renderer": "default",
+            "extensions": ["ANARI_KHR_GEOMETRY_TRIANGLE", "ANARI_KHR_MATERIAL_MATTE"],
         },
+        "requiredFeatures": ["ANARI_KHR_GEOMETRY_TRIANGLE", "ANARI_KHR_MATERIAL_MATTE"],
+        "coveredFeatures": ["ANARI_KHR_GEOMETRY_TRIANGLE"],
+        "missingFeatures": [],
         "verdict": verdict,
         "durationMs": duration_ms,
         "channels": [
@@ -143,7 +147,27 @@ class SidecarLoadingTests(unittest.TestCase):
             },
         )
         self.assertIn("skipping unreadable sidecar", errors.getvalue())
-        self.assertIn("has schemaVersion 1, expected 2", errors.getvalue())
+        self.assertIn("has schemaVersion 1, expected 3", errors.getvalue())
+
+    def test_schema_v3_reads_without_warning_and_v2_features_default_empty(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workdir = Path(temp) / "candidate"
+            write_sidecar(workdir, case="current")
+            errors = io.StringIO()
+            with contextlib.redirect_stderr(errors):
+                results = ctsReport.load_results(workdir)
+        self.assertEqual(errors.getvalue(), "")
+        required, covered, missing = ctsReport.case_features(
+            results["geometry/triangle/current"]
+        )
+        self.assertEqual(covered, ["ANARI_KHR_GEOMETRY_TRIANGLE"])
+        self.assertIn("ANARI_KHR_MATERIAL_MATTE", required)
+        self.assertEqual(missing, [])
+
+        v2 = make_sidecar()
+        for field in ("requiredFeatures", "coveredFeatures", "missingFeatures"):
+            v2.pop(field)
+        self.assertEqual(ctsReport.case_features(v2), ([], [], []))
 
     def test_summarize_counts_rendered_skipped_and_behavioral_cases(self):
         failed = make_sidecar(case="failed", verdict="failed")

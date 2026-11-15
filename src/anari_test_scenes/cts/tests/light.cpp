@@ -107,7 +107,8 @@ void registerLightTests(Catalog &catalog)
           V{Any(float3(0.f, -0.242536f, -0.970143f)),
               Any(float3(0.f, 0.f, -0.970143f))})
       .permute("irradiance", V{none(), Any(0.5f)})
-      .requireFeature("ANARI_KHR_LIGHT_DIRECTIONAL")
+      .covers("ANARI_KHR_LIGHT_DIRECTIONAL")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- point ----------------------------------------------------------------
@@ -129,7 +130,8 @@ void registerLightTests(Catalog &catalog)
           V{Any(float3(0.5f, 0.5f, 10.f)), Any(float3(0.5f, 0.5f, 1.f))})
       .permute("intensity", V{none(), Any(0.6f)})
       .permute("power", V{none(), Any(0.4f)})
-      .requireFeature("ANARI_KHR_LIGHT_POINT")
+      .covers("ANARI_KHR_LIGHT_POINT")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- spot -----------------------------------------------------------------
@@ -160,7 +162,8 @@ void registerLightTests(Catalog &catalog)
       .permute("falloffAngle", V{none(), Any(1.1f)})
       .permute("intensity", V{none(), Any(0.6f)})
       .permute("power", V{none(), Any(0.4f)})
-      .requireFeature("ANARI_KHR_LIGHT_SPOT")
+      .covers("ANARI_KHR_LIGHT_SPOT")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- quad -----------------------------------------------------------------
@@ -192,7 +195,8 @@ void registerLightTests(Catalog &catalog)
       .permute("radiance", V{none(), Any(0.2f)})
       .permute("side", V{Any("both"), Any("front"), Any("back"), none()})
       .permute("intensityDistribution", {"none", "1d", "2d"})
-      .requireFeature("ANARI_KHR_LIGHT_QUAD")
+      .covers("ANARI_KHR_LIGHT_QUAD")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- ring -----------------------------------------------------------------
@@ -230,7 +234,8 @@ void registerLightTests(Catalog &catalog)
       .permute("radiance", V{none(), Any(0.2f)})
       .permute("c0", V{none(), Any(float3(0.7071f, 0.7071f, 0.f))})
       .permute("intensityDistribution", {"none", "1d", "2d"})
-      .requireFeature("ANARI_KHR_LIGHT_RING")
+      .covers("ANARI_KHR_LIGHT_RING")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- hdri -----------------------------------------------------------------
@@ -250,7 +255,8 @@ void registerLightTests(Catalog &catalog)
       .permute("up", V{none(), Any(float3(0.f, 1.f, 0.f))})
       .permute("direction", V{none(), Any(float3(0.f, -1.f, 0.f))})
       .permute("scale", V{none(), Any(0.4f)})
-      .requireFeature("ANARI_KHR_LIGHT_HDRI")
+      .covers("ANARI_KHR_LIGHT_HDRI")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 }
 

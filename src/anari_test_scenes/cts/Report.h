@@ -9,6 +9,7 @@
 #include <map>
 #include <optional>
 #include <ostream>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -63,15 +64,66 @@ std::string deviceLabel(const std::map<std::string, CaseResult> &results,
     const std::string &fallback,
     std::ostream &warnings);
 
+// Per-extension coverage /////////////////////////////////////////////////////
+
+// The canonical KHR extensions: those the API JSON (code_gen/api/) defines,
+// sorted.
+std::vector<std::string> canonicalKhrExtensions();
+
+// What a run says about one extension, from the Cases for which it is primary.
+enum class CoverageState
+{
+  Passed, // advertised; its Cases ran and none failed
+  Failed, // advertised; at least one of its Cases failed
+  NotAdvertised, // the device doesn't advertise it (its Cases skip)
+  NoGroundTruth, // advertised; its Cases skipped for want of Ground truth
+  MissingSupport, // advertised; its Cases skipped for a support extension
+  NotRun, // advertised and tested, but no Case of it is in the results
+  AdvertisedNoTest, // advertised; the CTS has no Test for it
+  NotAdvertisedNoTest, // neither advertised nor tested
+};
+
+const char *coverageStateName(CoverageState state);
+
+struct ExtensionCoverage
+{
+  std::string extension;
+  bool advertised{false};
+  bool tested{false}; // some Test in the catalog covers it
+  // Cases for which this is a primary extension.
+  int passed{0};
+  int failed{0};
+  int skipped{0};
+  CoverageState state{CoverageState::NotAdvertisedNoTest};
+};
+
+// The extensions the run's device advertised: the union of the sidecars'
+// `device.extensions`. `recorded` (when non-null) is set false when no sidecar
+// recorded any (they predate schema v3).
+std::set<std::string> runExtensions(
+    const std::map<std::string, CaseResult> &results, bool *recorded = nullptr);
+
+// One row per extension in `extensions` plus any extension that `tested` or a
+// Case's coveredFeatures names, sorted by name. `tested` is the set of
+// extensions some Test covers (coveredExtensions() of the catalog). An
+// extension a Case ran for counts as advertised even if the run did not record
+// the device's extensions.
+std::vector<ExtensionCoverage> extensionCoverage(
+    const std::map<std::string, CaseResult> &results,
+    const std::vector<std::string> &extensions,
+    const std::set<std::string> &tested);
+
 // The case keys to itemize in a report: every case, or only failures.
 std::vector<std::string> reportCaseKeys(
     const std::map<std::string, CaseResult> &results, bool includeAll);
 
-// Write the text summary (counts, per-category table, itemized cases).
+// Write the text summary (counts, per-category table, the per-extension
+// table when `coverage` is non-empty, itemized cases).
 void writeTextSummary(std::ostream &out,
     const std::string &workdir,
     const std::map<std::string, CaseResult> &results,
-    bool includeAll);
+    bool includeAll,
+    const std::vector<ExtensionCoverage> &coverage = {});
 
 } // namespace cts
 } // namespace anari

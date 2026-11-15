@@ -348,6 +348,7 @@ int cmdQueryMetadata(const Options &o)
     jt["simplified"] = t->simplified;
     jt["caseCount"] = expand(*t).size();
     jt["requiredFeatures"] = t->requiredFeatures;
+    jt["coveredFeatures"] = t->coveredFeatures;
     jt["thresholds"] = t->thresholds;
     jt["axes"] = nlohmann::json::array();
     for (const auto &ax : t->axes) {
@@ -550,19 +551,25 @@ int cmdRun(const Options &o)
   return s.failed > 0 ? 1 : 0;
 }
 
-// Reporting reads the results tree only; it never loads a device (ADR-0008).
+// Reporting reads the results tree (and the catalog, for which extensions have
+// a Test); it never loads a device (ADR-0008).
 int cmdReport(const Options &o)
 {
   const std::string workdir =
       o.positionals.empty() ? o.workdir : o.positionals.front();
   auto results = loadResults(workdir, std::cerr);
-  writeTextSummary(std::cout, workdir, results, o.includeAll);
+  // The catalog (not the run) says which extensions have a Test, so an
+  // extension the CTS doesn't test reads as such even in a filtered run.
+  const auto coverage = extensionCoverage(
+      results, canonicalKhrExtensions(), coveredExtensions(buildCatalog()));
+  writeTextSummary(std::cout, workdir, results, o.includeAll, coverage);
 
   if (!o.htmlOut.empty()) {
     HtmlOptions html;
     html.includeAll = o.includeAll;
     html.embed = o.embed;
     html.htmlPath = o.htmlOut;
+    html.coverage = coverage;
     const std::string doc = generateHtml(workdir, results, html);
     std::ofstream out(o.htmlOut, std::ios::binary);
     if (!out || !(out << doc)) {
