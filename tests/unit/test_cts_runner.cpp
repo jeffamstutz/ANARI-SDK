@@ -1570,8 +1570,8 @@ TEST_CASE("The built-in single-threaded synchronization Tests pass on helide",
   std::filesystem::remove_all(root, ec);
 
   // Only the single-threaded rules: the concurrent ones (those that require
-  // KHR_DEVICE_SYNCHRONIZATION) are stress tests, run only isolated, one
-  // child process per Case (unit_test::cts::isolated_run), so a flake or a
+  // KHR_DEVICE_SYNCHRONIZATION) depend on timing, so they run only isolated,
+  // one child process per Case (unit_test::cts::isolated_run), so a flake or a
   // crash there costs one Case rather than this binary.
   Catalog builtin;
   registerBuiltinTests(builtin);

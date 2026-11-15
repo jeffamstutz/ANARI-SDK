@@ -688,13 +688,19 @@ struct PositionArrayWorld
     anari::release(d, light);
   }
 
+  // The vertices of the first half of the triangles, where write() pauses.
+  size_t halfTheTriangles() const
+  {
+    return (laidOut.size() / 6) * 3; // whole triangles
+  }
+
   // Writes one layout through a mapping of the position array, half the
   // triangles at a time. The pause gives a render that ignores the mapping
   // time to read the array half written.
   void write(float3 *mapped, bool movedLayout, bool pause) const
   {
     const auto &from = movedLayout ? moved : laidOut;
-    const size_t half = (from.size() / 6) * 3; // whole triangles
+    const size_t half = halfTheTriangles();
     std::copy(from.begin(), from.begin() + half, mapped);
     if (pause)
       std::this_thread::sleep_for(500us);
@@ -705,7 +711,7 @@ struct PositionArrayWorld
   // see: the first half of the triangles moved, the rest as laid out.
   void writeTorn(float3 *mapped) const
   {
-    const size_t half = (moved.size() / 6) * 3;
+    const size_t half = halfTheTriangles();
     std::copy(moved.begin(), moved.begin() + half, mapped);
     std::copy(laidOut.begin() + half, laidOut.end(), mapped + half);
   }
