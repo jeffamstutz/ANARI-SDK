@@ -68,8 +68,8 @@ element types/description/source extension. It is distinct from
 `query-metadata`, which dumps the catalog's shape.
 
 `--filter` is a substring or glob (`*`,`?`) matched case-insensitively over a
-test's `<category>/<test>` id, or over a Case's `<category>/<test>/<case>` id to
-select some Cases of a Test; the partners their self-checks need are then
+test's `<category>/<test>` id; a pattern with two `/` is also matched over a
+Case's `<category>/<test>/<case>` id, to select some Cases of a Test; the partners their self-checks need are then
 rendered as support renders (images only, not counted). `run` and `report`
 exit non-zero on any failure.
 

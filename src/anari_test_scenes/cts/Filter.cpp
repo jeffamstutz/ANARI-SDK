@@ -3,6 +3,7 @@
 
 #include "Filter.h"
 // std
+#include <algorithm>
 #include <cctype>
 
 namespace anari {
@@ -68,7 +69,11 @@ bool matches(const Filter &f, const TestDef &test)
 
 bool matches(const Filter &f, const TestDef &test, const Case &c)
 {
-  return matches(f, test) || matchesId(f, c.qualifiedId());
+  // Only a pattern that names a Case (two '/') selects by Case, so a
+  // Test-level pattern never picks up Cases of other Tests.
+  return matches(f, test)
+      || (std::count(f.pattern.begin(), f.pattern.end(), '/') >= 2
+          && matchesId(f, c.qualifiedId()));
 }
 
 } // namespace cts

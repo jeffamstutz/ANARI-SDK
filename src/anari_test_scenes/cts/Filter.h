@@ -28,7 +28,8 @@ bool globMatch(
 bool matches(const Filter &f, const TestDef &test);
 
 // Whether the pattern matches one Case's "<category>/<test>/<case>" id, so a
-// run can select some Cases of a Test (the others may still be rendered as
+// run can select some Cases of a Test. Only a pattern with two '/' (one that
+// names a Case) is matched against Case ids (the others may still be rendered as
 // support renders, ADR-0010). A Case of a matching Test is always selected.
 bool matches(const Filter &f, const TestDef &test, const Case &c);
 

@@ -280,12 +280,18 @@ std::vector<ExtensionCoverage> extensionCoverage(
   // of something to evaluate (Ground truth): a skip that names no missing
   // extension. The Sidecar's fields decide it, not the reason's wording.
   std::set<const ExtensionCoverage *> noGroundTruth;
+  // Rows with a passed Case carrying an unevaluated (opted-out) assertion:
+  // not every assertion was evaluated, so the row isn't plain "passed".
+  std::set<const ExtensionCoverage *> partlyEvaluated;
   auto tally = [&](ExtensionCoverage &c, const CaseResult &r) {
     switch (r.verdict) {
     case Verdict::Passed:
       ++c.passed;
       if (r.passedWithoutGroundTruth())
         ++c.passedWithoutGroundTruth;
+      for (const auto &a : r.assertions)
+        if (!a.evaluated)
+          partlyEvaluated.insert(&c);
       break;
     case Verdict::Failed:
       ++c.failed;
@@ -313,7 +319,7 @@ std::vector<ExtensionCoverage> extensionCoverage(
       c.state = CoverageState::NotAdvertised;
     else if (c.failed > 0)
       c.state = CoverageState::Failed;
-    else if (c.passed > 0 && c.skipped > 0)
+    else if (c.passed > 0 && (c.skipped > 0 || partlyEvaluated.count(&c)))
       c.state = CoverageState::PartlyScored;
     else if (c.passed > 0 && c.passedWithoutGroundTruth > 0)
       c.state = CoverageState::PassedWithoutGroundTruth;

@@ -920,3 +920,15 @@ TEST_CASE("generateHtml reads Sidecars with assertions", "[cts][html]")
   const std::string doc = generateHtml("/tmp/myrun", results, HtmlOptions{});
   CHECK(doc.find("light/spot/moved") != std::string::npos);
 }
+
+TEST_CASE("an opted-out assertion keeps a row from reading plain passed",
+    "[cts][report][coverage]")
+{
+  auto opted = coverageCase("opted", "A_OPTED", Verdict::Passed, {"A_OPTED"});
+  Assertion a;
+  a.kind = kEffectAssertion;
+  a.evaluated = false;
+  opted.assertions = {a};
+  const auto rows = extensionCoverage(keyed({opted}), {}, {"A_OPTED"});
+  CHECK(row(rows, "A_OPTED").state == CoverageState::PartlyScored);
+}
