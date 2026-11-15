@@ -13,6 +13,7 @@
 #include "../GeometryLayout.h"
 #include "../LightBuilder.h"
 #include "../Metrics.h"
+#include "../Relations.h"
 #include "../SurfaceBuilder.h"
 #include "../TestBuilder.h"
 #include "../TestDef.h"
@@ -441,10 +442,25 @@ FrameReadbackResult renderAlone(
   return readFrameChannel(d, f, Channel::Color, w, h);
 }
 
-// Whether two frames are identical, pixel for pixel.
-bool framesEqual(const Image &a, const Image &b)
+// The concurrent checks compare frames with the self-checks' metric and
+// tolerances (ADR-0010), so a renderer need not be deterministic to pass them:
+// two frames are equivalent when the changed fraction is within the
+// equivalence default, and differ when it reaches the effect default.
+const SelfCheckDefaults kSelfCheck;
+
+double framesChanged(const Image &a, const Image &b)
 {
-  return changedFraction(a, b, 0) == 0.0;
+  return changedFraction(a, b, kSelfCheck.tau);
+}
+
+bool framesEquivalent(const Image &a, const Image &b)
+{
+  return framesChanged(a, b) <= kSelfCheck.equivalenceMax;
+}
+
+bool framesDiffer(const Image &a, const Image &b)
+{
+  return framesChanged(a, b) >= kSelfCheck.effectMin;
 }
 
 std::string percentOf(double fraction)
@@ -546,9 +562,10 @@ void workOnOwnObjects(anari::Device d,
 // on different objects within the same device". While one thread renders a
 // frame again and again, several others each create a small world, write its
 // vertices through a mapped array, commit it, query its bounds and
-// release it, over and over. Every frame equals the one rendered with nothing
-// else going on, each thread's world has its own bounds, and (with
-// failOnDeviceErrors) the device reports no ERROR.
+// release it, over and over. Every frame is equivalent (ADR-0010's changed
+// fraction) to the one rendered with nothing else going on, each thread's world
+// has its own bounds, and (with failOnDeviceErrors) the device reports no
+// ERROR.
 BehaviorResult checkDifferentObjectsConcurrently(anari::Device d,
     anari::World world,
     anari::Camera camera,
@@ -595,11 +612,10 @@ BehaviorResult checkDifferentObjectsConcurrently(anari::Device d,
         readFailure = image.detail;
         break;
       }
-      const double fraction = changedFraction(reference.image, image.image, 0);
-      if (fraction != 0.0) {
+      const double fraction = framesChanged(reference.image, image.image);
+      if (!framesEquivalent(reference.image, image.image))
         ++differing;
-        worstFraction = std::max(worstFraction, fraction);
-      }
+      worstFraction = std::max(worstFraction, fraction);
     }
     stop = true;
   }
@@ -610,9 +626,10 @@ BehaviorResult checkDifferentObjectsConcurrently(anari::Device d,
   if (differing > 0) {
     findings.fail(std::to_string(differing) + " of "
         + std::to_string(kConcurrentFrames)
-        + " frames rendered while other threads worked differ from the frame "
-          "rendered alone (up to "
-        + percentOf(worstFraction) + " of pixels)");
+        + " frames rendered while other threads worked aren't equivalent to "
+          "the frame rendered alone (up to "
+        + percentOf(worstFraction) + " of pixels changed, more than the "
+        + percentOf(kSelfCheck.equivalenceMax) + " allowed)");
   }
   std::string iterations;
   for (int i = 0; i < kWorkerThreads; ++i) {
@@ -622,8 +639,11 @@ BehaviorResult checkDifferentObjectsConcurrently(anari::Device d,
   }
   findings.notes.push_back(std::to_string(kConcurrentFrames)
       + " frames rendered while " + std::to_string(kWorkerThreads)
-      + " threads built and released worlds (" + iterations + " each)");
-  return findings.result("every frame matched the one rendered alone");
+      + " threads built and released worlds (" + iterations + " each); at most "
+      + percentOf(worstFraction)
+      + " of pixels changed from the frame rendered alone");
+  return findings.result(
+      "every frame was equivalent to the one rendered alone");
 }
 
 // A world of kTearTriangles triangles whose vertex positions are a shared
@@ -680,6 +700,15 @@ struct PositionArrayWorld
       std::this_thread::sleep_for(500us);
     std::copy(from.begin() + half, from.end(), mapped + half);
   }
+
+  // Writes what a render reading the array halfway through write() would
+  // see: the first half of the triangles moved, the rest as laid out.
+  void writeTorn(float3 *mapped) const
+  {
+    const size_t half = (moved.size() / 6) * 3;
+    std::copy(moved.begin(), moved.begin() + half, mapped);
+    std::copy(laidOut.begin() + half, laidOut.end(), mapped + half);
+  }
 };
 
 // anariMapArray: "Applications are only permitted to write to the memory
@@ -690,9 +719,9 @@ struct PositionArrayWorld
 // KHR_DEVICE_SYNCHRONIZATION one thread keeps mapping the world's vertex
 // position array, rewriting it (the triangles as laid out, then moved, half of
 // them at a time) and unmapping it, while another renders frames of that
-// world. Every frame equals the world rendered alone in one of the two
-// layouts, never a mix; once the writing stops, the next frame shows the last
-// layout written.
+// world. Every frame is equivalent (ADR-0010's changed fraction) to the world
+// rendered alone in one of the two layouts, never a mix; once the writing
+// stops, the next frame shows the last layout written.
 BehaviorResult checkMapNeverTears(anari::Device d,
     anari::World,
     anari::Camera camera,
@@ -707,24 +736,46 @@ BehaviorResult checkMapNeverTears(anari::Device d,
   anari::commitParameters(d, f);
 
   Findings findings;
+  // Renders the world alone after writing the array through a mapping.
+  auto renderWritten = [&](const std::function<void(float3 *)> &write) {
+    auto *mapped = static_cast<float3 *>(anariMapArray(d, array));
+    if (mapped != scene.positions.data())
+      findings.fail("mapping a shared array didn't return the app's memory");
+    if (mapped)
+      write(mapped);
+    anariUnmapArray(d, array);
+    return renderAlone(d, f, w, h);
+  };
   const auto laidOutFrame = renderAlone(d, f, w, h);
-  auto *mapped = static_cast<float3 *>(anariMapArray(d, array));
-  if (mapped != scene.positions.data())
-    findings.fail("mapping a shared array didn't return the app's memory");
-  if (mapped)
-    scene.write(mapped, true, false);
-  anariUnmapArray(d, array);
-  const auto movedFrame = renderAlone(d, f, w, h);
-  if (!laidOutFrame || !movedFrame) {
-    findings.fail("reading a frame rendered alone failed: "
-        + (laidOutFrame ? movedFrame.detail : laidOutFrame.detail));
-    return findings.result("");
+  // A torn frame rendered on purpose, to show that the comparison below
+  // would see one: it must differ from both layouts.
+  const auto tornFrame = renderWritten([&](float3 *p) { scene.writeTorn(p); });
+  const auto movedFrame =
+      renderWritten([&](float3 *p) { scene.write(p, true, false); });
+  for (const auto *alone : {&laidOutFrame, &tornFrame, &movedFrame}) {
+    if (!*alone) {
+      findings.fail("reading a frame rendered alone failed: " + alone->detail);
+      return findings.result("");
+    }
   }
-  if (framesEqual(laidOutFrame.image, movedFrame.image)) {
+  if (!framesDiffer(laidOutFrame.image, movedFrame.image)) {
     findings.fail(
         "the frames rendered alone before and after moving the triangles "
-        "through the mapping are the same (the render didn't use the "
-        "positions written)");
+        "through the mapping differ by less than the effect tolerance (the "
+        "render didn't use the positions written)");
+    return findings.result("");
+  }
+  const double tornFromLaidOut =
+      framesChanged(laidOutFrame.image, tornFrame.image);
+  const double tornFromMoved = framesChanged(movedFrame.image, tornFrame.image);
+  findings.notes.push_back("a torn frame rendered alone changes "
+      + percentOf(tornFromLaidOut) + " of pixels from the laid-out layout and "
+      + percentOf(tornFromMoved) + " from the moved one");
+  if (!framesDiffer(laidOutFrame.image, tornFrame.image)
+      || !framesDiffer(movedFrame.image, tornFrame.image)) {
+    findings.fail(
+        "a torn frame rendered alone differs from one of the layouts by less "
+        "than the effect tolerance, so the check couldn't tell it apart");
     return findings.result("");
   }
 
@@ -737,6 +788,8 @@ BehaviorResult checkMapNeverTears(anari::Device d,
   int framesIssued = 0;
   bool lastMoved = true;
   int laidOutFrames = 0, movedFrames = 0, torn = 0;
+  // Of the torn frames, how close the closest one came to either layout.
+  double closestTorn = 1.0;
   std::string readFailure;
   {
     std::vector<std::thread> threads;
@@ -786,12 +839,16 @@ BehaviorResult checkMapNeverTears(anari::Device d,
         readFailure = image.detail;
         break;
       }
-      if (framesEqual(laidOutFrame.image, image.image))
+      if (framesEquivalent(laidOutFrame.image, image.image))
         ++laidOutFrames;
-      else if (framesEqual(movedFrame.image, image.image))
+      else if (framesEquivalent(movedFrame.image, image.image))
         ++movedFrames;
-      else
+      else {
         ++torn;
+        closestTorn = std::min(closestTorn,
+            std::min(framesChanged(laidOutFrame.image, image.image),
+                framesChanged(movedFrame.image, image.image)));
+      }
     }
     {
       std::lock_guard<std::mutex> lock(issuedMutex);
@@ -808,8 +865,10 @@ BehaviorResult checkMapNeverTears(anari::Device d,
   if (torn > 0) {
     findings.fail(std::to_string(torn) + " of "
         + std::to_string(kConcurrentFrames)
-        + " frames match neither layout rendered alone (a render read the "
-          "array while it was mapped and half written)");
+        + " frames are equivalent to neither layout rendered alone (a render "
+          "read the array while it was mapped and half written; the closest "
+          "changes "
+        + percentOf(closestTorn) + " of pixels from a layout)");
   }
 
   const auto last = renderAlone(d, f, w, h);
@@ -817,7 +876,7 @@ BehaviorResult checkMapNeverTears(anari::Device d,
   if (!last)
     findings.fail(
         "reading the frame after the writing stopped failed: " + last.detail);
-  else if (!framesEqual(expected.image, last.image)) {
+  else if (!framesEquivalent(expected.image, last.image)) {
     findings.fail(std::string("after the writing stopped, the frame isn't the ")
         + (lastMoved ? "moved" : "laid-out")
         + " layout last written through the mapping");
@@ -870,8 +929,9 @@ void registerSynchronizationTests(Catalog &catalog)
           "3.1 still requires), four threads each create a world, write its "
           "vertices through a mapped array, commit it, query its "
           "bounds with ANARI_WAIT and release it, over and over. Every frame "
-          "equals the frame rendered alone, each world's bounds are its own, "
-          "and the device reports no ERROR.")
+          "is equivalent to the frame rendered alone (changed fraction within "
+          "the self-checks' equivalence tolerance), each world's bounds are "
+          "its own, and the device reports no ERROR.")
       .build(triangleWorld)
       .behavior(checkDifferentObjectsConcurrently)
       .timeout(kCaseTimeout)
@@ -890,9 +950,11 @@ void registerSynchronizationTests(Catalog &catalog)
           "maps the world's vertex position array, rewrites it (16 "
           "triangles as laid out, then moved, half of them at a time) and "
           "unmaps it, over and over, while another renders frames of the "
-          "world. Every frame equals one of the two layouts rendered alone, "
-          "never a mix; after the writing stops the frame shows the last "
-          "layout written.")
+          "world. Every frame is equivalent to one of the two layouts rendered "
+          "alone (changed fraction within the self-checks' equivalence "
+          "tolerance), never a mix, which a torn frame rendered alone must "
+          "differ from by the effect tolerance; after the writing stops the "
+          "frame shows the last layout written.")
       .build([](BuildContext &ctx) {
         return triangleSoupWorld(ctx, kTearTriangles);
       })
