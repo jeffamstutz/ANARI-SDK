@@ -98,6 +98,7 @@ if (BUILD_CTS OR BUILD_TESTING)
     cts/DeviceErrorLog.cpp
     cts/DeviceFailure.cpp
     cts/DeviceProbe.cpp
+    cts/Discrimination.cpp
     cts/Expansion.cpp
     cts/Filter.cpp
     cts/FrameFormats.cpp
@@ -129,6 +130,7 @@ if (BUILD_CTS OR BUILD_TESTING)
     cts/tests/frame.cpp
     cts/tests/geometry.cpp
     cts/tests/gltf.cpp
+    cts/tests/IndistinguishableGroundTruth.cpp
     cts/tests/instance.cpp
     cts/tests/light.cpp
     cts/tests/material.cpp

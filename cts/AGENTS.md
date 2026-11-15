@@ -59,7 +59,19 @@ anariCts query-features <device>       # device extensions
 anariCts query-metadata [--filter <pat>]   # catalog metadata as JSON (no device)
 anariCts query-device-info <device>    # device introspection: object subtypes + parameter metadata
 anariCts check-properties <device>     # per test: runnable vs skipped + missing features
+anariCts check-discrimination --workdir myrun [--all]  # Ground truth that can't tell its Cases apart
 ```
+
+`check-discrimination` reads the Ground truth `generate` wrote (no device) and,
+for every pair of Cases differing in one Permutation value (not Variant,
+`frame_<channel>_type` or `.noEffectCheck` axes), scores one's Ground truth
+against the other's with the Test's own thresholds. A pair that passes is
+indistinguishable: the Ground-truth comparison can't tell those two values
+apart. It exits 1 on any such pair not on the allow-list,
+`tests/IndistinguishableGroundTruth.cpp` (each entry with its reason; `--all`
+lists the allowed ones too), and 2 when there is no Ground truth to compare.
+The ctest `cts_tool::discrimination::check` (with `BUILD_HELIDE_DEVICE`) runs
+it on the default Reference device's Ground truth.
 
 `query-device-info` is genuine device introspection (the old `anariInfo`
 capability): `--type`/`--subtype` restrict by name substring, `--skip-parameters`
@@ -148,6 +160,11 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   device-agnostic and a renderer Test still wins on conflict.
 - `Metrics.{h,cpp}` / `Image.{h,cpp}` — SSIM/PSNR, `changedFraction` (and its
   mask) for the self-checks, and PNG I/O (stb).
+- `Discrimination.{h,cpp}` — `check-discrimination`: the pairs of Cases that
+  differ in one Permutation value (`discriminationPairs`, pure), scoring their
+  Ground truth against each other with the Test's thresholds, and matching the
+  indistinguishable ones against the allow-list. The allow-list itself is
+  `tests/IndistinguishableGroundTruth.cpp`.
 - `Relations.{h,cpp}` — the pure relational pass (ADR-0010): groups of Cases
   differing in one axis, effect (all pairs, attributed to the later Case) and
   equivalence (with the first value's Case), the default tolerances
@@ -187,7 +204,7 @@ asset-scanning factory (gated on `ENABLE_GLTF`). `BuiltinTests.cpp` wires them
 all into the catalog.
 
 **Unit tests:** `tests/unit/test_cts_*.cpp` (catalog/expansion/filter/builder,
-metrics, relations, results/sidecar/workdir, report/html, runner, isolation).
+metrics, relations, discrimination, results/sidecar/workdir, report/html, runner, isolation).
 Pure tests are tagged `[cts]`; device-backed ones add `[helide]` and self-skip if
 no device loads. Images for pure tests are generated in code
 (`tests/unit/cts_test_images.h`: solid, gradient, rectangle, disc); never add
@@ -214,7 +231,9 @@ rework the scene rather than loosen it (`.effectMargin`) when a change is too
 subtle, and opt an axis out (`.noEffectCheck(axis, reason)`) only when its
 effect can't be judged by image difference. Declare `.groundTruth(reason)` when
 appearance has no analytic answer, or `.noGroundTruth()` when the self-checks
-say everything.
+say everything. A Test with Ground truth must also pass `check-discrimination`:
+its Permutation values' Ground truth must fail as each other's. Don't add a
+new Test to the allow-list; its seeded entries only shrink.
 
 **New synchronization rule** (or any check a device fails by hanging): a
 behaviour Test in `cts/tests/synchronization.cpp` with `.timeout(...)` and
