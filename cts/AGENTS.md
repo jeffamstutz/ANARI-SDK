@@ -256,8 +256,12 @@ When the answer is analytic (an ID at a pixel, a depth, "background outside
 this region"), add an exact check: `.expectExact(label, fn)`, where `fn`
 takes an `ExactCheck &x` and reports through its helpers, e.g.
 `x.matches(name, x.ids(Channel::PrimitiveId), expectedFn, 0, &where)`,
-`x.backgroundOutside(name, x.depth(), subject, "infinity", isInf)` or
-`x.measure(name, value, Limit::AtLeast, bound)`. Use `x.project(p)` to find
+`x.backgroundOutside(name, x.depth(), subject, "beyond the farthest subject",
+beyondFar)` or `x.measure(name, value, Limit::AtLeast, bound)`. The 1.2 draft
+gives no value for a pixel without a hit, in any ID channel or in depth, so a
+background check requires only what the spec implies: an ID background holds
+no subject's ID, and a depth background is no closer than the farthest
+subject. Don't require `~0u`, `+inf` or any other specific value. Use `x.project(p)` to find
 where a world point lands; the runner's camera records its projection, and a
 Test with its own `.camera` hook must call
 `ctx.setCameraProjection(...)` for `project()` to work. Don't use
