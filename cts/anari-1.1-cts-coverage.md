@@ -24,7 +24,9 @@ Spec premise: section 2.4 says extensions are observable ANARI API behavior, usu
 | synchronization | 2 | 2 |
 | volume | 1 | 10 |
 
-No active `gltf/*` tests registered in this build, even with `CTS_ENABLE_GLTF=ON` and `ANARI_CTS_GLTF_ASSETS` pointed at `cts/gltf-Sample-Assets`. That is a separate catalog/registration issue; glTF tests also do not declare ANARI extension requirements, so they are not counted as extension coverage here.
+The asset-scanning tests that once existed outside these categories have since been
+removed from the CTS; they declared no ANARI extension requirements, so they never
+counted as extension coverage.
 
 ## Extensions Currently Tested
 

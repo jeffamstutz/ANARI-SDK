@@ -20,7 +20,7 @@
 // anari
 #include "anari/anari_cpp.hpp"
 #include "anari/frontend/anari_device_introspection.hpp"
-// nlohmann json (vendored with the glTF loader)
+// nlohmann json (vendored under scenes/file/)
 #include "scenes/file/nlohmann/json.hpp"
 // std
 #include <cmath>

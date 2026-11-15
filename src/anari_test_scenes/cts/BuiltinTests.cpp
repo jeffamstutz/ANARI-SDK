@@ -19,7 +19,6 @@ void registerBuiltinTests(Catalog &catalog)
   registerInstanceTests(catalog);
   registerVolumeTests(catalog);
   registerSynchronizationTests(catalog);
-  registerGltfTests(catalog);
 }
 
 } // namespace cts

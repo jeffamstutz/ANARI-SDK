@@ -21,7 +21,6 @@ ANARI_LIBRARY=helide ctest -R render_test
 
 Optional CMake flags that affect this library:
 - `VIEWER_ENABLE_GLTF` — include glTF file loader scene
-- `CTS_ENABLE_GLTF` — also include the loader when a CTS consumer is built
 - `USE_DRACO`, `USE_WEBP`, `USE_KTX` — glTF compression/texture extensions
 - `USE_KOKKOS` — parallel processing backend
 

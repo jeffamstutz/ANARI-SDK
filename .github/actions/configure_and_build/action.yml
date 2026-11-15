@@ -39,7 +39,6 @@ runs:
         -DBUILD_VIEWER=OFF
         -DCMAKE_BUILD_TYPE=${{ inputs.config }}
         -DCMAKE_INSTALL_PREFIX=${{ inputs.workspace }}/build/install
-        -DCTS_ENABLE_GLTF=OFF
         -DEMBREE_ISA_AVX512=OFF
         -DINSTALL_CTS=ON
 
