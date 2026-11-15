@@ -63,8 +63,8 @@ anariCts check-discrimination --workdir myrun [--all]  # Ground truth that can't
 ```
 
 `check-discrimination` reads the Ground truth `generate` wrote (no device) and,
-for every pair of Cases differing in one Permutation value (not Variant
-or `frame_<channel>_type` axes), scores one's Ground truth
+for every pair of Cases differing in one Permutation value (not Variant,
+`frame_<channel>_type` or `.noEffectCheck` axes), scores one's Ground truth
 against the other's with the Test's own thresholds. A pair that passes is
 indistinguishable: the Ground-truth comparison can't tell those two values
 apart. It exits 1 on any such pair not on the allow-list,
