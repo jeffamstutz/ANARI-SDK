@@ -101,6 +101,13 @@ that passed its Assertions while its Ground truth was missing is "passed,
 Ground truth not evaluated".
 _Avoid_: reference image, golden image, baseline
 
+**Indistinguishable Ground truth**:
+Two Cases differing in one Permutation value whose Ground truth images pass as
+each other's under the Test's own thresholds, so the Ground-truth comparison
+can't tell those values apart. `anariCts check-discrimination` finds them and
+fails unless the pair is on the allow-list next to the Tests, with a reason.
+Distinct from an Effect, which is checked on the Candidate's own renders.
+
 **Support render**:
 A Case rendered only because a selected Case's Assertion needs it as a partner
 (the `--filter` excluded it): its images are written so the partner can be

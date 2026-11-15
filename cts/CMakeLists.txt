@@ -53,6 +53,24 @@ if (BUILD_TESTING)
       TIMEOUT 120
       PASS_REGULAR_EXPRESSION "run \\(helide\\): [1-9][0-9]* passed, 0 failed, 0 skipped"
     )
+    # Every Permutation's values must render Ground truth that fails as each
+    # other's, or be on the allow-list next to the Tests: generate with the
+    # default Reference device, then score sibling Cases' Ground truth.
+    set(CTS_DISCRIMINATION_WORKDIR ${CMAKE_CURRENT_BINARY_DIR}/discrimination)
+    add_test(NAME cts_tool::discrimination::generate
+      COMMAND anariCts generate --workdir ${CTS_DISCRIMINATION_WORKDIR}
+    )
+    add_test(NAME cts_tool::discrimination::check
+      COMMAND anariCts check-discrimination
+        --workdir ${CTS_DISCRIMINATION_WORKDIR}
+    )
+    set_tests_properties(cts_tool::discrimination::generate PROPERTIES
+      FIXTURES_SETUP cts_discrimination
+      TIMEOUT 300
+    )
+    set_tests_properties(cts_tool::discrimination::check PROPERTIES
+      FIXTURES_REQUIRED cts_discrimination
+    )
   endif()
   add_test(NAME cts_tool::query-metadata COMMAND anariCts query-metadata)
 

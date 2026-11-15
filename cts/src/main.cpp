@@ -9,6 +9,7 @@
 #include "cts/Catalog.h"
 #include "cts/DeviceErrorLog.h"
 #include "cts/DeviceFailure.h"
+#include "cts/Discrimination.h"
 #include "cts/Expansion.h"
 #include "cts/HtmlReport.h"
 #include "cts/Isolation.h"
@@ -117,6 +118,10 @@ commands:
   query-device-info <device> introspect a device: object subtypes + parameter metadata
   check-properties <device>  report which tests the device can run vs. will skip
   report <workdir>           summarize a run's results tree (text + optional HTML)
+  check-discrimination [options]
+                             score each pair of Cases differing in one Permutation
+                             value's Ground truth against each other; fail on a
+                             pair that passes as the other and isn't allow-listed
 
 options:
   --filter <pattern>   select a slice of the catalog (substring or glob over <category>/<test>,
@@ -151,6 +156,9 @@ report options:
   --embed              inline images in the HTML (portable single file; embeds
                        only the initially-shown cases unless combined with --all)
   --all                itemize every case (default: failures only)
+
+check-discrimination options:
+  --all                also list the allow-listed pairs (default: not allowed only)
 
 query-device-info options:
   --type <name>        restrict to object types whose name contains <name>
@@ -589,6 +597,25 @@ int cmdRun(const Options &o)
   return s.failed > 0 ? 1 : 0;
 }
 
+// Reads the Ground truth `generate` wrote and the Catalog; no device.
+int cmdCheckDiscrimination(const Options &o)
+{
+  auto catalog = buildCatalog();
+  const RunOptions defaults;
+  const auto result = checkDiscrimination(catalog.filter(Filter{o.filter}),
+      builtinIndistinguishableAllowList(),
+      {defaults.ssimThreshold, defaults.psnrThreshold},
+      groundTruthFrom(Workdir(o.workdir)));
+  writeDiscriminationReport(std::cout, result, o.includeAll);
+  if (result.pairsCompared == 0) {
+    std::cerr << "error: check-discrimination: no Ground truth to compare "
+                 "under '"
+              << o.workdir << "' (run generate first)\n";
+    return 2;
+  }
+  return result.notAllowed() > 0 ? 1 : 0;
+}
+
 // Reporting reads the results tree only; it never loads a device or builds the
 // Catalog (ADR-0008).
 int cmdReport(const Options &o)
@@ -664,6 +691,8 @@ int main(int argc, char **argv)
     return cmdCheckProperties(o);
   if (command == "report")
     return cmdReport(o);
+  if (command == "check-discrimination")
+    return cmdCheckDiscrimination(o);
 
   std::cerr << "error: unknown command '" << command << "'\n\n";
   printUsage();
