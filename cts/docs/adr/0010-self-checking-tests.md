@@ -248,7 +248,8 @@ effect checks (27.1 % and 10.6 %).
 
 The new Sidecar fields (`frameSize`, and per assertion `expectation`,
 `expectedImage`, `expectedMaskImage`) are additive to schema v4 and read with
-defaults (ADR-0003): no version bump.
+defaults (ADR-0003). No older Sidecar can be misread without them, so under
+`cts/AGENTS.md`'s schema rule they need no bump.
 
 
 ## Exact checks (ticket 17)
@@ -329,7 +330,8 @@ A finding is an `exact` assertion in the Sidecar: `label` (the check's),
 `measurement` (`value`, `bound`, `limit`), and `maskImage`. For a pixel
 finding `score` is the offending fraction and `threshold` 0; for a
 measurement they are the value and the bound. These fields are additive to
-schema v4, read with defaults: no earlier Sidecar holds an `exact` entry. A
+schema v4, read with defaults; no earlier Sidecar holds an `exact` entry, so
+under `cts/AGENTS.md`'s schema rule they need no bump. A
 Test whose Ground truth is missing still renders when it has exact checks,
 as it does for relations (decision 8). The text report counts `exact` among
 the failure kinds and names a failed finding's check and mask.

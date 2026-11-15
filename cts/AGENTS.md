@@ -293,10 +293,12 @@ order for two independent readers of the one contract.
 
 **Sidecar schema change:** the sidecar is a versioned cross-language contract
 (ADR-0003) with two readers — the C++ `Sidecar` reader (`fromJson`) behind
-`report`, and `ctsReport.py` for the PDF. A purely incidental optional field
-(read with a default on both sides) need not bump `kSidecarSchemaVersion`. Bump
-it when a change is either breaking *or* semantically significant to consumers —
-i.e. a field they should know to rely on — and update both readers in lockstep.
+`report`, and `ctsReport.py` for the PDF. An additive field, read with a
+default on both sides, need not bump `kSidecarSchemaVersion` when a reader that defaults it cannot misread an older
+Sidecar: no older Sidecar can hold the thing the field describes, or the
+default is what an older Sidecar meant. Bump it when a change is breaking, *or*
+when consumers must tell an older Sidecar apart to read it right (a new field
+whose absence would be misread), and update both readers in lockstep.
 v2 did the latter: it added the `device` object that labels a run (plus the
 optional per-channel `diffImage`/`thresholdImage` debug paths). v3 added the
 extensions behind a Case (`requiredFeatures`, `coveredFeatures`,
@@ -306,8 +308,8 @@ target v3 and warn on older sidecars, prompting a regenerate. v4 added the
 self-checks (ADR-0010): an `assertions` array (readers keep kinds they don't
 know, so later kinds don't need a bump), `resultImages`, and
 `usesGroundTruth`/`groundTruthEvaluated`/`groundTruthReason`; older sidecars
-read as compared exactly when they have channel scores. Derived expectations
-added optional fields to v4 without a bump: `frameSize`, and per assertion
-`expectation`/`expectedImage`/`expectedMaskImage`. Exact checks added
-`exact` assertions to v4 the same way, with `label` and `pixels` or
-`measurement`.
+read as compared exactly when they have channel scores. Within v4, derived
+expectations added `frameSize` (absent means the run's size, the only size
+before them) and per assertion `expectation`/`expectedImage`/`expectedMaskImage`,
+and exact checks added `exact` assertions (`label`, `pixels` or
+`measurement`); no older Sidecar can hold either, so neither needed a bump.
