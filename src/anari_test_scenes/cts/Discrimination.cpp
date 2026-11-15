@@ -55,7 +55,8 @@ std::vector<DiscriminationPair> discriminationPairs(
   std::set<std::pair<std::string, std::string>> seen;
   for (const auto &group : relationGroups(test, cases)) {
     const auto &axis = test.axes[group.axis];
-    if (axis.kind != AxisKind::Permutation || isFrameTypeAxis(axis.name))
+    if (axis.kind != AxisKind::Permutation || isFrameTypeAxis(axis.name)
+        || test.noEffectCheck.count(axis.name))
       continue;
     for (size_t k = 1; k < group.cases.size(); ++k) {
       for (size_t p = 0; p < k; ++p) {

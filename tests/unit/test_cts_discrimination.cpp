@@ -111,7 +111,7 @@ TEST_CASE(
   CHECK(*pairs.begin() == "a:a0_soup|a1_soup");
 }
 
-TEST_CASE("frame type axes are not pairing axes; opted-out axes are",
+TEST_CASE("frame type axes and opted-out axes are not pairing axes",
     "[cts][discrimination]")
 {
   CHECK(isFrameTypeAxis("frame_color_type"));
@@ -123,14 +123,14 @@ TEST_CASE("frame type axes are not pairing axes; opted-out axes are",
       makeTest("demo", "formats")
           .permute("frame_color_type", {"UFLOAT32_VEC4", "UFIXED8_VEC4"})
           .permute("filter", {"nearest", "linear"})
+          .permute("a", {"a0", "a1"})
           .noEffectCheck("filter", "too subtle to judge")
           .take();
-  // The Ground-truth comparison still promises distinct filter values.
-  CHECK(pairNames(test)
-      == std::set<std::string>{
-          "filter:UFLOAT32_VEC4_nearest|UFLOAT32_VEC4_linear",
-          "filter:UFIXED8_VEC4_nearest|UFIXED8_VEC4_linear",
-      });
+  // The opt-out's reason already says the image can't show `filter`, so only
+  // `a` pairs remain: one per frame type x filter.
+  for (const auto &p : pairNames(test))
+    CHECK(p.rfind("a:", 0) == 0);
+  CHECK(pairNames(test).size() == 4);
 }
 
 TEST_CASE("a Test with one Case has no pairs", "[cts][discrimination]")
