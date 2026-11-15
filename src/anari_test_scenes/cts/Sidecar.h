@@ -34,6 +34,11 @@ namespace cts {
 // advertised for the run. All read as empty from older sidecars.
 constexpr int kSidecarSchemaVersion = 3;
 
+// The skipReason of a Case skipped because it has no Ground truth. The report
+// tells this skip apart from others by it.
+inline constexpr const char *kNoGroundTruthReason =
+    "no ground truth (run generate first)";
+
 // A Case's pass/fail outcome.
 enum class Verdict
 {

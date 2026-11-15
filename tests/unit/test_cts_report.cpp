@@ -203,7 +203,7 @@ CaseResult coverageCase(const std::string &test,
   if (!missing.empty())
     r.skipReason = "device is missing a required feature: " + missing.front();
   else if (verdict == Verdict::Skipped)
-    r.skipReason = "no ground truth (run generate first)";
+    r.skipReason = kNoGroundTruthReason;
   return r;
 }
 

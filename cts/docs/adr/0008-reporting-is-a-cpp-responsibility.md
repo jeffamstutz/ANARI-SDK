@@ -28,3 +28,8 @@ covers.
 - The HTML report is self-contained (inline CSS/JS, no CDN) and can embed images
   as base64 (`--embed`) for a portable single file; by default it references the
   PNGs already in the workdir.
+- The per-extension matrix is the one input that isn't in the results tree: whether
+  an extension has a Test is a property of the Catalog, not of a run, so
+  `anariCts report` takes it from the Catalog it was built with (still offline,
+  no device). A filtered run then shows an untested extension as `no Test` and a
+  tested one it skipped as `not run`, not as `no Test`.

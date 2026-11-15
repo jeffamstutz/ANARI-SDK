@@ -18,7 +18,6 @@ _Avoid_: scene, test scene (for this concept)
 **Primary extension**:
 An extension a Test is evidence for (`covers(...)`): its Cases count toward
 that extension in the Report's per-extension matrix. Always also required.
-_Avoid_: tested feature
 
 **Support extension**:
 An extension a Test needs only to build its scene (the triangle and matte
