@@ -851,10 +851,7 @@ void Runner::generateTest(const TestDef &test,
   // rendered here.)
   for (const auto &rel :
       evaluateRelations(test, cases, renders, m_selfChecks)) {
-    const bool variant =
-        std::any_of(test.axes.begin(), test.axes.end(), [&](const Axis &a) {
-          return a.name == rel.assertion.axis && a.kind == AxisKind::Variant;
-        });
+    const bool variant = test.isVariant(rel.assertion.axis);
     const bool partnersRendered =
         std::all_of(rel.partners.begin(), rel.partners.end(), [&](size_t p) {
           return renders[p].state == CaseRender::State::Rendered;

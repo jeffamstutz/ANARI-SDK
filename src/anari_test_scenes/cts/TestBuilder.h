@@ -86,9 +86,9 @@ struct TestBuilder
   // description says in one line what the expected image is. The value takes
   // no part in the axis's effect pairs. Throws std::invalid_argument for an
   // undeclared axis, a value the axis doesn't hold, or a repeated value.
-  //   .expectDerived("stereoMode", "sideBySide", "left and right, side by
-  //   side",
-  //       [](const Siblings &s) { return hconcat(s.at("left"), s.at("right"));
+  //   .expectDerived("stereoMode", "sideBySide", "left and right",
+  //       [](const Siblings &s) {
+  //         return hconcat(s.at("left"), s.at("right"));
   //       })
   TestBuilder &expectDerived(std::string axis,
       std::string value,

@@ -198,6 +198,15 @@ struct TestDef
     return category + "/" + name;
   }
 
+  // Whether `axis` is a Variant axis of this Test.
+  bool isVariant(const std::string &axis) const
+  {
+    for (const auto &a : axes)
+      if (a.name == axis)
+        return a.kind == AxisKind::Variant;
+    return false;
+  }
+
   // The derived expectation declared for `value` of `axis`, or null.
   const DerivedExpectation *derivedFor(
       const std::string &axis, const std::string &value) const
