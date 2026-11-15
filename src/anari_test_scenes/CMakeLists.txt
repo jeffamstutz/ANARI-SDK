@@ -99,6 +99,7 @@ if (BUILD_CTS OR BUILD_TESTING)
     cts/Discrimination.cpp
     cts/Expansion.cpp
     cts/Filter.cpp
+    cts/FrameAccumulation.cpp
     cts/FrameFormats.cpp
     cts/FrameReadback.cpp
     cts/GeometryBuilder.cpp
