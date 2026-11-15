@@ -7,15 +7,21 @@
 #include "catch.hpp"
 #include "cts_test_images.h"
 // cts
+#include "cts/BuiltinTests.h"
+#include "cts/Catalog.h"
 #include "cts/Expansion.h"
+#include "cts/FrameSize.h"
 #include "cts/Image.h"
+#include "cts/Metrics.h"
 #include "cts/Relations.h"
 #include "cts/TestBuilder.h"
 #include "cts/Workdir.h"
 // std
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <functional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -201,7 +207,7 @@ TEST_CASE("effect checks every pair and attributes it to the later Case",
       continue;
     ++failed;
     CHECK(o.assertion.relatedCases == std::vector<std::string>{"1"});
-    CHECK(cases[o.partnerIndex].id() == "1");
+    CHECK(cases[o.partners.front()].id() == "1");
   }
   CHECK(failed == 1);
 }
@@ -294,7 +300,7 @@ TEST_CASE("a Variant axis is checked for equivalence with its first value",
     ++equivalences;
     CHECK(o.assertion.axis == "mode");
     // Compared with the first value's Case, other axes equal.
-    const Case &partner = cases[o.partnerIndex];
+    const Case &partner = cases[o.partners.front()];
     CHECK(valueOf(partner, "mode") == "soup");
     CHECK(valueOf(partner, "p") == valueOf(cases[o.caseIndex], "p"));
     CHECK(o.assertion.threshold == 0.002);
@@ -536,4 +542,424 @@ TEST_CASE(
   CHECK(loadCaseRender(wd, test, cases[0]).state == CaseRender::State::Absent);
 
   std::filesystem::remove_all(root, ec);
+}
+
+// Derived expectations (ticket 16) ///////////////////////////////////////////
+
+namespace {
+
+// A gradient image with `k` shifting every pixel: distinct k, distinct image.
+Image textured(uint32_t w, uint32_t h, int k = 0)
+{
+  return cts_test::gradient(w, h, k * 20);
+}
+
+// The CaseRender of a Case rendered as `image` on every Channel.
+CaseRender rendered(const TestDef &test, const Image &image)
+{
+  CaseRender r;
+  r.state = CaseRender::State::Rendered;
+  r.images.assign(test.channels.size(), image);
+  return r;
+}
+
+const RelationOutcome *equivalenceOf(
+    const std::vector<RelationOutcome> &outcomes,
+    const std::vector<Case> &cases,
+    const std::string &id)
+{
+  for (const auto &o : outcomes)
+    if (o.assertion.kind == kEquivalenceAssertion
+        && cases[o.caseIndex].id() == id)
+      return &o;
+  return nullptr;
+}
+
+// A stereo-like Test: sideBySide must be left and right concatenated.
+TestDef stereoTest()
+{
+  return makeTest("demo", "stereo")
+      .permute("mode", {"left", "right", "sideBySide"})
+      .expectDerived("mode",
+          "sideBySide",
+          "left and right, side by side",
+          [](const Siblings &s) {
+            return hconcat(s.at("left"), s.at("right"));
+          })
+      .take();
+}
+
+} // namespace
+
+TEST_CASE(
+    "crop, hconcat and vconcat keep Image coordinates", "[cts][relations]")
+{
+  const Image full = textured(8, 6);
+  const Image c = crop(full, PixelRect{2, 1, 3, 4});
+  REQUIRE(c.valid());
+  CHECK(c.width == 3);
+  CHECK(c.height == 4);
+  // Pixel (0, 0) of the crop is pixel (2, 1) of the image.
+  for (uint32_t y = 0; y < 4; ++y)
+    for (uint32_t x = 0; x < 3; ++x)
+      for (int ch = 0; ch < 4; ++ch)
+        CHECK(c.rgba[(y * 3 + x) * 4 + ch]
+            == full.rgba[((y + 1) * 8 + x + 2) * 4 + ch]);
+  CHECK_FALSE(crop(full, PixelRect{6, 0, 3, 1}).valid()); // leaves the image
+  CHECK_FALSE(crop(full, PixelRect{0, 0, 0, 1}).valid()); // empty
+
+  // Splitting and rejoining gives the image back.
+  const Image left = crop(full, PixelRect{0, 0, 5, 6});
+  const Image right = crop(full, PixelRect{5, 0, 3, 6});
+  CHECK(hconcat(left, right).rgba == full.rgba);
+  const Image bottom = crop(full, PixelRect{0, 0, 8, 2});
+  const Image top = crop(full, PixelRect{0, 2, 8, 4});
+  const Image joined = vconcat(top, bottom);
+  CHECK(joined.width == 8);
+  CHECK(joined.height == 6);
+  CHECK(joined.rgba == full.rgba);
+  // Mismatched sides are not joined.
+  CHECK_FALSE(hconcat(left, bottom).valid());
+  CHECK_FALSE(vconcat(left, bottom).valid());
+}
+
+TEST_CASE("regionPixels needs whole pixels", "[cts][relations]")
+{
+  const auto r = regionPixels(256, 256, 0.25f, 0.25f, 0.75f, 0.75f);
+  REQUIRE(r);
+  CHECK(r->x == 64);
+  CHECK(r->y == 64);
+  CHECK(r->width == 128);
+  CHECK(r->height == 128);
+  // The region camera_general used before: 0.3 * 256 is 76.8.
+  CHECK_FALSE(regionPixels(256, 256, 0.25f, 0.3f, 0.75f, 0.8f));
+  CHECK_FALSE(regionPixels(66, 66, 0.25f, 0.25f, 0.75f, 0.75f));
+  CHECK_FALSE(regionPixels(64, 64, 0.5f, 0.f, 0.5f, 1.f)); // empty
+  CHECK_FALSE(regionPixels(64, 64, -0.25f, 0.f, 0.5f, 1.f)); // outside
+}
+
+TEST_CASE("a derived expectation that holds passes", "[cts][relations]")
+{
+  const auto test = stereoTest();
+  const auto cases = expand(test);
+  REQUIRE(cases.size() == 3);
+  std::vector<CaseRender> renders(3);
+  renders[indexOf(cases, "left")] = rendered(test, textured(16, 8, 1));
+  renders[indexOf(cases, "right")] = rendered(test, textured(16, 8, 2));
+  renders[indexOf(cases, "sideBySide")] =
+      rendered(test, hconcat(textured(16, 8, 1), textured(16, 8, 2)));
+
+  const auto outcomes = evaluateRelations(test, cases, renders);
+  const auto *o = equivalenceOf(outcomes, cases, "sideBySide");
+  REQUIRE(o);
+  CHECK(o->assertion.axis == "mode");
+  CHECK(o->assertion.evaluated);
+  CHECK(o->assertion.passed);
+  CHECK(o->assertion.score == 0.0);
+  CHECK(o->assertion.threshold == 0.002);
+  CHECK(o->assertion.expectation == "left and right, side by side");
+  // It names the siblings it read, in value order.
+  CHECK(o->assertion.relatedCases == std::vector<std::string>{"left", "right"});
+  CHECK(o->partners
+      == std::vector<size_t>{indexOf(cases, "left"), indexOf(cases, "right")});
+  // The expected image is handed to the runner to write.
+  CHECK(o->expected.width == 32);
+  CHECK(o->expected.height == 8);
+  CHECK_FALSE(o->expectedMask.valid());
+  CHECK_FALSE(o->mask.valid());
+}
+
+TEST_CASE("a derived expectation that doesn't hold fails", "[cts][relations]")
+{
+  const auto test = stereoTest();
+  const auto cases = expand(test);
+  std::vector<CaseRender> renders(3);
+  renders[indexOf(cases, "left")] = rendered(test, textured(16, 8, 1));
+  renders[indexOf(cases, "right")] = rendered(test, textured(16, 8, 2));
+
+  SECTION("the halves swapped")
+  {
+    renders[indexOf(cases, "sideBySide")] =
+        rendered(test, hconcat(textured(16, 8, 2), textured(16, 8, 1)));
+    const auto outcomes = evaluateRelations(test, cases, renders);
+    const auto *o = equivalenceOf(outcomes, cases, "sideBySide");
+    REQUIRE(o);
+    CHECK_FALSE(o->assertion.passed);
+    CHECK(o->assertion.score > 0.5);
+    CHECK(o->mask.valid());
+    CHECK(o->assertion.detail.find("the expected image (left and right, side "
+                                   "by side)")
+        != std::string::npos);
+  }
+  SECTION("the wrong size")
+  {
+    renders[indexOf(cases, "sideBySide")] = rendered(test, textured(16, 8, 1));
+    const auto outcomes = evaluateRelations(test, cases, renders);
+    const auto *o = equivalenceOf(outcomes, cases, "sideBySide");
+    REQUIRE(o);
+    CHECK_FALSE(o->assertion.passed);
+    CHECK(o->assertion.detail.find("16x8 vs 32x8") != std::string::npos);
+  }
+  SECTION("a sibling that did not render")
+  {
+    renders[indexOf(cases, "sideBySide")] =
+        rendered(test, hconcat(textured(16, 8, 1), textured(16, 8, 2)));
+    renders[indexOf(cases, "right")] = {};
+    renders[indexOf(cases, "right")].state = CaseRender::State::Failed;
+    renders[indexOf(cases, "right")].error = "boom";
+    const auto outcomes = evaluateRelations(test, cases, renders);
+    const auto *o = equivalenceOf(outcomes, cases, "sideBySide");
+    REQUIRE(o);
+    CHECK_FALSE(o->assertion.passed);
+    CHECK(o->assertion.detail == "partner `right` did not render: boom");
+    // It names the sibling that failed it.
+    const auto &related = o->assertion.relatedCases;
+    CHECK(std::find(related.begin(), related.end(), "right") != related.end());
+  }
+  SECTION("a sibling that was skipped")
+  {
+    renders[indexOf(cases, "sideBySide")] =
+        rendered(test, hconcat(textured(16, 8, 1), textured(16, 8, 2)));
+    renders[indexOf(cases, "left")] = {};
+    renders[indexOf(cases, "left")].state = CaseRender::State::Skipped;
+    renders[indexOf(cases, "left")].error = "not whole pixels";
+    const auto outcomes = evaluateRelations(test, cases, renders);
+    const auto *o = equivalenceOf(outcomes, cases, "sideBySide");
+    REQUIRE(o);
+    CHECK_FALSE(o->assertion.passed);
+    CHECK(
+        o->assertion.detail == "partner `left` was skipped: not whole pixels");
+  }
+}
+
+TEST_CASE(
+    "a masked expectation counts only the masked pixels", "[cts][relations]")
+{
+  // "off" must match "on" except inside the footprint (the left half), which
+  // the mask leaves out.
+  const uint32_t w = 20, h = 10;
+  const Image footprint = rectangle(w, h, 0, 0, 10, 10, {255, 255, 255, 255});
+  Image notFootprint = footprint;
+  for (size_t i = 0; i < notFootprint.pixelCount(); ++i)
+    for (int c = 0; c < 3; ++c)
+      notFootprint.rgba[i * 4 + c] = 255 - notFootprint.rgba[i * 4 + c];
+  const auto test = makeTest("demo", "visible")
+                        .permute("visible", {"on", "off"})
+                        .expectDerived("visible",
+                            "off",
+                            "`on` outside the light's footprint",
+                            [notFootprint](const Siblings &s) {
+                              return maskedBy(s.at("on"), notFootprint);
+                            })
+                        .take();
+  const auto cases = expand(test);
+  const Image on = rectangle(w, h, 0, 0, 20, 10, {200, 100, 50, 255});
+  // In "off" the footprint went dark: only masked-out pixels changed.
+  Image off = on;
+  for (uint32_t y = 0; y < h; ++y)
+    for (uint32_t x = 0; x < 10; ++x)
+      cts_test::setPixel(off, x, y, {0, 0, 0, 255});
+  std::vector<CaseRender> renders = {rendered(test, on), rendered(test, off)};
+
+  auto o = evaluateRelations(test, cases, renders);
+  REQUIRE(o.size() == 1); // no effect pair: "off" is derived
+  CHECK(o[0].assertion.passed);
+  CHECK(o[0].assertion.score == 0.0);
+  CHECK(o[0].assertion.detail.find("the 100 masked color pixels")
+      != std::string::npos);
+  CHECK(o[0].expectedMask.valid());
+
+  // A change outside the footprint is counted, as a fraction of the 100
+  // masked pixels.
+  for (uint32_t x = 10; x < 20; ++x)
+    cts_test::setPixel(renders[1].images[0], x, 0, {0, 0, 0, 255});
+  o = evaluateRelations(test, cases, renders);
+  CHECK_FALSE(o[0].assertion.passed);
+  CHECK(o[0].assertion.score == Approx(0.1));
+  // Masked-out pixels show grey in the changed-pixel mask.
+  REQUIRE(o[0].mask.valid());
+  CHECK(o[0].mask.rgba[0] == 128);
+
+  CHECK(changedFraction(on, off, 8, notFootprint) == 0.0);
+  CHECK(std::isnan(changedFraction(on, off, 8, solid(w, h, 0, 0, 0, 255))));
+  CHECK(
+      std::isnan(changedFraction(on, off, 8, solid(4, 4, 255, 255, 255, 255))));
+  CHECK(selectedPixels(notFootprint) == 100);
+}
+
+TEST_CASE(
+    "a mask that selects nothing fails the expectation", "[cts][relations]")
+{
+  const auto test =
+      makeTest("demo", "emptymask")
+          .permute("k", {"a", "b"})
+          .expectDerived("k",
+              "b",
+              "nothing",
+              [](const Siblings &s) {
+                const Image &a = s.at("a");
+                return maskedBy(a, solid(a.width, a.height, 0, 0, 0, 255));
+              })
+          .take();
+  const auto cases = expand(test);
+  std::vector<CaseRender> renders = {
+      rendered(test, textured(8, 8)), rendered(test, textured(8, 8))};
+  const auto o = evaluateRelations(test, cases, renders);
+  REQUIRE(o.size() == 1);
+  CHECK_FALSE(o[0].assertion.passed);
+  CHECK(o[0].assertion.detail == "the mask of color selects no pixel");
+}
+
+TEST_CASE("a Variant is the identity derived expectation", "[cts][relations]")
+{
+  const auto test =
+      makeTest("demo", "identity").variant("mode", {"soup", "indexed"}).take();
+  const auto cases = expand(test);
+  std::vector<CaseRender> renders = {
+      rendered(test, textured(8, 8)), rendered(test, textured(8, 8))};
+  const auto o = evaluateRelations(test, cases, renders);
+  REQUIRE(o.size() == 1);
+  CHECK(o[0].assertion.kind == kEquivalenceAssertion);
+  CHECK(o[0].assertion.passed);
+  CHECK(o[0].assertion.expectation == "identical to `soup`");
+  CHECK(o[0].assertion.relatedCases == std::vector<std::string>{"soup"});
+  // The expected image is the partner's own: nothing new to write.
+  CHECK_FALSE(o[0].expected.valid());
+  CHECK(o[0].assertion.detail.find("vs `soup`") != std::string::npos);
+}
+
+TEST_CASE("a derived value takes no part in its axis's effect pairs",
+    "[cts][relations]")
+{
+  const auto test = stereoTest();
+  const auto cases = expand(test);
+  // left and right differ; sideBySide is a different size.
+  std::vector<CaseRender> renders(3);
+  renders[indexOf(cases, "left")] = rendered(test, textured(16, 8, 1));
+  renders[indexOf(cases, "right")] = rendered(test, textured(16, 8, 2));
+  renders[indexOf(cases, "sideBySide")] =
+      rendered(test, hconcat(textured(16, 8, 1), textured(16, 8, 2)));
+  const auto outcomes = evaluateRelations(test, cases, renders);
+  REQUIRE(outcomes.size() == 2);
+  int effects = 0;
+  for (const auto &o : outcomes) {
+    CHECK(o.assertion.passed);
+    if (o.assertion.kind != kEffectAssertion)
+      continue;
+    ++effects;
+    // Only left vs right.
+    CHECK(cases[o.caseIndex].id() == "right");
+    CHECK(o.assertion.relatedCases == std::vector<std::string>{"left"});
+  }
+  CHECK(effects == 1);
+
+  // Selecting the derived Case renders every sibling; selecting right
+  // renders left only.
+  CHECK(renderSet(test, cases, {false, false, true})
+      == std::vector<bool>{true, true, true});
+  CHECK(renderSet(test, cases, {false, true, false})
+      == std::vector<bool>{true, true, false});
+}
+
+TEST_CASE("expectDerived rejects what it can't attach to", "[cts][relations]")
+{
+  auto fn = [](const Siblings &s) { return ExpectedImage(s.at("a")); };
+  auto builder = makeTest("demo", "bad").permute("k", {"a", "b"});
+  CHECK_THROWS_AS(
+      builder.expectDerived("nope", "b", "x", fn), std::invalid_argument);
+  CHECK_THROWS_AS(
+      builder.expectDerived("k", "c", "x", fn), std::invalid_argument);
+  CHECK_THROWS_AS(
+      builder.expectDerived("k", "b", "", fn), std::invalid_argument);
+  builder.expectDerived("k", "b", "x", fn);
+  CHECK_THROWS_AS(
+      builder.expectDerived("k", "b", "y", fn), std::invalid_argument);
+}
+
+// Frame size /////////////////////////////////////////////////////////////////
+
+TEST_CASE("a Case's frame size is its Test's hook applied to the run's",
+    "[cts][relations]")
+{
+  const auto test =
+      makeTest("demo", "sizes")
+          .permute("region", {"full", "half"})
+          .frameSize([](BuildContext &ctx, FrameSize run) -> CaseFrameSize {
+            if (ctx.getString("region", "") == "full")
+              return run;
+            return regionFrameSize(run, 0.25f, 0.25f, 0.75f, 0.75f);
+          })
+          .take();
+  const auto cases = expand(test);
+  const Case &full = cases[indexOf(cases, "full")];
+  const Case &half = cases[indexOf(cases, "half")];
+
+  auto r = resolveFrameSize(test, full, {256, 128});
+  REQUIRE(r.resolved());
+  CHECK(r.size == FrameSize{256, 128});
+  r = resolveFrameSize(test, half, {256, 128});
+  REQUIRE(r.resolved());
+  CHECK(r.size == FrameSize{128, 64});
+
+  // Not whole pixels at the run's size: skipped, with the reason.
+  r = resolveFrameSize(test, half, {66, 66});
+  CHECK_FALSE(r.resolved());
+  CHECK(r.skipReason.find("not cover whole pixels at 66x66")
+      != std::string::npos);
+
+  // No hook: the run's size.
+  const auto plain = makeTest("demo", "plain").permute("k", {"a"}).take();
+  r = resolveFrameSize(plain, expand(plain).front(), {40, 30});
+  REQUIRE(r.resolved());
+  CHECK(r.size == FrameSize{40, 30});
+
+  // A hook giving an empty frame skips the Case.
+  const auto empty = makeTest("demo", "empty")
+                         .frameSize([](BuildContext &, FrameSize) {
+                           return CaseFrameSize(FrameSize{0, 10});
+                         })
+                         .take();
+  CHECK_FALSE(
+      resolveFrameSize(empty, expand(empty).front(), {8, 8}).resolved());
+}
+
+// Unmatched axis values //////////////////////////////////////////////////////
+
+TEST_CASE("an axis value a Case holds but the axis doesn't is an error",
+    "[cts][relations]")
+{
+  const auto test = makeTest("demo", "mismatch")
+                        .permute("a", {"a0", "a1"})
+                        .permute("b", {"b0", "b1"})
+                        .take();
+  auto cases = expand(test);
+  // A Case whose `b` value isn't one of the axis's: not grouped as index 0.
+  cases[1].values[1].value = Any("b7");
+  try {
+    caseValueIndices(test, cases);
+    FAIL("no error for an unmatched value");
+  } catch (const std::invalid_argument &e) {
+    const std::string what = e.what();
+    CHECK(what.find("demo/mismatch") != std::string::npos);
+    CHECK(what.find("`" + cases[1].id() + "`") != std::string::npos);
+    CHECK(what.find("`b7`") != std::string::npos);
+  }
+  CHECK_THROWS_AS(relationGroups(test, cases), std::invalid_argument);
+  CHECK_THROWS_AS(
+      evaluateRelations(test, cases, std::vector<CaseRender>(cases.size())),
+      std::invalid_argument);
+
+  // An axis the Case has no value for, too.
+  cases = expand(test);
+  cases[0].values.pop_back();
+  CHECK_THROWS_AS(caseValueIndices(test, cases), std::invalid_argument);
+}
+
+TEST_CASE(
+    "every built-in Test's Cases match their axis values", "[cts][relations]")
+{
+  Catalog catalog;
+  registerBuiltinTests(catalog);
+  for (const TestDef *test : catalog.filter(Filter{}))
+    CHECK_NOTHROW(caseValueIndices(*test, expand(*test)));
 }

@@ -5,7 +5,9 @@
 
 // std
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace anari {
@@ -34,13 +36,70 @@ struct Image
   }
 };
 
+// Image helpers for derived expectations (ADR-0010) ////////////////////////
+
+// A rectangle of whole pixels in Image coordinates (row 0 at the bottom).
+struct PixelRect
+{
+  uint32_t x{0};
+  uint32_t y{0};
+  uint32_t width{0};
+  uint32_t height{0};
+};
+
+// The pixels of a w x h image covered by the normalized region
+// [lo, hi] (ANARI screen space: (0, 0) is the bottom left, as row 0 of an
+// Image is). Empty when the region is empty, leaves [0, 1], or an edge doesn't
+// fall on a pixel boundary: a region must cover whole pixels to be compared
+// pixel for pixel.
+std::optional<PixelRect> regionPixels(
+    uint32_t w, uint32_t h, float loX, float loY, float hiX, float hiY);
+
+// The pixels of `image` inside `rect`. Invalid when `rect` is empty or leaves
+// the image.
+Image crop(const Image &image, const PixelRect &rect);
+
+// `left` and `right` side by side. Invalid unless both are valid and equally
+// tall.
+Image hconcat(const Image &left, const Image &right);
+
+// `top` above `bottom`. Invalid unless both are valid and equally wide.
+Image vconcat(const Image &top, const Image &bottom);
+
+// Whether pixel `i` of a mask selects its pixel: any of its RGB channels is
+// non-zero (alpha is ignored).
+bool maskSelects(const Image &mask, size_t i);
+
+// What a derived expectation returns: the image a Case must match, and
+// optionally a mask of the pixels that must match (maskSelects(); without
+// one, every pixel must). Implicit from an Image, so an unmasked expectation
+// returns one.
+struct ExpectedImage
+{
+  Image image;
+  Image mask;
+
+  ExpectedImage() = default;
+  ExpectedImage(Image expected) : image(std::move(expected)) {}
+
+  // Whether a mask was given (a given mask must be valid and as large as the
+  // image).
+  bool masked() const
+  {
+    return mask.width != 0 || mask.height != 0 || !mask.rgba.empty();
+  }
+};
+
+// `expected`, compared only where `mask` selects (maskSelects()): a partial
+// equivalence. The mask must be as large as the image.
+ExpectedImage maskedBy(Image expected, Image mask);
+
 // Load a PNG as RGBA8. Returns an invalid Image (valid() == false) on failure.
 Image loadPNG(const std::string &path);
 
 // Write an RGBA8 image as a PNG, creating parent directories as needed.
 // Returns false on failure (including an invalid image).
-bool savePNG(
-    const std::string &path, const Image &image);
+bool savePNG(const std::string &path, const Image &image);
 
 } // namespace cts
 } // namespace anari

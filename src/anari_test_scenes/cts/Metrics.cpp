@@ -156,6 +156,34 @@ double changedFraction(const Image &a, const Image &b, int tau)
   return static_cast<double>(changed) / static_cast<double>(n);
 }
 
+double changedFraction(
+    const Image &a, const Image &b, int tau, const Image &mask)
+{
+  if (!comparable(a, b) || !comparable(a, mask))
+    return std::numeric_limits<double>::quiet_NaN();
+  size_t selected = 0;
+  size_t changed = 0;
+  for (size_t i = 0; i < a.pixelCount(); ++i) {
+    if (!maskSelects(mask, i))
+      continue;
+    ++selected;
+    changed += pixelChanged(a, b, i, tau) ? 1 : 0;
+  }
+  if (selected == 0)
+    return std::numeric_limits<double>::quiet_NaN();
+  return static_cast<double>(changed) / static_cast<double>(selected);
+}
+
+size_t selectedPixels(const Image &mask)
+{
+  if (!mask.valid())
+    return 0;
+  size_t n = 0;
+  for (size_t i = 0; i < mask.pixelCount(); ++i)
+    n += maskSelects(mask, i) ? 1 : 0;
+  return n;
+}
+
 double meanAbsoluteDifference(const Image &a, const Image &b)
 {
   if (!comparable(a, b))
@@ -181,6 +209,21 @@ Image changedMask(const Image &a, const Image &b, int tau)
     out.rgba[i * 4 + 1] = v;
     out.rgba[i * 4 + 2] = v;
     out.rgba[i * 4 + 3] = 255;
+  }
+  return out;
+}
+
+Image changedMask(const Image &a, const Image &b, int tau, const Image &mask)
+{
+  Image out = changedMask(a, b, tau);
+  if (!out.valid() || !comparable(a, mask))
+    return {};
+  for (size_t i = 0; i < out.pixelCount(); ++i) {
+    if (maskSelects(mask, i))
+      continue;
+    out.rgba[i * 4 + 0] = 128;
+    out.rgba[i * 4 + 1] = 128;
+    out.rgba[i * 4 + 2] = 128;
   }
   return out;
 }

@@ -11,6 +11,7 @@
 #include <limits>
 #include <map>
 #include <sstream>
+#include <stdexcept>
 
 namespace anari {
 namespace cts {
@@ -24,97 +25,140 @@ std::string percent(double fraction)
   return os.str();
 }
 
-std::string sizeText(const Image &image)
+std::string sizeOf(const Image &image)
 {
   return std::to_string(image.width) + "x" + std::to_string(image.height);
 }
 
-// The changed fraction of one Channel of a pair of Cases.
-struct ChannelScore
-{
-  double fraction{std::numeric_limits<double>::quiet_NaN()};
-  int tau{0};
-};
-
-// Fill the common fields of a pair's assertion.
-RelationOutcome pairOutcome(const char *kind,
-    const TestDef &test,
-    size_t axis,
-    const std::vector<Case> &cases,
-    size_t later,
-    size_t partner)
-{
-  RelationOutcome out;
-  out.caseIndex = later;
-  out.partnerIndex = partner;
-  out.assertion.kind = kind;
-  out.assertion.axis = test.axes[axis].name;
-  out.assertion.relatedCases = {cases[partner].id()};
-  return out;
-}
-
-// Why a pair can't be compared because of its partner, or empty when it can.
-std::string partnerProblem(const Case &partner, const CaseRender &render)
+// Why a partner's images can't be used, or empty when they can.
+std::string partnerProblem(
+    const TestDef &test, const Case &partner, const CaseRender &render)
 {
   switch (render.state) {
   case CaseRender::State::Rendered:
+    if (render.images.size() != test.channels.size())
+      return "partner `" + partner.id() + "` has no image";
     return {};
   case CaseRender::State::Failed:
     return "partner `" + partner.id() + "` did not render: " + render.error;
+  case CaseRender::State::Skipped:
+    return "partner `" + partner.id() + "` was skipped: " + render.error;
   case CaseRender::State::Absent:
     return "partner `" + partner.id() + "` was not rendered";
   }
   return {};
 }
 
-// Score every Channel of a pair; a size mismatch on any Channel is reported
-// in `mismatch` (the pair is then not comparable).
-std::vector<ChannelScore> scorePair(const TestDef &test,
-    const CaseRender &a,
-    const CaseRender &b,
-    int tau,
-    std::string &mismatch)
+// A failed assertion whose images could not be compared.
+void notCompared(RelationOutcome &out, std::string detail)
 {
-  std::vector<ChannelScore> scores(test.channels.size());
-  for (size_t i = 0; i < test.channels.size(); ++i) {
-    const Image &ia = a.images[i];
-    const Image &ib = b.images[i];
-    scores[i].tau = channelTau(test.channels[i], tau);
-    scores[i].fraction = changedFraction(ia, ib, scores[i].tau);
-    if (std::isnan(scores[i].fraction) && mismatch.empty()) {
-      mismatch = std::string("images are not comparable: ")
-          + channelName(test.channels[i]) + " is " + sizeText(ib) + " vs "
-          + sizeText(ia);
-    }
-  }
-  return scores;
+  out.assertion.passed = false;
+  out.assertion.score = std::numeric_limits<double>::quiet_NaN();
+  out.assertion.detail = std::move(detail);
 }
 
-// The index of the Channel with the largest changed fraction.
-size_t mostChanged(const std::vector<ChannelScore> &scores)
+// What one Channel of a Case is compared against: an image, and the mask
+// that limits the comparison (null: every pixel).
+struct Reference
 {
-  size_t best = 0;
-  for (size_t i = 1; i < scores.size(); ++i)
-    if (scores[i].fraction > scores[best].fraction)
-      best = i;
-  return best;
-}
+  const Image *image{nullptr};
+  const Image *mask{nullptr};
+};
 
-void recordChannel(RelationOutcome &out,
+enum class Bound
+{
+  AtLeast, // an effect
+  AtMost, // an equivalence
+};
+
+// The comparison both kinds share. Scores `actual` against `reference`
+// Channel by Channel and judges the most-changed Channel against
+// out.assertion.threshold: an effect shows when any Channel changed enough,
+// an equivalence holds when the worst one stayed within it. `versus` names
+// what was compared against, for the detail.
+void judge(RelationOutcome &out,
     const TestDef &test,
-    const std::vector<ChannelScore> &scores,
-    size_t channel)
+    const std::vector<Reference> &reference,
+    const std::vector<Image> &actual,
+    int tau,
+    Bound bound,
+    const std::string &versus)
 {
-  out.channelIndex = static_cast<int>(channel);
-  out.assertion.channel = channelName(test.channels[channel]);
-  out.assertion.score = scores[channel].fraction;
-  out.assertion.tau = scores[channel].tau;
+  const size_t n = test.channels.size();
+  std::vector<double> fractions(n);
+  std::vector<int> taus(n);
+  for (size_t i = 0; i < n; ++i) {
+    const Image &ref = *reference[i].image;
+    const Image *mask = reference[i].mask;
+    const char *channel = channelName(test.channels[i]);
+    taus[i] = channelTau(test.channels[i], tau);
+    fractions[i] = mask ? changedFraction(ref, actual[i], taus[i], *mask)
+                        : changedFraction(ref, actual[i], taus[i]);
+    if (!std::isnan(fractions[i]))
+      continue;
+    if (!ref.valid() || !actual[i].valid() || ref.width != actual[i].width
+        || ref.height != actual[i].height) {
+      notCompared(out,
+          std::string("images are not comparable: ") + channel + " is "
+              + sizeOf(actual[i]) + " vs " + sizeOf(ref));
+    } else if (!mask->valid() || mask->width != ref.width
+        || mask->height != ref.height) {
+      notCompared(out,
+          std::string("the mask of ") + channel + " is " + sizeOf(*mask)
+              + " vs " + sizeOf(ref));
+    } else {
+      notCompared(
+          out, std::string("the mask of ") + channel + " selects no pixel");
+    }
+    return;
+  }
+
+  size_t best = 0;
+  for (size_t i = 1; i < n; ++i)
+    if (fractions[i] > fractions[best])
+      best = i;
+  const Image *mask = reference[best].mask;
+  out.channelIndex = static_cast<int>(best);
+  out.assertion.channel = channelName(test.channels[best]);
+  out.assertion.score = fractions[best];
+  out.assertion.tau = taus[best];
+  out.assertion.passed = bound == Bound::AtLeast
+      ? out.assertion.score >= out.assertion.threshold
+      : out.assertion.score <= out.assertion.threshold;
+  const std::string pixels = mask
+      ? "the " + std::to_string(selectedPixels(*mask)) + " masked "
+          + out.assertion.channel + " pixels"
+      : out.assertion.channel + " pixels";
+  out.assertion.detail = "changed " + percent(out.assertion.score) + " of "
+      + pixels + " vs " + versus
+      + (bound == Bound::AtLeast ? "; an effect needs >= "
+                                 : "; an equivalence allows <= ")
+      + percent(out.assertion.threshold);
+  if (!out.assertion.passed) {
+    const Image &ref = *reference[best].image;
+    out.mask = mask ? changedMask(ref, actual[best], taus[best], *mask)
+                    : changedMask(ref, actual[best], taus[best]);
+  }
 }
 
-bool usable(const CaseRender &render, const TestDef &test)
+RelationOutcome attributed(
+    const char *kind, const TestDef &test, size_t axis, size_t caseIndex)
 {
-  return render.state == CaseRender::State::Rendered
-      && render.images.size() == test.channels.size();
+  RelationOutcome out;
+  out.caseIndex = caseIndex;
+  out.assertion.kind = kind;
+  out.assertion.axis = test.axes[axis].name;
+  out.assertion.score = std::numeric_limits<double>::quiet_NaN();
+  return out;
+}
+
+void setPartners(
+    RelationOutcome &out, const std::vector<Case> &cases, std::vector<size_t> p)
+{
+  out.partners = std::move(p);
+  out.assertion.relatedCases.clear();
+  for (size_t i : out.partners)
+    out.assertion.relatedCases.push_back(cases[i].id());
 }
 
 RelationOutcome effect(const TestDef &test,
@@ -125,94 +169,159 @@ RelationOutcome effect(const TestDef &test,
     size_t partner,
     const SelfCheckDefaults &defaults)
 {
-  RelationOutcome out =
-      pairOutcome(kEffectAssertion, test, axis, cases, later, partner);
-  const auto &axisName = test.axes[axis].name;
-  const auto margin = test.effectMargins.find(axisName);
+  RelationOutcome out = attributed(kEffectAssertion, test, axis, later);
+  setPartners(out, cases, {partner});
+  const auto margin = test.effectMargins.find(test.axes[axis].name);
   out.assertion.threshold =
       margin != test.effectMargins.end() ? margin->second : defaults.effectMin;
-  out.assertion.score = std::numeric_limits<double>::quiet_NaN();
   out.assertion.tau = defaults.tau;
 
-  const std::string problem = partnerProblem(cases[partner], renders[partner]);
-  if (!problem.empty() || !usable(renders[partner], test)) {
-    out.assertion.passed = false;
-    out.assertion.detail = problem.empty()
-        ? "partner `" + cases[partner].id() + "` has no image"
-        : problem;
+  const std::string problem =
+      partnerProblem(test, cases[partner], renders[partner]);
+  if (!problem.empty()) {
+    notCompared(out, problem);
     return out;
   }
-
-  std::string mismatch;
-  const auto scores =
-      scorePair(test, renders[partner], renders[later], defaults.tau, mismatch);
-  if (!mismatch.empty()) {
-    out.assertion.passed = false;
-    out.assertion.detail = mismatch;
-    return out;
-  }
-  const size_t best = mostChanged(scores);
-  recordChannel(out, test, scores, best);
-  // Any Channel showing the effect is enough.
-  out.assertion.passed = out.assertion.score >= out.assertion.threshold;
-  out.assertion.detail = "changed " + percent(out.assertion.score) + " of "
-      + out.assertion.channel + " pixels vs `" + cases[partner].id()
-      + "`; an effect needs >= " + percent(out.assertion.threshold);
-  if (!out.assertion.passed) {
-    const auto &l = renders[later].images[best];
-    const auto &p = renders[partner].images[best];
-    out.mask = changedMask(p, l, scores[best].tau);
-  }
+  std::vector<Reference> reference;
+  for (const auto &image : renders[partner].images)
+    reference.push_back({&image, nullptr});
+  judge(out,
+      test,
+      reference,
+      renders[later].images,
+      defaults.tau,
+      Bound::AtLeast,
+      "`" + cases[partner].id() + "`");
   return out;
 }
 
+// What a value of an axis must render, if anything: a declared derived
+// expectation, or a Variant's identity with its first value.
+struct Expectation
+{
+  const DerivedExpectation *declared{nullptr};
+  bool identity{false};
+
+  explicit operator bool() const
+  {
+    return declared || identity;
+  }
+};
+
+Expectation expectationFor(const TestDef &test, size_t axis, size_t value)
+{
+  const Axis &a = test.axes[axis];
+  if (const auto *d = test.derivedFor(a.name, anyToString(a.values[value])))
+    return {d, false};
+  if (a.kind == AxisKind::Variant && value > 0)
+    return {nullptr, true};
+  return {};
+}
+
+// A sibling the expectation asked for and couldn't have.
+struct SiblingUnavailable : std::runtime_error
+{
+  using std::runtime_error::runtime_error;
+};
+
 RelationOutcome equivalence(const TestDef &test,
-    size_t axis,
+    const RelationGroup &group,
+    size_t k,
+    const Expectation &expectation,
     const std::vector<Case> &cases,
     const std::vector<CaseRender> &renders,
-    size_t later,
-    size_t first,
     const SelfCheckDefaults &defaults)
 {
+  const size_t later = group.cases[k];
+  const Axis &axis = test.axes[group.axis];
   RelationOutcome out =
-      pairOutcome(kEquivalenceAssertion, test, axis, cases, later, first);
-  const auto &axisName = test.axes[axis].name;
-  const auto override = test.equivalenceTolerances.find(axisName);
+      attributed(kEquivalenceAssertion, test, group.axis, later);
+  const auto override = test.equivalenceTolerances.find(axis.name);
   const bool overridden = override != test.equivalenceTolerances.end();
   const int tau = overridden ? override->second.tau : defaults.tau;
   out.assertion.threshold =
       overridden ? override->second.maxFraction : defaults.equivalenceMax;
-  out.assertion.score = std::numeric_limits<double>::quiet_NaN();
   out.assertion.tau = tau;
 
-  const std::string problem = partnerProblem(cases[first], renders[first]);
-  if (!problem.empty() || !usable(renders[first], test)) {
-    out.assertion.passed = false;
-    out.assertion.detail = problem.empty()
-        ? "partner `" + cases[first].id() + "` has no image"
-        : problem;
-    return out;
+  // The siblings, by value, and which of them the function read.
+  std::vector<size_t> used;
+  Channel channel = Channel::Color;
+  size_t channelIndex = 0;
+  auto lookup = [&](const std::string &value) -> const Image & {
+    for (size_t m = 0; m < group.cases.size(); ++m) {
+      if (anyToString(axis.values[group.values[m]]) != value)
+        continue;
+      const size_t sibling = group.cases[m];
+      if (sibling == later)
+        throw SiblingUnavailable("the expectation of `" + value
+            + "` can't be derived from the Case itself");
+      if (std::find(used.begin(), used.end(), sibling) == used.end())
+        used.push_back(sibling);
+      const std::string problem =
+          partnerProblem(test, cases[sibling], renders[sibling]);
+      if (!problem.empty())
+        throw SiblingUnavailable(problem);
+      return renders[sibling].images[channelIndex];
+    }
+    throw SiblingUnavailable(
+        "no sibling holds `" + axis.name + "` = `" + value + "`");
+  };
+
+  const std::string first = anyToString(axis.values.front());
+  const DerivedFn identity = [&](const Siblings &s) -> ExpectedImage {
+    return s.at(first);
+  };
+  const DerivedFn &fn =
+      expectation.declared ? expectation.declared->fn : identity;
+
+  std::vector<ExpectedImage> expected(test.channels.size());
+  try {
+    for (channelIndex = 0; channelIndex < test.channels.size();
+        ++channelIndex) {
+      channel = test.channels[channelIndex];
+      expected[channelIndex] = fn(Siblings(channel, lookup));
+      if (!expected[channelIndex].image.valid())
+        throw SiblingUnavailable(std::string("the expectation gave no ")
+            + channelName(channel) + " image");
+    }
+  } catch (const SiblingUnavailable &e) {
+    notCompared(out, e.what());
+  } catch (const std::exception &e) {
+    notCompared(out, std::string("the expectation failed: ") + e.what());
   }
 
-  std::string mismatch;
-  const auto scores =
-      scorePair(test, renders[first], renders[later], tau, mismatch);
-  if (!mismatch.empty()) {
-    out.assertion.passed = false;
-    out.assertion.detail = mismatch;
+  // The siblings read, in the axis's value order (the order the function
+  // read them in may be unspecified, e.g. as call arguments).
+  std::vector<size_t> read;
+  for (size_t c : group.cases)
+    if (std::find(used.begin(), used.end(), c) != used.end())
+      read.push_back(c);
+  setPartners(out, cases, read);
+  if (expectation.declared)
+    out.assertion.expectation = expectation.declared->description;
+  else if (!read.empty())
+    out.assertion.expectation =
+        "identical to `" + cases[read.front()].id() + "`";
+  if (!out.assertion.detail.empty())
     return out;
-  }
-  // Every Channel must match: score the worst.
-  const size_t worst = mostChanged(scores);
-  recordChannel(out, test, scores, worst);
-  out.assertion.passed = out.assertion.score <= out.assertion.threshold;
-  out.assertion.detail = "changed " + percent(out.assertion.score) + " of "
-      + out.assertion.channel + " pixels vs `" + cases[first].id()
-      + "`; an equivalence allows <= " + percent(out.assertion.threshold);
-  if (!out.assertion.passed) {
-    const auto &l = renders[later].images[worst];
-    const auto &f = renders[first].images[worst];
-    out.mask = changedMask(f, l, scores[worst].tau);
+
+  std::vector<Reference> reference;
+  for (const auto &e : expected)
+    reference.push_back({&e.image, e.masked() ? &e.mask : nullptr});
+  judge(out,
+      test,
+      reference,
+      renders[later].images,
+      tau,
+      Bound::AtMost,
+      expectation.declared
+          ? "the expected image (" + expectation.declared->description + ")"
+          : "`" + cases[read.front()].id() + "`");
+  if (expectation.declared && out.channelIndex >= 0) {
+    auto &scored = expected[size_t(out.channelIndex)];
+    out.expected = std::move(scored.image);
+    if (scored.masked())
+      out.expectedMask = std::move(scored.mask);
   }
   return out;
 }
@@ -224,14 +333,32 @@ RelationOutcome optedOut(const TestDef &test,
     size_t partner,
     const std::string &reason)
 {
-  RelationOutcome out =
-      pairOutcome(kEffectAssertion, test, axis, cases, later, partner);
+  RelationOutcome out = attributed(kEffectAssertion, test, axis, later);
+  setPartners(out, cases, {partner});
   out.assertion.evaluated = false;
   out.assertion.passed = false;
-  out.assertion.score = std::numeric_limits<double>::quiet_NaN();
   out.assertion.threshold = std::numeric_limits<double>::quiet_NaN();
   out.assertion.detail = "effect check opted out: " + reason;
   return out;
+}
+
+// Walk a Test's groups: for each Case of a group (in value order) with
+// `visit(group, k, expectation)`. Keeps the grouping and the per-value
+// expectation lookup in one place for renderSet() and evaluateRelations().
+template <typename Visit>
+void forEachGroupMember(
+    const TestDef &test, const std::vector<Case> &cases, Visit &&visit)
+{
+  for (const auto &group : relationGroups(test, cases))
+    for (size_t k = 0; k < group.cases.size(); ++k)
+      visit(group, k, expectationFor(test, group.axis, group.values[k]));
+}
+
+// The members of a group an effect pair may use: those without a declared
+// derived expectation.
+bool inEffectPairs(const TestDef &test, const RelationGroup &group, size_t k)
+{
+  return !hasDerivedExpectation(test, group.axis, group.values[k]);
 }
 
 } // namespace
@@ -257,16 +384,27 @@ std::vector<std::vector<size_t>> caseValueIndices(
     std::vector<size_t> idx(test.axes.size(), 0);
     for (size_t a = 0; a < test.axes.size(); ++a) {
       const auto &axis = test.axes[a];
-      std::string value;
+      const std::string where = "test `" + test.id() + "`, Case `" + c.id()
+          + "`: axis `" + axis.name + "`";
+      const CaseValue *held = nullptr;
       for (const auto &cv : c.values)
         if (cv.axisName == axis.name)
-          value = anyToString(cv.value);
-      for (size_t v = 0; v < axis.values.size(); ++v) {
-        if (anyToString(axis.values[v]) == value) {
-          idx[a] = v;
-          break;
-        }
-      }
+          held = &cv;
+      if (!held)
+        throw std::invalid_argument(where + " has no value in the Case");
+      const std::string value = anyToString(held->value);
+      std::vector<size_t> matches;
+      for (size_t v = 0; v < axis.values.size(); ++v)
+        if (anyToString(axis.values[v]) == value)
+          matches.push_back(v);
+      if (matches.empty())
+        throw std::invalid_argument(
+            where + " value `" + value + "` matches none of the axis's values");
+      if (matches.size() > 1)
+        throw std::invalid_argument(where + " value `" + value + "` matches "
+            + std::to_string(matches.size())
+            + " of the axis's values (their string forms collide)");
+      idx[a] = matches.front();
     }
     out.push_back(std::move(idx));
   }
@@ -292,7 +430,10 @@ std::vector<RelationGroup> relationGroups(
       std::stable_sort(members.begin(), members.end(), [&](size_t x, size_t y) {
         return indices[x][a] < indices[y][a];
       });
-      groups.push_back(RelationGroup{a, std::move(members)});
+      RelationGroup group{a, std::move(members), {}};
+      for (size_t m : group.cases)
+        group.values.push_back(indices[m][a]);
+      groups.push_back(std::move(group));
     }
   }
   return groups;
@@ -308,27 +449,41 @@ bool hasRelations(const TestDef &test)
   return false;
 }
 
+bool hasDerivedExpectation(const TestDef &test, size_t axis, size_t valueIndex)
+{
+  const Axis &a = test.axes[axis];
+  return test.derivedFor(a.name, anyToString(a.values[valueIndex])) != nullptr;
+}
+
 std::vector<bool> renderSet(const TestDef &test,
     const std::vector<Case> &cases,
     const std::vector<bool> &selected)
 {
   std::vector<bool> out = selected;
   out.resize(cases.size(), false);
-  for (const auto &group : relationGroups(test, cases)) {
-    const auto &axis = test.axes[group.axis];
-    if (axis.kind == AxisKind::Variant) {
-      // Each Case is compared with the group's first.
-      for (size_t k = 1; k < group.cases.size(); ++k)
-        if (selected[group.cases[k]])
-          out[group.cases.front()] = true;
-    } else if (!test.noEffectCheck.count(axis.name)) {
-      // Each later Case is compared with every earlier one.
-      for (size_t k = 1; k < group.cases.size(); ++k)
-        if (selected[group.cases[k]])
+  forEachGroupMember(test,
+      cases,
+      [&](const RelationGroup &group, size_t k, const Expectation &e) {
+        if (!selected[group.cases[k]])
+          return;
+        const Axis &axis = test.axes[group.axis];
+        if (e.identity) {
+          // Compared with the first value's Case.
+          for (size_t m = 0; m < group.cases.size(); ++m)
+            if (group.values[m] == 0)
+              out[group.cases[m]] = true;
+        } else if (e.declared) {
+          // The function may read any sibling.
+          for (size_t c : group.cases)
+            out[c] = true;
+        } else if (axis.kind == AxisKind::Permutation
+            && !test.noEffectCheck.count(axis.name)) {
+          // Compared with every earlier Case taking part in effect pairs.
           for (size_t p = 0; p < k; ++p)
-            out[group.cases[p]] = true;
-    }
-  }
+            if (inEffectPairs(test, group, p))
+              out[group.cases[p]] = true;
+        }
+      });
   return out;
 }
 
@@ -340,41 +495,39 @@ std::vector<RelationOutcome> evaluateRelations(const TestDef &test,
   std::vector<RelationOutcome> out;
   if (test.behaviorCheck)
     return out;
-  for (const auto &group : relationGroups(test, cases)) {
-    const auto &axis = test.axes[group.axis];
-    const auto optOut = test.noEffectCheck.find(axis.name);
-    for (size_t k = 1; k < group.cases.size(); ++k) {
-      const size_t later = group.cases[k];
-      // A Case that wasn't rendered here, or failed itself, carries nothing.
-      if (renders[later].state != CaseRender::State::Rendered)
-        continue;
-      if (axis.kind == AxisKind::Variant) {
-        out.push_back(equivalence(test,
-            group.axis,
-            cases,
-            renders,
-            later,
-            group.cases.front(),
-            defaults));
-      } else if (optOut != test.noEffectCheck.end()) {
-        out.push_back(optedOut(test,
-            group.axis,
-            cases,
-            later,
-            group.cases[k - 1],
-            optOut->second));
-      } else {
+  forEachGroupMember(test,
+      cases,
+      [&](const RelationGroup &group, size_t k, const Expectation &e) {
+        const size_t later = group.cases[k];
+        // A Case that wasn't rendered here, or failed itself, carries
+        // nothing.
+        if (renders[later].state != CaseRender::State::Rendered)
+          return;
+        if (e) {
+          out.push_back(
+              equivalence(test, group, k, e, cases, renders, defaults));
+          return;
+        }
+        const Axis &axis = test.axes[group.axis];
+        if (axis.kind != AxisKind::Permutation)
+          return;
+        // Effect pairs with every earlier Case, among those taking part.
+        std::vector<size_t> partners;
         for (size_t p = 0; p < k; ++p)
-          out.push_back(effect(test,
-              group.axis,
-              cases,
-              renders,
-              later,
-              group.cases[p],
-              defaults));
-      }
-    }
-  }
+          if (inEffectPairs(test, group, p))
+            partners.push_back(group.cases[p]);
+        if (partners.empty())
+          return;
+        const auto optOut = test.noEffectCheck.find(axis.name);
+        if (optOut != test.noEffectCheck.end()) {
+          out.push_back(optedOut(
+              test, group.axis, cases, later, partners.back(), optOut->second));
+          return;
+        }
+        for (size_t partner : partners)
+          out.push_back(effect(
+              test, group.axis, cases, renders, later, partner, defaults));
+      });
   return out;
 }
 

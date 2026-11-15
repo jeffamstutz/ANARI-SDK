@@ -5,6 +5,7 @@
 
 #include "Channel.h"
 // std
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <string>
@@ -45,6 +46,11 @@ namespace cts {
 // that passed its self-checks without a Ground-truth comparison is told apart
 // from one that passed both. From older sidecars `usesGroundTruth` reads true
 // and `groundTruthEvaluated` reads true exactly when there are channel scores.
+//
+// Additive to v4, read with defaults (ADR-0010, derived expectations):
+// `frameSize`, the Case's own frame size (0x0 when unrecorded), and per
+// assertion `expectation` (what a derived expectation's image is),
+// `expectedImage` and `expectedMaskImage`.
 constexpr int kSidecarSchemaVersion = 4;
 
 // The skipReason of a Case skipped because it has no Ground truth. The report
@@ -100,15 +106,20 @@ struct ChannelResult
 inline constexpr const char *kEffectAssertion = "effect";
 inline constexpr const char *kEquivalenceAssertion = "equivalence";
 
-// One self-check attributed to a Case (ADR-0010): for an effect or an
-// equivalence, the relation between this Case and a partner Case of the same
-// Test that differs from it only in `axis`.
+// One self-check attributed to a Case (ADR-0010): for an effect, the relation
+// between this Case and a partner Case of the same Test that differs from it
+// only in `axis`; for an equivalence, between this Case and the image derived
+// from its siblings on `axis` (for a Variant, the first value's Case).
 struct Assertion
 {
   std::string kind; // kEffectAssertion, kEquivalenceAssertion, ...
   std::string axis;
-  // The partner Case ids (Case::id(), same Test).
+  // The partner Case ids (Case::id(), same Test): an effect's partner, or
+  // the siblings an equivalence's expected image was derived from.
   std::vector<std::string> relatedCases;
+  // An equivalence's expectation, in one line (a derived expectation's
+  // description; for a Variant, the identity).
+  std::string expectation;
   // The Channel the score was taken on: for an effect the one that changed
   // most, for an equivalence the one that changed most (the worst). Empty
   // when no Channel was compared (a partner that did not render).
@@ -126,9 +137,14 @@ struct Assertion
   std::string detail;
   // Paths relative to the workdir root; empty when not written. The partner
   // Case's result image for `channel`, and (for a failed check) the mask of
-  // changed pixels.
+  // changed pixels. For a derived expectation, the expected image of
+  // `channel` and the mask it compared under, if any (a Variant's expected
+  // image is its partner's, `partnerImage`). Each is one of the Case's own
+  // result files.
   std::string partnerImage;
   std::string maskImage;
+  std::string expectedImage;
+  std::string expectedMaskImage;
 };
 
 // The full per-Case result.
@@ -153,6 +169,10 @@ struct CaseResult
   std::string skipReason; // empty unless skipped
   std::string detail; // human-readable note (e.g. a behavioral check's outcome)
   double durationMs{0.0};
+  // The size the Case rendered at (its Test's frame-size hook applied to the
+  // run's size); 0x0 when unrecorded.
+  uint32_t frameWidth{0};
+  uint32_t frameHeight{0};
   // The Ground-truth comparison (schema v4 adds the flags). `channels` holds
   // its per-Channel scores when it ran.
   bool usesGroundTruth{true}; // the Test compares against Ground truth

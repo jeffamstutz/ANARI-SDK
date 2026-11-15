@@ -63,6 +63,21 @@ std::filesystem::path Workdir::assertionMaskPath(
       / (c.id() + "." + kind + "-" + std::to_string(index) + ".mask.png");
 }
 
+std::filesystem::path Workdir::expectedImagePath(
+    const Case &c, const std::string &kind, size_t index) const
+{
+  return resultsDir() / c.category / c.testName
+      / (c.id() + "." + kind + "-" + std::to_string(index) + ".expected.png");
+}
+
+std::filesystem::path Workdir::expectedMaskPath(
+    const Case &c, const std::string &kind, size_t index) const
+{
+  return resultsDir() / c.category / c.testName
+      / (c.id() + "." + kind + "-" + std::to_string(index)
+          + ".expected-mask.png");
+}
+
 std::filesystem::path Workdir::groundTruthImagePath(
     const Case &c, Channel channel) const
 {

@@ -60,6 +60,11 @@ std::vector<DiscriminationPair> discriminationPairs(
       continue;
     for (size_t k = 1; k < group.cases.size(); ++k) {
       for (size_t p = 0; p < k; ++p) {
+        // A value with a derived expectation is exempt from effect pairs,
+        // and so from these (ADR-0010).
+        if (hasDerivedExpectation(test, group.axis, group.values[p])
+            || hasDerivedExpectation(test, group.axis, group.values[k]))
+          continue;
         const size_t first = group.cases[p];
         const size_t second = group.cases[k];
         // Cases differing also in a Variant value share Ground truth.

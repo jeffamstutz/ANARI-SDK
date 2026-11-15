@@ -102,6 +102,7 @@ if (BUILD_CTS OR BUILD_TESTING)
     cts/FrameAccumulation.cpp
     cts/FrameFormats.cpp
     cts/FrameReadback.cpp
+    cts/FrameSize.cpp
     cts/GeometryBuilder.cpp
     cts/GeometryLayout.cpp
     cts/HtmlReport.cpp

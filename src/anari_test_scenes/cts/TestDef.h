@@ -6,6 +6,8 @@
 #include "Axis.h"
 #include "BuildContext.h"
 #include "Channel.h"
+#include "FrameSize.h"
+#include "Image.h"
 #include "anari_test_scenes.h" // anari::scenes::Bounds / Camera
 // anari
 #include "anari/anari_cpp.hpp"
@@ -60,6 +62,52 @@ using BehaviorFn = std::function<BehaviorResult(anari::Device,
     uint32_t width,
     uint32_t height)>;
 
+// The renders a derived expectation is computed from (ADR-0010): the Case's
+// siblings on the axis (the Cases holding the same values on every other
+// axis), one Channel at a time.
+class Siblings
+{
+ public:
+  using Lookup = std::function<const Image &(const std::string &value)>;
+
+  Siblings(Channel channel, Lookup lookup)
+      : m_channel(channel), m_lookup(std::move(lookup))
+  {}
+
+  // The image of the sibling holding `value` on the axis (its string form,
+  // as in Case ids: "none" for unset). Throws when there is no such sibling
+  // or it did not render; the expectation then fails with that reason.
+  const Image &at(const std::string &value) const
+  {
+    return m_lookup(value);
+  }
+
+  // The Channel being compared.
+  Channel channel() const
+  {
+    return m_channel;
+  }
+
+ private:
+  Channel m_channel;
+  Lookup m_lookup;
+};
+
+// A pure image function over a Case's siblings: the image (and optional mask)
+// the Case must match within the equivalence tolerance.
+using DerivedFn = std::function<ExpectedImage(const Siblings &)>;
+
+// What one value of an axis must look like, derived from its siblings
+// (ADR-0010): `.expectDerived(axis, value, description, fn)`. A Variant
+// axis's non-first values carry the identity expectation implicitly.
+struct DerivedExpectation
+{
+  std::string axis;
+  std::string value; // anyToString() form of the axis value
+  std::string description; // one line: what the expected image is
+  DerivedFn fn;
+};
+
 // Whether a Test compares its Cases against Ground truth (ADR-0010).
 enum class GroundTruthUse
 {
@@ -91,6 +139,7 @@ struct TestDef
   BuildFn build;
   CameraFn cameraBuild; // empty -> runner frames camera from world bounds
   RendererFn rendererConfig; // empty -> runner keeps its renderer baseline
+  FrameSizeFn frameSize; // empty -> every Case renders at the run's size
   BehaviorFn behaviorCheck; // set -> verify behavior instead of render+compare
   // For a behavior check that may hang the device: when non-zero, `anariCts
   // run` runs each Case in a child process and records it as failed if it
@@ -127,8 +176,12 @@ struct TestDef
   std::map<std::string, std::string> noEffectCheck;
   // Per-axis minimum changed fraction for an effect (overrides the default).
   std::map<std::string, double> effectMargins;
-  // Per-axis equivalence tolerance (overrides the default).
+  // Per-axis equivalence tolerance (overrides the default); it also applies
+  // to the axis's derived expectations.
   std::map<std::string, EquivalenceTolerance> equivalenceTolerances;
+  // Axis values whose image is derived from their siblings'; such a value
+  // takes no part in its axis's effect pairs.
+  std::vector<DerivedExpectation> derivedExpectations;
   // Whether the Test's Cases are compared against Ground truth, and why.
   GroundTruthUse groundTruthUse{GroundTruthUse::Default};
   std::string groundTruthReason;
@@ -143,6 +196,16 @@ struct TestDef
   std::string id() const
   {
     return category + "/" + name;
+  }
+
+  // The derived expectation declared for `value` of `axis`, or null.
+  const DerivedExpectation *derivedFor(
+      const std::string &axis, const std::string &value) const
+  {
+    for (const auto &d : derivedExpectations)
+      if (d.axis == axis && d.value == value)
+        return &d;
+    return nullptr;
   }
 
   double thresholdOr(const std::string &metric, double valIfNotFound) const

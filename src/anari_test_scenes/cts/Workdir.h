@@ -39,6 +39,13 @@ struct Workdir
   // pixels of the Case's index'th assertion (a failed self-check, ADR-0010).
   std::filesystem::path assertionMaskPath(
       const Case &c, const std::string &kind, size_t index) const;
+  // results/<category>/<test>/<caseId>.<kind>-<index>.expected.png and
+  // .expected-mask.png: the image (and mask) a derived expectation required
+  // of the Case's index'th assertion (ADR-0010).
+  std::filesystem::path expectedImagePath(
+      const Case &c, const std::string &kind, size_t index) const;
+  std::filesystem::path expectedMaskPath(
+      const Case &c, const std::string &kind, size_t index) const;
   // ground_truth/<category>/<test>/<gtKey>.<channel>.png
   std::filesystem::path groundTruthImagePath(
       const Case &c, Channel channel) const;
