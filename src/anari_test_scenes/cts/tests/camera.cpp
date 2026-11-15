@@ -19,6 +19,11 @@ namespace {
 using anari::math::float3;
 using V = std::vector<Any>;
 
+// What cameraSubjectWorld is made of. Each camera Test covers (so requires)
+// the camera it renders with; the others don't need the default perspective.
+const std::vector<std::string> kSubjectSurface = {
+    "ANARI_KHR_GEOMETRY_TRIANGLE", "ANARI_KHR_MATERIAL_MATTE"};
+
 // The subject lies in the z = 0 plane; from this side the default direction
 // (0, 0, -1) faces it.
 const float3 kEye(0.5f, 0.5f, 1.f);
@@ -82,7 +87,7 @@ void registerCameraTests(Catalog &catalog)
       .permute("up", V{none(), Any(float3(0.f, -0.97855f, 0.20601f))})
       .permute("imageRegion", V{none(), box2(0.25f, 0.3f, 0.75f, 0.8f)})
       .covers("ANARI_KHR_CAMERA_PERSPECTIVE")
-      .requireFeatures(kSupportMatteTriangle)
+      .requireFeatures(kSubjectSurface)
       .registerInto(catalog);
 
   // ---- perspective: intrinsics ----------------------------------------------
@@ -107,7 +112,7 @@ void registerCameraTests(Catalog &catalog)
       .permute("near", V{Any(0.01f), Any(1.0f)})
       .permute("far", V{Any(100.0f), Any(1.0f)})
       .covers("ANARI_KHR_CAMERA_PERSPECTIVE")
-      .requireFeatures(kSupportMatteTriangle)
+      .requireFeatures(kSubjectSurface)
       .registerInto(catalog);
 
   // ---- orthographic ---------------------------------------------------------
@@ -131,7 +136,7 @@ void registerCameraTests(Catalog &catalog)
       .permute("near", V{Any(0.01f), Any(1.0f)})
       .permute("far", V{Any(100.0f), Any(1.0f)})
       .covers("ANARI_KHR_CAMERA_ORTHOGRAPHIC")
-      .requireFeatures(kSupportMatteTriangle)
+      .requireFeatures(kSubjectSurface)
       .registerInto(catalog);
 
   // ---- omnidirectional ------------------------------------------------------
@@ -148,7 +153,7 @@ void registerCameraTests(Catalog &catalog)
       })
       .permute("layout", V{none(), Any("equirectangular")})
       .covers("ANARI_KHR_CAMERA_OMNIDIRECTIONAL")
-      .requireFeatures(kSupportMatteTriangle)
+      .requireFeatures(kSubjectSurface)
       .registerInto(catalog);
 }
 

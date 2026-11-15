@@ -160,6 +160,7 @@ void registerGltfTests(Catalog &catalog)
     t.description("Checks loading and rendering the " + asset
         + " glTF sample in each available encoding.");
     t.build(build);
+    t.requireFeature(kSupportPerspective); // the default camera
     // Each encoding (glTF / glTF-Binary / glTF-Embedded / Draco) is scored
     // against its own ground truth: a Permutation, since the encodings are not
     // guaranteed to render pixel-identically (textures, quantization).

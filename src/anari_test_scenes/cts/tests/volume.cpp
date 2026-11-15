@@ -89,6 +89,7 @@ void registerVolumeTests(Catalog &catalog)
       .channels({Channel::Color, Channel::Depth})
       .covers("ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR")
       .covers("ANARI_KHR_VOLUME_TRANSFER_FUNCTION1D")
+      .requireFeature(kSupportPerspective)
       .registerInto(catalog);
 }
 
