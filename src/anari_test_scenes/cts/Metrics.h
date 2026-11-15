@@ -36,6 +36,12 @@ double ssim(
 // equivalence assertions (ADR-0004).
 double changedFraction(const Image &a, const Image &b, int tau);
 
+// The mean absolute difference of two images' RGB channels, in 8-bit levels
+// (alpha ignored). Used where a check compares how far apart images are, not
+// how many pixels moved: frame accumulation's convergence and restart. NaN if
+// the two images differ in size or are invalid.
+double meanAbsoluteDifference(const Image &a, const Image &b);
+
 // A viewable mask of changedFraction(): opaque white where a pixel counts as
 // changed, opaque black elsewhere. Invalid when the images aren't comparable.
 Image changedMask(const Image &a, const Image &b, int tau);

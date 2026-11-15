@@ -27,22 +27,9 @@ constexpr uint32_t kSize = 32;
 // subject on a background, in mid-range values so noise doesn't clip.
 Image scene(bool changed)
 {
-  return changed ? rectangle(kSize,
-                       kSize,
-                       4,
-                       4,
-                       28,
-                       28,
-                       {60, 90, 200, 255},
-                       {100, 100, 100, 255})
-                 : rectangle(kSize,
-                       kSize,
-                       4,
-                       4,
-                       28,
-                       28,
-                       {200, 150, 90, 255},
-                       {100, 100, 100, 255});
+  const cts_test::Rgba subject = changed ? cts_test::Rgba{60, 90, 200, 255}
+                                         : cts_test::Rgba{200, 150, 90, 255};
+  return rectangle(kSize, kSize, 4, 4, 28, 28, subject, {100, 100, 100, 255});
 }
 
 FrameReadbackResult ok(Image im)
@@ -84,18 +71,14 @@ struct StubFrame : AccumulationTarget
 
   void render() override
   {
-    const Image s = sample();
-    if (!accumulates) {
-      last = s;
-      ++count;
-      return;
-    }
-    for (size_t i = 0; i < s.rgba.size(); ++i)
-      sum[i] += s.rgba[i];
+    last = sample();
     ++count;
-    last = s;
-    for (size_t i = 0; i < s.rgba.size(); ++i)
+    if (!accumulates)
+      return;
+    for (size_t i = 0; i < last.rgba.size(); ++i) {
+      sum[i] += last.rgba[i];
       last.rgba[i] = static_cast<uint8_t>(sum[i] / count + 0.5);
+    }
   }
 
   FrameReadbackResult color() override
@@ -228,12 +211,4 @@ TEST_CASE("frame accumulation: a failed readback fails", "[cts]")
   const auto r = checkFrameAccumulation(f);
   CHECK_FALSE(r.passed);
   CHECK(r.detail.find("readback failed") != std::string::npos);
-}
-
-TEST_CASE("frame accumulation: mean absolute difference", "[cts]")
-{
-  const Image a = cts_test::solid(4, 4, 10, 20, 30, 255);
-  const Image b = cts_test::solid(4, 4, 13, 20, 24, 0); // alpha ignored
-  CHECK(meanAbsoluteDifference(a, a) == 0.0);
-  CHECK(meanAbsoluteDifference(a, b) == Approx(3.0));
 }

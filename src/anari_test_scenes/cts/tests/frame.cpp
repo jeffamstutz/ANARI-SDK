@@ -151,7 +151,10 @@ BehaviorResult checkFrameCompletionCallback(anari::Device d,
 // The KHR_FRAME_ACCUMULATION check (FrameAccumulation.h) over the runner's
 // world, camera and renderer: one frame with accumulation enabled. The world
 // change replaces the world's surfaces with one triangle of a contrasting
-// colour; the world is the Case's own, so changing it is safe.
+// colour; the world is the Case's own, so changing it is safe. The Test's
+// scene is a soup of triangles: their edges need sampling (antialiasing) on
+// any Monte Carlo renderer without needing an extension beyond the support
+// set. A renderer that converges in one render passes as converged.
 class DeviceAccumulationTarget : public AccumulationTarget
 {
  public:
@@ -172,13 +175,12 @@ class DeviceAccumulationTarget : public AccumulationTarget
 
   void render() override
   {
-    anari::render(m_d, m_frame.get());
-    anari::wait(m_d, m_frame.get());
+    renderOnce(m_frame.get());
   }
 
   FrameReadbackResult color() override
   {
-    return readFrameChannel(m_d, m_frame.get(), Channel::Color, m_w, m_h);
+    return readColor(m_frame.get());
   }
 
   std::optional<float> refinementProgress() override
@@ -208,12 +210,22 @@ class DeviceAccumulationTarget : public AccumulationTarget
   FrameReadbackResult renderFresh() override
   {
     auto frame = newFrame();
-    anari::render(m_d, frame.get());
-    anari::wait(m_d, frame.get());
-    return readFrameChannel(m_d, frame.get(), Channel::Color, m_w, m_h);
+    renderOnce(frame.get());
+    return readColor(frame.get());
   }
 
  private:
+  void renderOnce(anari::Frame f)
+  {
+    anari::render(m_d, f);
+    anari::wait(m_d, f);
+  }
+
+  FrameReadbackResult readColor(anari::Frame f)
+  {
+    return readFrameChannel(m_d, f, Channel::Color, m_w, m_h);
+  }
+
   UniqueAnariObject<anari::Frame> newFrame()
   {
     auto frame = behaviorFrame(m_d, m_world, m_camera, m_renderer, m_w, m_h);
@@ -434,7 +446,7 @@ void registerFrameTests(Catalog &catalog)
           "Checks that frame accumulation converges across renders, restarts "
           "after a world change, and reports a sane refinementProgress.")
       .build([](BuildContext &ctx) {
-        return triangleSurfaceWorld(ctx, float3(0.7f, 0.5f, 0.3f), 1);
+        return triangleSurfaceWorld(ctx, float3(0.7f, 0.5f, 0.3f), 8);
       })
       .behavior(checkProgressiveRendering)
       .covers("ANARI_KHR_FRAME_ACCUMULATION")
