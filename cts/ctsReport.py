@@ -82,6 +82,19 @@ def load_results(workdir):
     return out
 
 
+def load_device_failure(workdir):
+    """The record a run left when its device could not render a probe frame
+    (results/run.json: {"device": {...}, "reason": ...}), or None."""
+    path = Path(workdir) / "results" / "run.json"
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    failure = data.get("deviceCouldNotRender") if isinstance(data, dict) else None
+    return failure if isinstance(failure, dict) else None
+
+
 def run_device(results):
     """The consistent device identity in a run's sidecars, or None.
 
@@ -176,10 +189,13 @@ def report_case_keys(results, include_all=False):
 # --- PDF report (requires reportlab) -----------------------------------------
 
 
-def generate_pdf(workdir, results, out_path, *, include_all=False):
+def generate_pdf(
+    workdir, results, out_path, *, include_all=False, device_failure=None
+):
     """Render a PDF report from the sidecars. Embeds result/ground-truth images
-    for failed cases, or every case when include_all is true. Requires
-    reportlab."""
+    for failed cases, or every case when include_all is true. With
+    device_failure (load_device_failure()), leads with why the device could not
+    render. Requires reportlab."""
     try:
         from reportlab.lib import colors, pagesizes, utils
         from reportlab.lib.styles import getSampleStyleSheet
@@ -207,6 +223,21 @@ def generate_pdf(workdir, results, out_path, *, include_all=False):
     s = summarize(results)
 
     story.append(Paragraph(f"CTS Report: {root.name}", styles["Heading1"]))
+    if device_failure:
+        story.append(
+            Paragraph(
+                "Device could not render: "
+                + html.escape(str(device_failure.get("reason", ""))),
+                styles["Heading3"],
+            )
+        )
+        if results:
+            story.append(
+                Paragraph(
+                    "The Case results below are from an earlier run.",
+                    styles["Normal"],
+                )
+            )
     device = run_device(results)
     if device:
         story.append(
@@ -354,12 +385,17 @@ def main(argv=None):
 
     if args.command == "report":
         results = load_results(args.workdir)
+        device_failure = load_device_failure(args.workdir)
         ok = generate_pdf(
-            args.workdir, results, Path(args.pdf), include_all=args.all
+            args.workdir,
+            results,
+            Path(args.pdf),
+            include_all=args.all,
+            device_failure=device_failure,
         )
         if not ok:
             return 2
-        return 1 if summarize(results)["failed"] else 0
+        return 1 if device_failure or summarize(results)["failed"] else 0
 
     return 2
 

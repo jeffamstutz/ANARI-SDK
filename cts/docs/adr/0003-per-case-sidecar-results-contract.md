@@ -22,3 +22,12 @@ Consequences: "the manifest" is the whole results tree, not one file. Aggregatio
 (for a report or a device diff) is a glob-and-merge step. The sidecar schema is a
 versioned cross-language contract and changes to it must keep the Python reader
 in step.
+
+Amendment (2026-11-15): one run-level file now sits in the results tree,
+`results/run.json`, the Run record of a run that stopped because its device
+could not render a probe frame. It is not a manifest: it holds no Case results,
+and it records an event that ends the whole run before any Case, which no
+per-Case sidecar can carry. It has no `verdict`, so both readers pass over it
+as a sidecar, and both read it to state the reason (`anariCts report`, and the
+PDF in `ctsReport.py`). A run whose device renders the probe removes it, so a
+filtered subset run still accumulates sidecars without clobbering.

@@ -9,6 +9,7 @@
 #include "cts/Catalog.h"
 #include "cts/DeviceErrorLog.h"
 #include "cts/DeviceFailure.h"
+#include "cts/DeviceProbe.h"
 #include "cts/Expansion.h"
 #include "cts/FrameFormats.h"
 #include "cts/FrameReadback.h"
@@ -1461,10 +1462,26 @@ struct StubRenderDevice : public helium_test::TestDevice
   {
     return (ANARIWorld) new helium_test::StubObject(ANARI_WORLD, state());
   }
-  ANARICamera newCamera(const char *) override
+  ANARICamera newCamera(const char *subtype) override
   {
+    if (!cameraSubtypes.empty() && cameraSubtypes[0] != std::string(subtype))
+      return nullptr;
     return (ANARICamera) new helium_test::StubObject(ANARI_CAMERA, state());
   }
+  const char **getObjectSubtypes(ANARIDataType type) override
+  {
+    if (type != ANARI_CAMERA || cameraSubtypes.empty())
+      return nullptr;
+    m_cameraNames.clear();
+    for (const auto &name : cameraSubtypes)
+      m_cameraNames.push_back(name.c_str());
+    m_cameraNames.push_back(nullptr);
+    return m_cameraNames.data();
+  }
+
+  // The camera subtypes it lists (and the first is the only one it creates);
+  // empty lists none and creates any.
+  std::vector<std::string> cameraSubtypes;
   ANARIRenderer newRenderer(const char *) override
   {
     return (ANARIRenderer) new helium_test::StubObject(ANARI_RENDERER, state());
@@ -1493,6 +1510,7 @@ struct StubRenderDevice : public helium_test::TestDevice
   }
 
   bool m_renders{false};
+  std::vector<const char *> m_cameraNames;
 };
 
 // A Test whose build would author a world; on a device that can't render, it
@@ -1519,6 +1537,15 @@ TEST_CASE("probeDevice names the device's own error", "[cts][runner][probe]")
   SECTION("a device that renders the probe frame")
   {
     auto *device = new StubRenderDevice(errors, true);
+    CHECK(probeDevice(device->handle(), "default", &errors).empty());
+    device->state()->commitBuffer.clear();
+    delete device;
+  }
+
+  SECTION("a device without a perspective camera renders with one it lists")
+  {
+    auto *device = new StubRenderDevice(errors, true);
+    device->cameraSubtypes = {"orthographic"};
     CHECK(probeDevice(device->handle(), "default", &errors).empty());
     device->state()->commitBuffer.clear();
     delete device;

@@ -57,7 +57,7 @@ struct RunSummary
   int passed{0}; // generated, or passed comparison
   int failed{0};
   int skipped{0};
-  // Why the device could not render the probe frame (DeviceFailure.h); empty
+  // Why the device could not render the probe frame (DeviceProbe.h); empty
   // when it could. When set, no Case ran and the counts are zero.
   std::string deviceFailure;
 };
@@ -177,10 +177,11 @@ struct Runner
   // timed out, crashed or wrote none.
   void runIsolatedCase(const TestDef &test, const Case &c, RunSummary &summary);
 
-  // Probe the device once per Runner (probeDevice()) and return why it can't
-  // render, or empty. There is nothing to probe without a device, and an
-  // isolated Case (RunOptions::onlyCase) runs after its parent probed.
-  const std::string &deviceFailure();
+  // Render the probe frame (probeDevice()) the first time it is called, and
+  // return why the device can't render it, or empty. There is nothing to probe
+  // without a device, and an isolated Case (RunOptions::onlyCase) runs after
+  // its parent probed.
+  const std::string &probeOnce();
 
   // Whether run() runs Case 'c' (RunOptions::onlyCase).
   bool selected(const Case &c) const;
@@ -202,7 +203,7 @@ struct Runner
   // Declared parameter types for the selected renderer subtype (name -> type),
   // resolved once from device introspection to type the CLI overrides.
   std::map<std::string, ANARIDataType> m_rendererParamTypes;
-  // deviceFailure(), once probed.
+  // probeOnce()'s result, once probed.
   std::optional<std::string> m_deviceFailure;
 };
 

@@ -120,9 +120,10 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   `--isolated-case` for each Case of a timed Test (ADR-0009).
 - `DeviceErrorLog.{h,cpp}` — the ERROR messages a device reported, recorded
   by the status callback, for `failOnDeviceErrors` and the probe frame.
-- `DeviceFailure.{h,cpp}` — `probeDevice()`, the probe frame the Runner
-  renders before the first Case, and the run-level record
-  (`results/run.json`) of a device that could not render it.
+- `DeviceProbe.{h,cpp}` — `probeDevice()`, the probe frame the Runner
+  renders before the first Case.
+- `DeviceFailure.{h,cpp}` — the run record (`results/run.json`) of a device
+  that could not render the probe frame; files only, so `report` reads it.
 - `FrameReadback.{h,cpp}` — validates mapped frame descriptors and converts
   supported per-Channel formats behind the shared map/unmap boundary.
 - `FrameFormats.{h,cpp}` — resolves a Case's per-Channel output `ANARIDataType`
