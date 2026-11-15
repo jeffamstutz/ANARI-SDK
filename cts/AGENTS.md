@@ -157,9 +157,12 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   name's type from device introspection (falling back to inference) and sets it
   on every Case's renderer before the Test's own `rendererConfig`, so it stays
   device-agnostic and a renderer Test still wins on conflict.
+- `FrameSize.{h,cpp}` — a Case's frame size from its Test's `.frameSize`
+  hook (`resolveFrameSize`, pure), or the skip when it isn't whole pixels.
 - `Metrics.{h,cpp}` / `Image.{h,cpp}` — SSIM/PSNR, `changedFraction` (and its
-  mask) for the self-checks, `meanAbsoluteDifference` for the accumulation
-  check, and PNG I/O (stb).
+  mask, optionally under a selection mask) for the self-checks, the
+  derived-expectation helpers (`crop`, `hconcat`, `vconcat`, `maskedBy`),
+  `meanAbsoluteDifference` for the accumulation check, and PNG I/O (stb).
 - `Discrimination.{h,cpp}` — `check-discrimination`: the pairs of Cases that
   differ in one Permutation value (`discriminationPairs`, pure), scoring their
   Ground truth against each other with the Test's thresholds, and matching the
@@ -167,7 +170,8 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   `tests/IndistinguishableGroundTruth.cpp`.
 - `Relations.{h,cpp}` — the pure relational pass (ADR-0010): groups of Cases
   differing in one axis, effect (all pairs, attributed to the later Case) and
-  equivalence (with the first value's Case), the default tolerances
+  equivalence (a derived expectation over the Case's siblings; a Variant's is
+  the first value's Case), the default tolerances
   (`SelfCheckDefaults`), which partners a filtered run must render
   (`renderSet`), the verdict as a conjunction (`settleVerdict`), and reading a
   Case's images back from the results tree (`loadCaseRender`). No device.
@@ -225,7 +229,12 @@ the support extensions the scene can't do without with `requireFeatures()`
 that brings its own camera requires that one instead), and channels.
 
 Every Permutation axis is an effect check and every Variant axis an
-equivalence check (ADR-0010). Pick values whose effect shows in a good share of
+equivalence check (ADR-0010). When a value must look like something derived
+from its siblings (a crop, a concatenation, the same outside a mask), declare
+it with `.expectDerived(axis, value, description, fn)` using the helpers in
+`Image.h` (`crop`, `regionPixels`, `hconcat`, `vconcat`, `maskedBy`); a Case
+that needs another frame size than the run's gets `.frameSize(...)`
+(`regionFrameSize` for a normalized region). Pick values whose effect shows in a good share of
 the frame (the default minimum is 1 % of pixels changed by more than 8 levels);
 rework the scene rather than loosen it (`.effectMargin`) when a change is too
 subtle, and opt an axis out (`.noEffectCheck(axis, reason)`) only when its
@@ -265,4 +274,6 @@ target v3 and warn on older sidecars, prompting a regenerate. v4 added the
 self-checks (ADR-0010): an `assertions` array (readers keep kinds they don't
 know, so later kinds don't need a bump), `resultImages`, and
 `usesGroundTruth`/`groundTruthEvaluated`/`groundTruthReason`; older sidecars
-read as compared exactly when they have channel scores.
+read as compared exactly when they have channel scores. Derived expectations
+added optional fields to v4 without a bump: `frameSize`, and per assertion
+`expectation`/`expectedImage`/`expectedMaskImage`.

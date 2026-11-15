@@ -165,3 +165,88 @@ were not moved: no legitimate pair lands in or near the gap.
   still skipped without rendering.
 - Until ticket 18 lands, a noisy Candidate can pass effect checks on noise
   alone; the SDK devices' default renderers are deterministic.
+
+## Derived expectations and per-Case frame size (ticket 16)
+
+Equivalence as "same image as the first value" can't express three needs of
+later Tests: an `imageRegion` Case must equal a *crop* of the full frame
+(transformed); stereo `sideBySide` must equal `left` and `right` concatenated,
+while `left` and `right` aren't equivalent to each other (many-to-one); and
+with a light's `visible = false` the lit surface is unchanged while the
+light's footprint becomes background (partial). Two of these, and the
+default-`aspect` Test, also need Cases of one Test to render at different
+frame sizes.
+
+13. **The derived expectation is the single equivalence primitive.** For a
+    named value of an axis, the Test supplies a pure image function over its
+    sibling Cases' renders (the Cases holding the same values on every other
+    axis); it returns the expected image, and the Case is compared with it
+    using the equivalence tolerance (decision 5, including a per-axis
+    `.equivalenceTolerance`).
+    ```cpp
+    .permute("stereoMode", {"left", "right", "sideBySide"})
+    .expectDerived("stereoMode", "sideBySide", "left and right, side by side",
+        [](const Siblings &s) { return hconcat(s.at("left"), s.at("right")); })
+    ```
+    Values are named by their string form, as in Case ids (`"none"` for
+    unset). The function runs once per Channel. A sibling it reads that
+    didn't render (or was skipped) fails the assertion with the reason; the
+    assertion names the siblings it read.
+
+14. **Variant is its identity shorthand.** A Variant axis's non-first values
+    carry the expectation "the first value's image, unchanged", evaluated by
+    the same code. Nothing changed for the existing Variants.
+
+15. **The function is free-form C++** over `Image`, with a required one-line
+    description, composed from helpers next to `Image`: `crop` (with
+    `regionPixels` for a normalized region), `hconcat`, `vconcat`,
+    `maskedBy`. The runner writes the expected image of the scored Channel to
+    the results tree (`<case>.equivalence-<n>.expected.png`) and the
+    assertion records it with the description (`expectation`,
+    `expectedImage`), so a report shows expected, actual and description
+    without understanding the function.
+    *Rejected:* a closed set of declared transforms (`.cropOf`, `.concatOf`):
+    tickets 09-13 keep producing new shapes and each would be a harness
+    change.
+
+16. **Partial equivalence:** the function may return a mask with the image
+    (`maskedBy(image, mask)`; a pixel is selected where any RGB channel of the
+    mask is non-zero). Only selected pixels are counted, and the changed
+    fraction is of the selected pixels. A mask that isn't the image's size,
+    or selects nothing, fails the assertion.
+
+17. **A value with a derived expectation is exempt from its axis's effect
+    pairs** (and from `check-discrimination`'s pairs): the expectation says
+    exactly what it must look like, and its image may differ in size from its
+    siblings'. The axis's other values still form effect pairs.
+
+18. **Frame size is per Case, relative to the run's size.**
+    ```cpp
+    .frameSize([](BuildContext &ctx, FrameSize run) -> CaseFrameSize { ... })
+    ```
+    No hook means the run's size; `--width`/`--height` keep working, and no
+    Test hard-codes 256. Everything that reads a size uses the Case's: the
+    default camera's aspect, the frame, `behaviorCheck`'s `width`/`height`,
+    and the Sidecar (`frameSize`). A hook that can't produce whole pixels from
+    the run's size skips the Case with a reason (`regionFrameSize` does this
+    for a normalized region); a relation that needs a skipped Case fails.
+    *Rejected:* a per-Test size (the `imageRegion` and stereo equivalences
+    need sibling Cases at different sizes); resampling one side (forces a
+    loose tolerance).
+
+19. **Grouping by value is strict.** A Case value that matches none of its
+    axis's values (by string form), or more than one, is an error naming the
+    Test, the Case and the value, never silently the first value. The run
+    fails that Test's Cases with it.
+
+`camera/camera_general` is the proof: its `imageRegion` Case renders the
+middle half of the sensor, `(0.25, 0.25)-(0.75, 0.75)`, at the crop's pixel
+size and must equal the crop of the full frame; it is self-checked only
+(`.noGroundTruth()`). On 2026-11-15 at 256x256 it scored a changed fraction
+of exactly 0 on halcyon and helide, and `direction` and `up` kept their
+effect checks (27.1 % and 10.6 %).
+
+The new Sidecar fields (`frameSize`, and per assertion `expectation`,
+`expectedImage`, `expectedMaskImage`) are additive to schema v4 and read with
+defaults (ADR-0003): no version bump.
+

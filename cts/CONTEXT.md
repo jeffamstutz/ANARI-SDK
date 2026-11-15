@@ -44,8 +44,19 @@ difference.
 **Variant**:
 An Axis whose values must produce *identical* output (e.g. `soup` vs `indexed`).
 Each Case is checked for Equivalence with the Case holding the axis's first
-value, on the Candidate itself. All values share one ground-truth image,
-written from the first value's Case.
+value, on the Candidate itself: the identity Derived expectation. All values
+share one ground-truth image, written from the first value's Case.
+
+**Derived expectation**:
+What one value of an axis must render, as a pure image function over its
+sibling Cases (same values on every other axis) with a one-line description:
+`.expectDerived(axis, value, description, fn)`, e.g. `sideBySide` is `left`
+and `right` side by side, or `imageRegion` set is the crop of the unset
+Case's frame. The Case is checked for Equivalence with the image (only the
+masked pixels, when the function returns a mask), and the expected image is
+written to the Results tree. The value takes no part in its axis's Effect
+pairs. A Variant is the identity case (ADR-0010).
+_Avoid_: transform, expected-image check
 
 **Case**:
 One concrete combination of axis values produced by expanding a Test. A Case is
@@ -57,8 +68,9 @@ _Avoid_: instance, permutation (as a noun for the result)
 
 **Assertion**:
 A self-check recorded in a Case's Sidecar (its `assertions`): an Effect or an
-Equivalence relating it to a partner Case of the same Test that differs from it
-only in one axis, with the score (changed fraction), the bound, pass/fail and a
+Equivalence relating it to partner Cases of the same Test that differ from it
+only in one axis (an Effect's partner, or the siblings a Derived expectation
+read), with the score (changed fraction), the bound, pass/fail and a
 detail. A failed pair is attributed to the later Case in the axis's value
 order. A Case's verdict is the conjunction of its Ground-truth comparison and
 its evaluated Assertions (ADR-0010).
@@ -71,8 +83,10 @@ per-channel difference exceeds τ) is at least a minimum on some Channel. Every
 pair within a group is checked.
 
 **Equivalence**:
-What a Variant axis asserts: a Case renders like the Case holding the axis's
-first value, i.e. their changed fraction is at most a maximum on every Channel.
+What a Derived expectation (and so a Variant axis) asserts: a Case renders
+like the image derived from its siblings (for a Variant, the Case holding the
+axis's first value), i.e. their changed fraction is at most a maximum on every
+Channel.
 
 **Timed behaviour test**:
 A Test whose check (not an image) decides pass/fail, and which declares a
@@ -181,7 +195,9 @@ An optional per-Case builder a Test supplies beyond `build()`. `cameraBuild`
 (`.camera(...)`) replaces the runner's bounds-framed camera. The related
 `rendererConfig` hook (`.renderer(...)`) instead mutates the runner-created
 renderer after its selected subtype and baseline parameters are applied
-(ADR-0006).
+(ADR-0006). The third, `frameSize` (`.frameSize(...)`), gives the Case's frame
+size relative to the run's (`--width`/`--height`); a size that isn't whole
+pixels skips the Case (ADR-0010).
 
 **Layout**:
 The deterministic, human-viewable placement of a Test's primitives — their
