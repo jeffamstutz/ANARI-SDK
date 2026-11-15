@@ -14,11 +14,13 @@ metrics.
 Command:
   report <workdir> --pdf report.pdf [--all]   write a PDF from one run.
 
-The sidecar schema is versioned (schemaVersion); this reader targets version 3
+The sidecar schema is versioned (schemaVersion); this reader targets version 4
 (v2 added the producing-device identity; v3 the extensions behind a Case:
 requiredFeatures, coveredFeatures, missingFeatures, device.extensions and
 catalogCoveredFeatures, the last only for the C++ report's per-extension
-matrix) and warns on a mismatch.
+matrix; v4 the self-checks: an `assertions` array, `resultImages`, and
+usesGroundTruth/groundTruthEvaluated/groundTruthReason, which this reader
+does not yet show) and warns on a mismatch.
 """
 
 import argparse
@@ -27,7 +29,7 @@ import json
 import sys
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Metrics shown in the PDF, in display order. The C++ reporters keep their own
 # copy (kReportMetrics); both are independent readers of the one contract.

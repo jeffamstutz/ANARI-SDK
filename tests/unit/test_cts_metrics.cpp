@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "catch.hpp"
+#include "cts_test_images.h"
 // cts
 #include "cts/Image.h"
 #include "cts/Metrics.h"
@@ -11,45 +12,8 @@
 
 using namespace anari::cts;
 
-namespace {
-
-Image solid(uint32_t w, uint32_t h, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
-{
-  Image im;
-  im.width = w;
-  im.height = h;
-  im.rgba.resize(static_cast<size_t>(w) * h * 4);
-  for (size_t i = 0; i < im.pixelCount(); ++i) {
-    im.rgba[i * 4 + 0] = r;
-    im.rgba[i * 4 + 1] = g;
-    im.rgba[i * 4 + 2] = b;
-    im.rgba[i * 4 + 3] = a;
-  }
-  return im;
-}
-
-// A deterministic opaque gradient, optionally offset to perturb every pixel.
-Image gradient(uint32_t w, uint32_t h, int offset = 0)
-{
-  Image im;
-  im.width = w;
-  im.height = h;
-  im.rgba.resize(static_cast<size_t>(w) * h * 4);
-  for (uint32_t y = 0; y < h; ++y) {
-    for (uint32_t x = 0; x < w; ++x) {
-      const size_t i = (static_cast<size_t>(y) * w + x) * 4;
-      int v = static_cast<int>((x * 7 + y * 3)) + offset;
-      v = v < 0 ? 0 : (v > 255 ? 255 : v);
-      im.rgba[i + 0] = static_cast<uint8_t>(v);
-      im.rgba[i + 1] = static_cast<uint8_t>((v * 2) % 256);
-      im.rgba[i + 2] = static_cast<uint8_t>((v + 64) % 256);
-      im.rgba[i + 3] = 255;
-    }
-  }
-  return im;
-}
-
-} // namespace
+using cts_test::gradient;
+using cts_test::solid;
 
 // PSNR ///////////////////////////////////////////////////////////////////////
 
@@ -155,4 +119,69 @@ TEST_CASE("savePNG/loadPNG round-trips RGBA8 pixels", "[cts][metrics][image]")
   CHECK_FALSE(loadPNG((dir / "does_not_exist.png").string()).valid());
 
   std::filesystem::remove_all(dir.parent_path(), ec);
+}
+
+// Changed fraction (ADR-0010) ////////////////////////////////////////////////
+
+TEST_CASE("changedFraction is zero for identical images", "[cts][metrics]")
+{
+  const auto a = gradient(32, 32);
+  CHECK(changedFraction(a, a, 0) == 0.0);
+}
+
+TEST_CASE("changedFraction counts the share of pixels beyond tau",
+    "[cts][metrics]")
+{
+  using cts_test::rectangle;
+  // A 10x10 subject on a 100x100 background: 1 % of the pixels.
+  const auto bg = solid(100, 100, 0, 0, 0, 255);
+  const auto subject =
+      rectangle(100, 100, 20, 30, 30, 40, {200, 100, 50, 255}, {0, 0, 0, 255});
+  CHECK(changedFraction(bg, subject, 8) == Approx(0.01));
+  // Symmetric.
+  CHECK(changedFraction(subject, bg, 8) == Approx(0.01));
+}
+
+TEST_CASE("changedFraction ignores differences within tau", "[cts][metrics]")
+{
+  const auto a = solid(16, 16, 100, 100, 100, 255);
+  const auto b = solid(16, 16, 108, 100, 100, 255); // 8 levels on one channel
+  CHECK(changedFraction(a, b, 8) == 0.0);
+  CHECK(changedFraction(a, b, 7) == 1.0);
+  // The largest per-channel difference decides, not the sum.
+  const auto c = solid(16, 16, 105, 105, 105, 255);
+  CHECK(changedFraction(a, c, 8) == 0.0);
+}
+
+TEST_CASE("changedFraction with tau 0 catches a one-level change",
+    "[cts][metrics]")
+{
+  auto a = solid(4, 4, 10, 10, 10, 255);
+  auto b = a;
+  b.rgba[0] = 11; // one pixel, one level
+  CHECK(changedFraction(a, b, 0) == Approx(1.0 / 16.0));
+}
+
+TEST_CASE("changedFraction is NaN for mismatched sizes", "[cts][metrics]")
+{
+  CHECK(std::isnan(changedFraction(
+      solid(8, 8, 0, 0, 0, 255), solid(16, 8, 0, 0, 0, 255), 8)));
+  CHECK(std::isnan(changedFraction(Image{}, Image{}, 8)));
+}
+
+TEST_CASE("changedMask marks exactly the changed pixels", "[cts][metrics]")
+{
+  using cts_test::rectangle;
+  const auto bg = solid(20, 10, 0, 0, 0, 255);
+  const auto subject =
+      rectangle(20, 10, 0, 0, 5, 2, {255, 255, 255, 255}, {0, 0, 0, 255});
+  const auto mask = changedMask(bg, subject, 8);
+  REQUIRE(mask.valid());
+  size_t white = 0;
+  for (size_t i = 0; i < mask.pixelCount(); ++i) {
+    CHECK(mask.rgba[i * 4 + 3] == 255);
+    white += mask.rgba[i * 4] == 255 ? 1 : 0;
+  }
+  CHECK(white == 10);
+  CHECK_FALSE(changedMask(bg, solid(4, 4, 0, 0, 0, 255), 8).valid());
 }

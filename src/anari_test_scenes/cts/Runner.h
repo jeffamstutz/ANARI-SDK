@@ -9,6 +9,7 @@
 #include "DeviceErrorLog.h"
 #include "Image.h"
 #include "Isolation.h"
+#include "Relations.h"
 #include "RendererParams.h"
 #include "Sidecar.h"
 #include "TestDef.h"
@@ -53,10 +54,15 @@ struct RunOptions
 
 struct RunSummary
 {
-  int total{0};
+  int total{0}; // selected Cases; support renders are not counted
   int passed{0}; // generated, or passed comparison
   int failed{0};
   int skipped{0};
+  // Of `passed`: Cases that passed their self-checks while the Ground truth
+  // their Test asks for was missing (ADR-0010).
+  int passedWithoutGroundTruth{0};
+  // generate: equivalences the Reference device's own Variants failed.
+  int variantDisagreements{0};
   // Why the device could not render the probe frame (DeviceProbe.h); empty
   // when it could. When set, no Case ran and the counts are zero.
   std::string deviceFailure;
@@ -80,16 +86,22 @@ struct Runner
   void setCaseIsolation(std::shared_ptr<CaseIsolation> isolation);
 
   // Render every selected Case and save its channels under ground_truth/.
-  // Does not score or write sidecars (ADR-0005). Stops before the first Case,
-  // with RunSummary::deviceFailure set, if the device can't render the probe
-  // frame.
+  // Does not score or write sidecars (ADR-0005). A shared (Variant) Ground
+  // truth file is written from its first Variant value's Case only, and the
+  // device's own Variants are checked for equivalence (a disagreement is
+  // reported, RunSummary::variantDisagreements). Skips `.noGroundTruth()`
+  // Tests. Stops before the first Case, with RunSummary::deviceFailure set,
+  // if the device can't render the probe frame.
   RunSummary generate(const Catalog &catalog,
       const Filter &filter,
       const std::set<std::string> &referenceFeatures);
 
-  // Render every selected Case, compare each channel against ground truth, and
-  // write result images plus a sidecar. Cases whose required features are
-  // absent, or that have no ground truth yet, are recorded as skipped. If the
+  // Render every selected Case, compare each channel against ground truth,
+  // evaluate the self-checks between the Cases of each Test (ADR-0010), and
+  // write result images plus a sidecar. A partner of a selected Case that the
+  // filter excludes is rendered as a support render (images only). Cases
+  // whose required features are absent, or that have nothing to evaluate (no
+  // ground truth yet and no self-check), are recorded as skipped. If the
   // device can't render the probe frame, stops before the first Case with
   // RunSummary::deviceFailure set and records that in the results tree
   // instead (results/run.json); a run whose device renders it removes that
@@ -121,6 +133,35 @@ struct Runner
       return world && camera && renderer;
     }
   };
+
+  // The per-Case phase's outcome (ADR-0010, decision 11): the Case's result
+  // with its Ground-truth comparison, its images to publish, and its render
+  // for the relational pass.
+  struct CaseOutcome
+  {
+    CaseResult result;
+    std::vector<ImageArtifact> artifacts;
+    CaseRender render;
+  };
+
+  // The per-Case phase: build, render, compare against Ground truth.
+  // `renderWithoutGroundTruth`: render even when the Ground truth is missing
+  // (the Case takes part in self-checks). Never throws.
+  CaseOutcome runCase(
+      const TestDef &test, const Case &c, bool renderWithoutGroundTruth);
+
+  // Run a render Test: the per-Case phase for its selected Cases and their
+  // partners, then the relational pass, then publication.
+  void runRenderTest(const TestDef &test,
+      const Filter &filter,
+      const std::set<std::string> &candidateFeatures,
+      RunSummary &summary);
+
+  // generate for one render Test.
+  void generateTest(const TestDef &test,
+      const Filter &filter,
+      const std::set<std::string> &referenceFeatures,
+      RunSummary &summary);
 
   // Build a Case's world and camera, then configure its renderer. SceneObjects
   // owns every handle and releases partial or complete builds on scope exit.
@@ -169,6 +210,7 @@ struct Runner
   // Run a behavioral Test (TestDef::behaviorCheck set): one Case at a time,
   // feature-gating then invoking the check and writing its verdict + detail.
   void runBehaviorTest(const TestDef &test,
+      const Filter &filter,
       const std::set<std::string> &candidateFeatures,
       RunSummary &summary);
 
@@ -183,17 +225,20 @@ struct Runner
   // its parent probed.
   const std::string &probeOnce();
 
-  // Whether run() runs Case 'c' (RunOptions::onlyCase).
+  // Whether run() runs Case 'c' (RunOptions::onlyCase), and the filter
+  // selects it.
   bool selected(const Case &c) const;
+  bool selected(const Filter &filter, const TestDef &test, const Case &c) const;
 
-  // Tally a verdict without publishing anything.
-  static void tally(Verdict verdict, RunSummary &summary);
+  // Tally a result without publishing anything.
+  static void tally(const CaseResult &result, RunSummary &summary);
 
   anari::Device m_device{nullptr};
   Workdir m_workdir;
   ArtifactPublisher m_artifacts;
   RunOptions m_options;
   std::shared_ptr<CaseIsolation> m_isolation;
+  SelfCheckDefaults m_selfChecks;
 
   uint32_t m_effectiveAccumulationFrames{1};
   bool m_denoiseEnabled{false};

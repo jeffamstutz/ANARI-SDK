@@ -26,6 +26,20 @@ double psnr(
 double ssim(
     const Image &reference, const Image &candidate);
 
+// Self-check metric (ADR-0010) ///////////////////////////////////////////////
+
+// The share of pixels, in [0, 1], whose largest per-channel difference exceeds
+// `tau` (in 8-bit levels, 0..255). RGB is compared with alpha composited over
+// white, as for SSIM/PSNR. Unchanged background adds nothing to the count, so
+// no subject mask is needed. NaN if the two images differ in size or are
+// invalid. The single implementation of the metric behind effect and
+// equivalence assertions (ADR-0004).
+double changedFraction(const Image &a, const Image &b, int tau);
+
+// A viewable mask of changedFraction(): opaque white where a pixel counts as
+// changed, opaque black elsewhere. Invalid when the images aren't comparable.
+Image changedMask(const Image &a, const Image &b, int tau);
+
 // Whether a score clears its threshold. Both metrics are higher-is-better, so
 // this is score > threshold; a NaN score (e.g. mismatched images) never passes.
 inline bool metricPassed(double score, double threshold)

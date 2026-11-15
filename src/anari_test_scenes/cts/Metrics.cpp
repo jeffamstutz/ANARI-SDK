@@ -123,7 +123,55 @@ double ssimChannel(
                : std::numeric_limits<double>::quiet_NaN();
 }
 
+// The composited 8-bit value of channel c of pixel i (as compositedChannel).
+int compositedValue(const Image &img, size_t i, int c)
+{
+  const double v = img.rgba[i * 4 + c];
+  const double a = img.rgba[i * 4 + 3];
+  const double composited = std::round(v * a / kDataRange + (kDataRange - a));
+  return composited < 0.0 ? 0 : (composited > 255.0 ? 255 : int(composited));
+}
+
+bool pixelChanged(const Image &a, const Image &b, size_t i, int tau)
+{
+  for (int c = 0; c < 3; ++c) {
+    const int d = compositedValue(a, i, c) - compositedValue(b, i, c);
+    if ((d < 0 ? -d : d) > tau)
+      return true;
+  }
+  return false;
+}
+
 } // namespace
+
+double changedFraction(const Image &a, const Image &b, int tau)
+{
+  if (!comparable(a, b))
+    return std::numeric_limits<double>::quiet_NaN();
+  const size_t n = a.pixelCount();
+  size_t changed = 0;
+  for (size_t i = 0; i < n; ++i)
+    changed += pixelChanged(a, b, i, tau) ? 1 : 0;
+  return static_cast<double>(changed) / static_cast<double>(n);
+}
+
+Image changedMask(const Image &a, const Image &b, int tau)
+{
+  if (!comparable(a, b))
+    return {};
+  Image out;
+  out.width = a.width;
+  out.height = a.height;
+  out.rgba.resize(a.rgba.size());
+  for (size_t i = 0; i < a.pixelCount(); ++i) {
+    const uint8_t v = pixelChanged(a, b, i, tau) ? 255 : 0;
+    out.rgba[i * 4 + 0] = v;
+    out.rgba[i * 4 + 1] = v;
+    out.rgba[i * 4 + 2] = v;
+    out.rgba[i * 4 + 3] = 255;
+  }
+  return out;
+}
 
 double psnr(const Image &reference, const Image &candidate)
 {

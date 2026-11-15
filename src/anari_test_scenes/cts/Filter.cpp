@@ -39,13 +39,10 @@ bool globMatch(const std::string &pattern, const std::string &text)
   return p == pattern.size();
 }
 
-bool matches(const Filter &f, const TestDef &test)
+namespace {
+
+bool matchesId(const Filter &f, const std::string &id)
 {
-  if (f.pattern.empty())
-    return true;
-
-  const std::string id = test.id();
-
   if (f.pattern.find('*') != std::string::npos
       || f.pattern.find('?') != std::string::npos) {
     return globMatch(f.pattern, id);
@@ -60,6 +57,18 @@ bool matches(const Filter &f, const TestDef &test)
   for (char c : id)
     haystack.push_back(lower(c));
   return haystack.find(needle) != std::string::npos;
+}
+
+} // namespace
+
+bool matches(const Filter &f, const TestDef &test)
+{
+  return f.pattern.empty() || matchesId(f, test.id());
+}
+
+bool matches(const Filter &f, const TestDef &test, const Case &c)
+{
+  return matches(f, test) || matchesId(f, c.qualifiedId());
 }
 
 } // namespace cts

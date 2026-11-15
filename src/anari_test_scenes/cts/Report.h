@@ -40,6 +40,18 @@ struct CategoryCounts
   int skipped{0};
 };
 
+// The failure kind of a failed Ground-truth comparison, and of a failure that
+// is neither that nor a failed assertion (a build or render failure, a
+// behaviour check).
+inline constexpr const char *kGroundTruthFailure = "Ground truth";
+inline constexpr const char *kOtherFailure = "other";
+
+// Why a Case failed, once per kind: the kind of each failed evaluated
+// assertion (effect, equivalence, or a kind a later schema adds),
+// kGroundTruthFailure when its Ground-truth comparison failed, and
+// kOtherFailure when it failed for neither. Empty unless it failed.
+std::vector<std::string> failureKinds(const CaseResult &result);
+
 // A run's aggregate: overall counts, per-category counts, and failed case keys.
 struct Summary
 {
@@ -47,6 +59,12 @@ struct Summary
   int passed{0};
   int failed{0};
   int skipped{0};
+  // Of `passed`: Cases that passed their self-checks while the Ground truth
+  // their Test asks for was missing (ADR-0010).
+  int passedWithoutGroundTruth{0};
+  // Failed Cases per failure kind (failureKinds()); a Case failing in two
+  // ways counts under both.
+  std::map<std::string, int> failuresByKind;
   std::map<std::string, CategoryCounts> categories;
   std::vector<std::string> failures;
 };
@@ -74,7 +92,12 @@ std::vector<std::string> canonicalKhrExtensions();
 // What a run says about one extension, from the Cases for which it is primary.
 enum class CoverageState
 {
-  Passed, // advertised; its Cases ran and none failed
+  Passed, // advertised; its Cases ran, were fully scored and none failed
+  // Advertised; none failed or skipped, but some passed their self-checks
+  // with the Ground truth they ask for not evaluated.
+  PassedWithoutGroundTruth,
+  // Advertised; none failed, some passed, and some were skipped.
+  PartlyScored,
   Failed, // advertised; at least one of its Cases failed
   NotAdvertised, // the device doesn't advertise it (its Cases skip)
   NoGroundTruth, // advertised; its Cases skipped for want of Ground truth
@@ -100,6 +123,8 @@ struct ExtensionCoverage
   int passed{0};
   int failed{0};
   int skipped{0};
+  // Of `passed`: those with the Ground truth they ask for not evaluated.
+  int passedWithoutGroundTruth{0};
   CoverageState state{CoverageState::NotAdvertisedNoTest};
 };
 

@@ -119,7 +119,8 @@ commands:
   report <workdir>           summarize a run's results tree (text + optional HTML)
 
 options:
-  --filter <pattern>   select a slice of the catalog (substring or glob over <category>/<test>)
+  --filter <pattern>   select a slice of the catalog (substring or glob over <category>/<test>,
+                       or over <category>/<test>/<case> to select some Cases of a Test)
   --workdir <dir>      run root holding results/ ground_truth/ assets/ (default: cts_workdir)
   --device <lib>       reference device library for generate (default: helide)
   --width <n>          render width (default: 256)
@@ -486,6 +487,10 @@ int cmdGenerate(const Options &o)
   std::cout << "generate (" << deviceName << "): " << s.passed << " generated, "
             << s.skipped << " skipped, " << s.failed << " failed (of "
             << s.total << ")\n";
+  if (s.variantDisagreements > 0)
+    std::cout << "  " << s.variantDisagreements
+              << " Variant equivalence(s) failed on the Reference device "
+                 "itself (see the warnings above)\n";
 
   anari::release(d, d);
   anari::unloadLibrary(lib);
@@ -559,6 +564,7 @@ int cmdRun(const Options &o)
       s.passed += part.passed;
       s.failed += part.failed;
       s.skipped += part.skipped;
+      s.passedWithoutGroundTruth += part.passedWithoutGroundTruth;
     }
   } else {
     s = runner.run(catalog, Filter{o.filter}, features);
@@ -573,6 +579,10 @@ int cmdRun(const Options &o)
   std::cout << "run (" << o.device << "): " << s.passed << " passed, "
             << s.failed << " failed, " << s.skipped << " skipped (of "
             << s.total << ")\n";
+  if (s.passedWithoutGroundTruth > 0)
+    std::cout << "  " << s.passedWithoutGroundTruth
+              << " of the passed Cases passed their self-checks with Ground "
+                 "truth not evaluated (run generate first)\n";
 
   anari::release(d, d);
   anari::unloadLibrary(lib);

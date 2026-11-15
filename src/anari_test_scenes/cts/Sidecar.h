@@ -35,7 +35,17 @@ namespace cts {
 // Test in the run's Catalog covers (whether or not the run selected it), so
 // the report can tell "no Test" from "not run" from the results tree alone
 // (ADR-0008). All read as empty from older sidecars.
-constexpr int kSidecarSchemaVersion = 3;
+//
+// v4 adds the self-checks (ADR-0010): an `assertions` array per Case (effect
+// and equivalence relations between Cases of one Test; later tickets add
+// kinds, so readers keep entries of a kind they don't know), and
+// `resultImages` (the rendered image per Channel, with or without a
+// comparison), and `usesGroundTruth` / `groundTruthEvaluated` /
+// `groundTruthReason`, so a Case
+// that passed its self-checks without a Ground-truth comparison is told apart
+// from one that passed both. From older sidecars `usesGroundTruth` reads true
+// and `groundTruthEvaluated` reads true exactly when there are channel scores.
+constexpr int kSidecarSchemaVersion = 4;
 
 // The skipReason of a Case skipped because it has no Ground truth. The report
 // tells this skip apart from others by it.
@@ -85,6 +95,42 @@ struct ChannelResult
   std::string thresholdImage;
 };
 
+// The kinds of Assertion this schema version writes. Later tickets add
+// "exact" and "convergence"; a reader keeps any kind as a string.
+inline constexpr const char *kEffectAssertion = "effect";
+inline constexpr const char *kEquivalenceAssertion = "equivalence";
+
+// One self-check attributed to a Case (ADR-0010): for an effect or an
+// equivalence, the relation between this Case and a partner Case of the same
+// Test that differs from it only in `axis`.
+struct Assertion
+{
+  std::string kind; // kEffectAssertion, kEquivalenceAssertion, ...
+  std::string axis;
+  // The partner Case ids (Case::id(), same Test).
+  std::vector<std::string> relatedCases;
+  // The Channel the score was taken on: for an effect the one that changed
+  // most, for an equivalence the one that changed most (the worst). Empty
+  // when no Channel was compared (a partner that did not render).
+  std::string channel;
+  // Changed fraction, in [0, 1]; NaN when not computed.
+  double score{0.0};
+  // The bound on score: a minimum for an effect, a maximum for an
+  // equivalence.
+  double threshold{0.0};
+  int tau{0}; // per-pixel tolerance of the score's Channel, in 8-bit levels
+  // False for an axis opted out of its effect check (`detail` has why);
+  // such an entry neither passes nor fails the Case.
+  bool evaluated{true};
+  bool passed{false};
+  std::string detail;
+  // Paths relative to the workdir root; empty when not written. The partner
+  // Case's result image for `channel`, and (for a failed check) the mask of
+  // changed pixels.
+  std::string partnerImage;
+  std::string maskImage;
+};
+
 // The full per-Case result.
 struct CaseResult
 {
@@ -107,7 +153,25 @@ struct CaseResult
   std::string skipReason; // empty unless skipped
   std::string detail; // human-readable note (e.g. a behavioral check's outcome)
   double durationMs{0.0};
+  // The Ground-truth comparison (schema v4 adds the flags). `channels` holds
+  // its per-Channel scores when it ran.
+  bool usesGroundTruth{true}; // the Test compares against Ground truth
+  bool groundTruthEvaluated{false}; // ... and the comparison ran
+  std::string groundTruthReason; // why the Test needs it, when declared
   std::vector<ChannelResult> channels;
+  // The Case's rendered image per Channel (schema v4), relative to the
+  // workdir root, whether or not a Ground-truth comparison ran.
+  std::vector<std::pair<Channel, std::string>> resultImages;
+  // Self-checks attributed to this Case (schema v4).
+  std::vector<Assertion> assertions;
+
+  // Whether it passed without the Ground-truth comparison its Test asks for
+  // (the Ground truth was missing): its self-checks alone decided it.
+  bool passedWithoutGroundTruth() const
+  {
+    return verdict == Verdict::Passed && usesGroundTruth
+        && !groundTruthEvaluated;
+  }
 };
 
 // Serialize a CaseResult to its sidecar JSON text (pretty-printed).

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "Catalog.h"
+#include "Expansion.h"
 
 namespace anari {
 namespace cts {
@@ -59,7 +60,12 @@ std::vector<const TestDef *> Catalog::filter(const Filter &f) const
 {
   std::vector<const TestDef *> out;
   for (const auto &t : m_tests) {
-    if (matches(f, t))
+    bool any = matches(f, t);
+    if (!any)
+      for (const Case &c : expand(t))
+        if ((any = matches(f, t, c)))
+          break;
+    if (any)
       out.push_back(&t);
   }
   return out;

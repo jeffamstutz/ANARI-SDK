@@ -111,6 +111,7 @@ if (BUILD_CTS OR BUILD_TESTING)
     cts/LightBuilder.cpp
     cts/Metrics.cpp
     cts/ParameterBinding.cpp
+    cts/Relations.cpp
     cts/RendererParams.cpp
     cts/Report.cpp
     cts/Runner.cpp
