@@ -10,6 +10,8 @@
 #include "cts/DeviceErrorLog.h"
 #include "cts/DeviceFailure.h"
 #include "cts/DeviceProbe.h"
+#include "cts/ExactCheck.h"
+#include "cts/GeometryLayout.h"
 #include "cts/Expansion.h"
 #include "cts/FrameFormats.h"
 #include "cts/FrameReadback.h"
@@ -1020,6 +1022,103 @@ TEST_CASE(
     CHECK(rp.verdict == Verdict::Skipped);
     CHECK(rp.skipReason.find("whole pixels at 66x66") != std::string::npos);
   }
+
+  std::filesystem::remove_all(root, ec);
+  anari::release(d, d);
+  anari::unloadLibrary(lib);
+}
+
+TEST_CASE("Runner runs exact checks on raw values and records them",
+    "[cts][runner][helide]")
+{
+  anari::Library lib = anari::loadLibrary("helide", statusFunc, nullptr);
+  if (!lib) {
+    WARN("helide library not available; skipping exact-check test");
+    return;
+  }
+  anari::Device d = anari::newDevice(lib, "default");
+  REQUIRE(d != nullptr);
+  anari::commitParameters(d, d);
+
+  const auto root =
+      std::filesystem::temp_directory_path() / "cts_runner_exact_test";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+
+  Catalog catalog;
+  // Ground truth is left undeclared (compared by default) and never
+  // generated: the exact checks alone decide.
+  makeTest("demo", "exact")
+      .build(buildTriangleWorld)
+      .channels({Channel::Color, Channel::Depth})
+      .expectExact("depth at the first triangle",
+          [](ExactCheck &x) {
+            // Depth is the distance from the camera: project the centroid of
+            // triangle 0 and compare there.
+            const auto tri = layoutTriangleSoup(4);
+            const float3 centroid = (tri[0] + tri[1] + tri[2]) / 3.f;
+            const auto at = x.project(centroid);
+            if (!at)
+              throw std::runtime_error("the centroid is behind the camera");
+            PixelMask where(x.frameSize().width, x.frameSize().height);
+            where.set(uint32_t(at->x), uint32_t(at->y));
+            const float distance =
+                anari::math::length(centroid - x.camera()->position);
+            x.matches(
+                "depth is the distance to the camera",
+                x.depth(),
+                [&](uint32_t, uint32_t) { return distance; },
+                0.01 * distance,
+                &where);
+          })
+      .expectExact("an impossible depth",
+          [](ExactCheck &x) {
+            x.allPixels("every depth is negative",
+                x.depth(),
+                "< 0",
+                [](uint32_t, uint32_t, float v) { return v < 0.f; });
+          })
+      .registerInto(catalog);
+
+  RunOptions opts;
+  opts.width = 64;
+  opts.height = 64;
+  opts.device = {"helide", "default", "default"};
+  const Workdir wd(root);
+  Runner runner(d, wd, opts);
+  const auto summary = runner.run(catalog, Filter{"demo/exact"}, {});
+  CHECK(summary.total == 1);
+  CHECK(summary.failed == 1);
+
+  const Case c = caseOf("demo", "exact", {});
+  CaseResult r;
+  REQUIRE(readSidecar(wd.sidecarPath(c), r));
+  CHECK(r.verdict == Verdict::Failed);
+  CHECK_FALSE(r.groundTruthEvaluated);
+  REQUIRE(r.assertions.size() == 2);
+  const auto &good = r.assertions[0];
+  INFO(good.detail);
+  CHECK(good.kind == "exact");
+  CHECK(good.label == "depth at the first triangle");
+  CHECK(good.passed);
+  REQUIRE(good.pixels);
+  CHECK(good.pixels->checked == 1);
+  CHECK(good.maskImage.empty());
+
+  const auto &bad = r.assertions[1];
+  CHECK(bad.label == "an impossible depth");
+  CHECK(bad.expectation == "every depth is negative");
+  CHECK(bad.channel == "depth");
+  CHECK_FALSE(bad.passed);
+  REQUIRE(bad.pixels);
+  CHECK(bad.pixels->checked == 64 * 64);
+  CHECK(bad.pixels->offending == 64 * 64);
+  REQUIRE(bad.pixels->first);
+  CHECK(bad.pixels->first->x == 0);
+  CHECK(bad.pixels->first->y == 0);
+  CHECK(bad.pixels->first->expected == "< 0");
+  CHECK(std::filesystem::exists(root / bad.maskImage));
+  CHECK(failureKinds(r) == std::vector<std::string>{"exact"});
 
   std::filesystem::remove_all(root, ec);
   anari::release(d, d);

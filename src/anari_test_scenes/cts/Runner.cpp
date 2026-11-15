@@ -5,6 +5,7 @@
 #include "BuildContext.h"
 #include "DeviceFailure.h"
 #include "DeviceProbe.h"
+#include "ExactCheck.h"
 #include "Expansion.h"
 #include "FrameFormats.h"
 #include "FrameReadback.h"
@@ -54,9 +55,9 @@ const char *channelFrameParam(Channel ch)
 
 // Render one channel of an already-assembled world with a caller-owned camera
 // and renderer. chFmt is the buffer format the Case requested for this channel
-// (the comparison image is always 8-bit RGBA). depthScale deterministically
-// maps depth to gray.
-Image renderChannel(anari::Device d,
+// (the comparison image is always 8-bit RGBA; depth and IDs also keep their
+// raw values). depthScale deterministically maps depth to gray.
+ChannelValues renderChannel(anari::Device d,
     anari::World world,
     anari::Camera camera,
     anari::Renderer renderer,
@@ -104,17 +105,32 @@ Image renderChannel(anari::Device d,
   auto readback = readFrameChannel(d, f, ch, w, h, depthScale);
   if (!readback)
     throw std::runtime_error(readback.detail);
-  return std::move(readback.image);
+  ChannelValues out;
+  out.channel = ch;
+  out.image = std::move(readback.image);
+  out.depth = std::move(readback.depth);
+  out.ids = std::move(readback.ids);
+  return out;
 }
 
-// The default render camera: a perspective camera framing the world bounds.
-anari::Camera defaultCamera(
-    anari::Device d, const scenes::Bounds &bounds, uint32_t w, uint32_t h)
+// The default render camera: a perspective camera framing the world bounds,
+// and its projection (the spec's default fovy, the frame's aspect).
+anari::Camera defaultCamera(anari::Device d,
+    const scenes::Bounds &bounds,
+    uint32_t w,
+    uint32_t h,
+    CameraProjection &projection)
 {
   const auto camDesc = cameraFromBounds(bounds);
   PerspectiveCameraOptions camOpts;
   if (h != 0)
     camOpts.aspect = static_cast<float>(w) / static_cast<float>(h);
+  projection = CameraProjection{};
+  projection.type = CameraProjection::Type::Perspective;
+  projection.position = camDesc.position;
+  projection.direction = camDesc.direction;
+  projection.up = camDesc.up;
+  projection.aspect = camOpts.aspect.value_or(1.f);
   return makePerspectiveCamera(d, camDesc, camOpts);
 }
 
@@ -329,10 +345,17 @@ Runner::SceneObjects Runner::buildScene(
     return scene;
 
   scene.bounds = worldBounds(m_device, scene.world.get());
-  scene.camera = UniqueAnariObject<anari::Camera>(m_device,
-      test.cameraBuild
-          ? test.cameraBuild(ctx, scene.bounds)
-          : defaultCamera(m_device, scene.bounds, size.width, size.height));
+  if (test.cameraBuild) {
+    scene.camera = UniqueAnariObject<anari::Camera>(
+        m_device, test.cameraBuild(ctx, scene.bounds));
+    scene.projection = ctx.cameraProjection();
+  } else {
+    CameraProjection projection;
+    scene.camera = UniqueAnariObject<anari::Camera>(m_device,
+        defaultCamera(
+            m_device, scene.bounds, size.width, size.height, projection));
+    scene.projection = projection;
+  }
   scene.renderer = UniqueAnariObject<anari::Renderer>(m_device,
       configuredRenderer(
           m_device, m_options.device.renderer, m_options.ambientRadiance));
@@ -412,9 +435,20 @@ std::vector<Image> Runner::renderCase(const TestDef &test, const Case &c)
 std::vector<Image> Runner::renderImages(
     const TestDef &test, const Case &c, FrameSize size)
 {
+  std::vector<Image> images;
+  for (auto &ch : renderChannels(test, c, size).channels)
+    images.push_back(std::move(ch.image));
+  return images;
+}
+
+Runner::RenderedChannels Runner::renderChannels(
+    const TestDef &test, const Case &c, FrameSize size)
+{
+  RenderedChannels out;
   SceneObjects scene = buildScene(test, c, size);
   if (!scene.valid())
-    return {};
+    return out;
+  out.camera = scene.projection;
 
   // Deterministic depth scale derived from the (shared) scene bounds: the
   // default camera sits within one bounds diagonal of the center, so 2x is a
@@ -422,11 +456,10 @@ std::vector<Image> Runner::renderImages(
   const float depthScale =
       2.0f * anari::math::length(scene.bounds[1] - scene.bounds[0]);
 
-  std::vector<Image> images;
-  images.reserve(test.channels.size());
+  out.channels.reserve(test.channels.size());
   for (Channel ch : test.channels) {
     const ANARIDataType chFmt = caseChannelFormat(c, ch);
-    images.push_back(renderChannel(m_device,
+    out.channels.push_back(renderChannel(m_device,
         scene.world.get(),
         scene.camera.get(),
         scene.renderer.get(),
@@ -437,7 +470,21 @@ std::vector<Image> Runner::renderImages(
         chFmt,
         m_effectiveAccumulationFrames));
   }
-  return images;
+  return out;
+}
+
+std::optional<FrameSize> Runner::sizeOrSkip(
+    const TestDef &test, const Case &c, CaseResult &result) const
+{
+  const CaseFrameSize size = frameSizeOf(test, c);
+  if (!size.resolved()) {
+    result.verdict = Verdict::Skipped;
+    result.skipReason = size.skipReason;
+    return std::nullopt;
+  }
+  result.frameWidth = size.size.width;
+  result.frameHeight = size.size.height;
+  return size.size;
 }
 
 RunSummary Runner::generate(const Catalog &catalog,
@@ -504,6 +551,7 @@ Runner::CaseOutcome Runner::runCase(
     result.detail = detail;
     result.channels.clear();
     result.resultImages.clear();
+    result.assertions.clear();
     result.groundTruthEvaluated = false;
     out.artifacts.clear();
     out.render = {};
@@ -514,16 +562,12 @@ Runner::CaseOutcome Runner::runCase(
   try {
     // The Case's frame size; one that isn't whole pixels at the run's size
     // skips the Case (and fails the relations that need it).
-    const CaseFrameSize size = frameSizeOf(test, c);
-    if (!size.resolved()) {
-      result.verdict = Verdict::Skipped;
-      result.skipReason = size.skipReason;
+    const auto size = sizeOrSkip(test, c, result);
+    if (!size) {
       out.render.state = CaseRender::State::Skipped;
-      out.render.error = size.skipReason;
+      out.render.error = result.skipReason;
       return out;
     }
-    result.frameWidth = size.size.width;
-    result.frameHeight = size.size.height;
 
     // Ground truth for every channel, when the Test compares against it.
     bool haveGroundTruth = test.usesGroundTruth();
@@ -548,18 +592,36 @@ Runner::CaseOutcome Runner::runCase(
     }
 
     const auto start = std::chrono::steady_clock::now();
-    auto images = renderImages(test, c, size.size);
+    RenderedChannels rendered = renderChannels(test, c, *size);
     const auto end = std::chrono::steady_clock::now();
     result.durationMs =
         std::chrono::duration<double, std::milli>(end - start).count();
 
-    if (images.size() != test.channels.size()) {
+    if (rendered.channels.size() != test.channels.size()) {
       fail("render produced no image");
       return out;
     }
 
+    // Exact checks run here, on the raw values, which go no further than
+    // this phase (ADR-0010).
+    for (auto &exact : evaluateExactChecks(
+             test, c, *size, rendered.channels, rendered.camera)) {
+      Assertion a = std::move(exact.assertion);
+      if (exact.mask.valid()) {
+        const auto path =
+            m_workdir.assertionMaskPath(c, a.kind, result.assertions.size());
+        a.maskImage = m_workdir.relativeToRoot(path);
+        out.artifacts.push_back({path, std::move(exact.mask)});
+      }
+      result.assertions.push_back(std::move(a));
+    }
+
+    std::vector<Image> images;
+    images.reserve(rendered.channels.size());
+    for (auto &ch : rendered.channels)
+      images.push_back(std::move(ch.image));
+
     bool allPassed = true;
-    out.artifacts.reserve(test.channels.size() * 3);
     for (size_t i = 0; i < test.channels.size(); ++i) {
       const Channel ch = test.channels[i];
       out.artifacts.push_back({m_workdir.resultImagePath(c, ch), images[i]});
@@ -673,7 +735,8 @@ void Runner::runRenderTest(const TestDef &test,
   for (size_t i = 0; i < cases.size(); ++i) {
     if (!toRender[i])
       continue;
-    outcomes[i] = runCase(test, cases[i], relations);
+    outcomes[i] =
+        runCase(test, cases[i], relations || !test.exactChecks.empty());
     renders[i] = outcomes[i].render;
   }
 
@@ -893,17 +956,13 @@ void Runner::runBehaviorTest(const TestDef &test,
       CaseResult result =
           baseResult(test, c, m_options.device, m_catalogCovered);
 
-      const CaseFrameSize size = frameSizeOf(test, c);
-      if (!size.resolved()) {
-        result.verdict = Verdict::Skipped;
-        result.skipReason = size.skipReason;
+      const auto size = sizeOrSkip(test, c, result);
+      if (!size) {
         recordResult(c, result, summary);
         continue;
       }
-      result.frameWidth = size.size.width;
-      result.frameHeight = size.size.height;
 
-      SceneObjects scene = buildScene(test, c, size.size);
+      SceneObjects scene = buildScene(test, c, *size);
       if (!scene.valid()) {
         result.verdict = Verdict::Failed;
         result.detail = "world/camera/renderer build failed";

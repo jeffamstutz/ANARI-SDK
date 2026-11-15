@@ -453,6 +453,10 @@ void writeTextSummary(std::ostream &out,
       out << "      " << a.kind << " failed";
       if (!a.axis.empty())
         out << " (axis " << a.axis << ")";
+      if (!a.label.empty())
+        out << " (check \"" << a.label << "\")";
+      if (!a.maskImage.empty() && a.kind == kExactAssertion)
+        out << " [mask " << a.maskImage << "]";
       out << ": " << a.detail << "\n";
     }
     if (!r.description.empty())

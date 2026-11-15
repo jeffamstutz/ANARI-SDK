@@ -3,12 +3,14 @@
 
 #pragma once
 
+#include "CameraProjection.h"
 #include "Value.h"
 // anari
 #include "anari/anari_cpp.hpp"
 // helium
 #include "helium/utility/ParameterizedObject.h"
 // std
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -56,8 +58,16 @@ struct BuildContext
     m_params.setParam(name, v);
   }
 
+  // What the Case's camera does to a world-space point, so its exact checks
+  // can project() (ADR-0010). The runner records it for the camera it frames;
+  // a Test's own camera hook records it here, or its exact checks can't
+  // project.
+  void setCameraProjection(const CameraProjection &projection);
+  const std::optional<CameraProjection> &cameraProjection() const;
+
  private:
   anari::Device m_device{nullptr};
+  std::optional<CameraProjection> m_projection;
   helium::ParameterizedObject m_params;
   std::unordered_map<std::string, ParameterBinding> m_bindings;
 };

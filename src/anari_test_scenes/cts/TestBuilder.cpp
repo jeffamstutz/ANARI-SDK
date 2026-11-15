@@ -48,6 +48,9 @@ TestBuilder &TestBuilder::frameSize(FrameSizeFn fn)
 
 TestBuilder &TestBuilder::behavior(BehaviorFn fn)
 {
+  if (!m_def.exactChecks.empty())
+    throw std::invalid_argument("test `" + m_def.id()
+        + "`: a behaviour Test has no exact checks (ADR-0010)");
   m_def.behaviorCheck = std::move(fn);
   return *this;
 }
@@ -126,6 +129,25 @@ TestBuilder &TestBuilder::expectDerived(
       std::move(value),
       std::move(description),
       std::move(fn)});
+  return *this;
+}
+
+TestBuilder &TestBuilder::expectExact(std::string label, ExactFn fn)
+{
+  const std::string where = "test `" + m_def.id() + "`: ";
+  if (m_def.behaviorCheck)
+    throw std::invalid_argument(
+        where + "a behaviour Test has no exact checks (ADR-0010)");
+  if (label.empty())
+    throw std::invalid_argument(where + "an exact check needs a label");
+  for (const auto &check : m_def.exactChecks)
+    if (check.label == label)
+      throw std::invalid_argument(
+          where + "exact check `" + label + "` is declared twice");
+  if (!fn)
+    throw std::invalid_argument(
+        where + "exact check `" + label + "` has no function");
+  m_def.exactChecks.push_back({std::move(label), std::move(fn)});
   return *this;
 }
 

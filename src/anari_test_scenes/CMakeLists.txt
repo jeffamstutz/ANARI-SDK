@@ -91,12 +91,14 @@ if (BUILD_CTS OR BUILD_TESTING)
     cts/ArtifactPublication.cpp
     cts/BuildContext.cpp
     cts/BuiltinTests.cpp
+    cts/CameraProjection.cpp
     cts/Case.cpp
     cts/Catalog.cpp
     cts/DeviceErrorLog.cpp
     cts/DeviceFailure.cpp
     cts/DeviceProbe.cpp
     cts/Discrimination.cpp
+    cts/ExactCheck.cpp
     cts/Expansion.cpp
     cts/Filter.cpp
     cts/FrameAccumulation.cpp

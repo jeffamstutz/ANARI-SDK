@@ -3,6 +3,7 @@
 
 #include "../AnariObject.h"
 #include "../BuildContext.h"
+#include "../ExactCheck.h"
 #include "../FrameAccumulation.h"
 #include "../FrameReadback.h"
 #include "../GeometryBuilder.h"
@@ -18,6 +19,7 @@
 // std
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -26,8 +28,88 @@ namespace cts {
 
 namespace {
 
+using anari::math::float2;
 using anari::math::float3;
 using V = std::vector<Any>;
+
+// frame_primitiveID_channel's triangles: a soup of this many, so triangle i
+// is primitive i.
+constexpr int kPrimitiveIdTriangles = 8;
+
+float cross2(float2 a, float2 b)
+{
+  return a.x * b.y - a.y * b.x;
+}
+
+// Whether point `p` lies inside triangle (a, b, c) or within `margin` of each
+// of its edges' lines (pixel space): the triangle grown by `margin`.
+bool nearTriangle(float2 a, float2 b, float2 c, float2 p, float margin)
+{
+  const float area = cross2(b - a, c - a);
+  if (area == 0.f)
+    return false;
+  const float side = area > 0.f ? 1.f : -1.f;
+  auto inside = [&](float2 u, float2 v) {
+    const float2 e = v - u;
+    return side * cross2(e, p - u) / anari::math::length(e) >= -margin;
+  };
+  return inside(a, b) && inside(b, c) && inside(c, a);
+}
+
+// The primitive ID channel holds each triangle's index where it is, and no
+// triangle's index where none is. The spec (1.2, section 5.1) says the
+// channel holds the "primitiveId attribute of the first hit" and gives no
+// value for a pixel without a hit, so a background pixel is checked only for
+// not claiming a triangle.
+void primitiveIdsAreIndices(ExactCheck &x)
+{
+  const auto ids = x.ids(Channel::PrimitiveId);
+  const auto positions = layoutTriangleSoup(kPrimitiveIdTriangles);
+  auto pixelOf = [&](float3 p) {
+    const auto at = x.project(p);
+    if (!at)
+      throw std::runtime_error("a triangle is behind the camera");
+    return *at;
+  };
+
+  PixelMask centroids(ids.width, ids.height);
+  PixelMask subject(ids.width, ids.height);
+  std::vector<int> expected(size_t(ids.width) * ids.height, -1);
+  for (int i = 0; i < kPrimitiveIdTriangles; ++i) {
+    const float3 a = positions[3 * i], b = positions[3 * i + 1],
+                 c = positions[3 * i + 2];
+    const float2 centroid = pixelOf((a + b + c) / 3.f);
+    if (centroid.x < 0.f || centroid.y < 0.f || centroid.x >= ids.width
+        || centroid.y >= ids.height)
+      throw std::runtime_error(
+          "triangle " + std::to_string(i) + "'s centroid is outside the frame");
+    const auto cx = uint32_t(centroid.x), cy = uint32_t(centroid.y);
+    centroids.set(cx, cy);
+    expected[size_t(cy) * ids.width + cx] = i;
+
+    // Its footprint, grown by 1.5 pixels so edge pixels, which may hold
+    // either value, are not judged as background.
+    const float2 pa = pixelOf(a), pb = pixelOf(b), pc = pixelOf(c);
+    for (uint32_t y = 0; y < ids.height; ++y)
+      for (uint32_t px = 0; px < ids.width; ++px)
+        if (nearTriangle(pa, pb, pc, float2(px + 0.5f, y + 0.5f), 1.5f))
+          subject.set(px, y);
+  }
+
+  x.matches(
+      "the ID at each triangle's projected centroid is the triangle's index",
+      ids,
+      [&](uint32_t px, uint32_t y) {
+        return uint32_t(expected[size_t(y) * ids.width + px]);
+      },
+      0.0,
+      &centroids);
+  x.backgroundOutside("pixels outside every triangle hold no triangle's index",
+      ids,
+      subject,
+      "no triangle's index (>= " + std::to_string(kPrimitiveIdTriangles) + ")",
+      [](uint32_t id) { return id >= uint32_t(kPrimitiveIdTriangles); });
+}
 
 // A single lit triangle surface (the subject for the simple channel tests).
 anari::World triangleSurfaceWorld(BuildContext &ctx, float3 color, int count)
@@ -314,11 +396,14 @@ void registerFrameTests(Catalog &catalog)
 
   // ---- primitive id channel -------------------------------------------------
   makeTest("frame", "frame_primitiveID_channel")
-      .description("Checks primitive IDs returned by the frame channel.")
+      .description(
+          "Checks that the primitive ID channel holds each triangle's index "
+          "at its projected centroid, and no triangle's index outside every "
+          "triangle.")
       .build([](BuildContext &ctx) {
         auto d = ctx.device();
         TriangleSpec spec;
-        spec.primitiveCount = 8;
+        spec.primitiveCount = kPrimitiveIdTriangles;
         auto geom = buildTriangleGeometry(d, spec);
         anari::commitParameters(d, geom);
         auto mat = makeMatteMaterial(d, float3(0.7f, 0.7f, 0.7f));
@@ -332,6 +417,8 @@ void registerFrameTests(Catalog &catalog)
         return world;
       })
       .channels({Channel::PrimitiveId})
+      .expectExact("primitive IDs are triangle indices", primitiveIdsAreIndices)
+      .noGroundTruth()
       .covers("ANARI_KHR_FRAME_CHANNEL_PRIMITIVE_ID")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);

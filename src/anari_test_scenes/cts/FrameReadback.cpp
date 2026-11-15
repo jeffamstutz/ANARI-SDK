@@ -204,6 +204,7 @@ FrameReadbackResult decodeFrameChannel(Channel channel,
     }
   } else if (channel == Channel::Depth) {
     const auto *pixels = static_cast<const float *>(mapped.data);
+    result.depth.assign(pixels, pixels + pixelCount);
     const float scale = depthScale > 0.f ? 1.f / depthScale : 0.f;
     auto *dst = result.image.rgba.data();
     for (size_t i = 0; i < pixelCount; ++i, dst += 4) {
@@ -266,6 +267,7 @@ FrameReadbackResult decodeFrameChannel(Channel channel,
   } else if (channel == Channel::PrimitiveId || channel == Channel::ObjectId
       || channel == Channel::InstanceId) {
     const auto *pixels = static_cast<const uint32_t *>(mapped.data);
+    result.ids.assign(pixels, pixels + pixelCount);
     auto *dst = result.image.rgba.data();
     for (size_t i = 0; i < pixelCount; ++i, dst += 4) {
       const auto color = scenes::colors::getColorFromPalette(pixels[i]);

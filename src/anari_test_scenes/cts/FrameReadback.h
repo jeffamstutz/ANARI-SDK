@@ -10,6 +10,7 @@
 // std
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace anari {
 namespace cts {
@@ -35,9 +36,13 @@ enum class FrameReadbackError
 };
 
 // A decoded comparison image or a structured validation/conversion failure.
+// The depth and ID Channels also keep their raw values, for exact checks
+// (ADR-0010): they are kept in memory for the Case only, never written.
 struct FrameReadbackResult
 {
   Image image;
+  std::vector<float> depth; // Channel::Depth: the mapped FLOAT32 values
+  std::vector<uint32_t> ids; // the ID Channels: the mapped UINT32 values
   FrameReadbackError error{FrameReadbackError::None};
   std::string detail;
 
