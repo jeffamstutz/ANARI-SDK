@@ -77,8 +77,8 @@ id) that can be compared independently.
 The machine-readable JSON file the C++ runner writes next to a Case's images:
 which axis values it ran, its per-channel metric scores and pass/fail verdict,
 any skip reason, timing, image paths, the producing device's identity and the
-extensions it advertised, and the Test's required, primary and missing
-extensions. One per Case.
+extensions it advertised, the Test's required, primary and missing extensions,
+and the extensions the run's whole Catalog has a Test for. One per Case.
 _Avoid_: manifest, results file
 
 **Results tree**:
@@ -94,8 +94,9 @@ Results tree: a text summary (default) or an interactive HTML report (`--html`).
 Both include a per-extension matrix: for every canonical KHR extension, whether
 the device advertised it, the passed/failed/skipped Cases it is primary for, and
 a state (`passed`, `failed`, `not advertised`, `advertised, no Ground truth`,
-...; `no Test` when the Catalog has no Test covering it). A PDF is an optional
-extra still produced by `ctsReport.py`.
+...; `no Test` when the run's Catalog, as its Sidecars record it, has no Test
+covering it). A leading `core` row counts the Cases of Tests that cover no
+extension. A PDF is an optional extra still produced by `ctsReport.py`.
 _Avoid_: manifest
 
 ### Tooling

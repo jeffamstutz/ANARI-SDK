@@ -100,6 +100,8 @@ TEST_CASE("fromJson round-trips the extensions behind a Case (schema v3)",
       "ANARI_KHR_MATERIAL_MATTE"};
   r.coveredFeatures = {"ANARI_KHR_LIGHT_POINT"};
   r.missingFeatures = {"ANARI_KHR_MATERIAL_MATTE"};
+  r.catalogCoveredFeatures = {
+      "ANARI_KHR_GEOMETRY_TRIANGLE", "ANARI_KHR_LIGHT_POINT"};
 
   CaseResult back;
   bool mismatch = true;
@@ -109,6 +111,7 @@ TEST_CASE("fromJson round-trips the extensions behind a Case (schema v3)",
   CHECK(back.requiredFeatures == r.requiredFeatures);
   CHECK(back.coveredFeatures == r.coveredFeatures);
   CHECK(back.missingFeatures == r.missingFeatures);
+  CHECK(back.catalogCoveredFeatures == r.catalogCoveredFeatures);
 
   // A v2 sidecar has none of them: they read empty, flagged as a mismatch.
   CaseResult old;
@@ -122,6 +125,7 @@ TEST_CASE("fromJson round-trips the extensions behind a Case (schema v3)",
   CHECK(old.requiredFeatures.empty());
   CHECK(old.coveredFeatures.empty());
   CHECK(old.missingFeatures.empty());
+  CHECK(old.catalogCoveredFeatures.empty());
 }
 
 TEST_CASE("fromJson rejects a non-sidecar document", "[cts][sidecar]")
@@ -263,7 +267,10 @@ TEST_CASE("extensionCoverage gives every extension one state",
   const auto rows =
       extensionCoverage(results, {"A_UNTESTED", "N_UNTESTED"}, tested);
 
-  CHECK(std::is_sorted(rows.begin(),
+  // The core row leads; the extensions follow, sorted.
+  REQUIRE_FALSE(rows.empty());
+  CHECK(rows.front().core);
+  CHECK(std::is_sorted(rows.begin() + 1,
       rows.end(),
       [](const auto &a, const auto &b) { return a.extension < b.extension; }));
 
@@ -318,6 +325,118 @@ TEST_CASE("extensionCoverage infers advertised from Cases that ran",
   CHECK(row(rows, "A_PASSES").state == CoverageState::Passed);
 }
 
+namespace {
+
+// A Case of a Test that covers no extension, needing only `support`.
+CaseResult coreCase(const std::string &test,
+    Verdict verdict,
+    const std::vector<std::string> &missing = {})
+{
+  CaseResult r = makeCase("frame", test, "default", verdict);
+  r.device.extensions = {"A_SUPPORT"};
+  r.requiredFeatures = {"A_SUPPORT"};
+  r.missingFeatures = missing;
+  if (!missing.empty())
+    r.skipReason = "device is missing a required feature: " + missing.front();
+  else if (verdict == Verdict::Skipped)
+    r.skipReason = kNoGroundTruthReason;
+  return r;
+}
+
+} // namespace
+
+TEST_CASE("extensionCoverage collects Tests that cover nothing in a core row",
+    "[cts][report][coverage]")
+{
+  const std::vector<std::string> advertised = {"A_PASSES", "A_SUPPORT"};
+  const auto results = keyed({
+      coverageCase("passes", "A_PASSES", Verdict::Passed, advertised),
+      coreCase("fails", Verdict::Failed),
+      coreCase("passes", Verdict::Passed),
+      coreCase("nosupport", Verdict::Skipped, {"A_SUPPORT"}),
+  });
+  const auto rows = extensionCoverage(results, {}, {"A_PASSES"});
+  REQUIRE_FALSE(rows.empty());
+  const auto &core = rows.front();
+  CHECK(core.core);
+  CHECK(core.extension == kCoreRow);
+  CHECK(core.passed == 1);
+  CHECK(core.failed == 1);
+  CHECK(core.skipped == 1);
+  CHECK(core.state == CoverageState::Failed);
+  CHECK(coverageStateLabel(core) == std::string("failed"));
+  // A Case that covers an extension counts there, not toward core.
+  CHECK(row(rows, "A_PASSES").passed == 1);
+
+  // Core is not an extension a device advertises: its skips name no
+  // "advertised" state.
+  const auto noTruth =
+      extensionCoverage(keyed({coreCase("notruth", Verdict::Skipped)}), {}, {});
+  CHECK(noTruth.front().state == CoverageState::NoGroundTruth);
+  CHECK(coverageStateLabel(noTruth.front()) == std::string("no Ground truth"));
+
+  // With no core Case in the results the row is still there, not run.
+  const auto none = extensionCoverage(
+      keyed({coverageCase("passes", "A_PASSES", Verdict::Passed, advertised)}),
+      {},
+      {"A_PASSES"});
+  CHECK(none.front().core);
+  CHECK(none.front().state == CoverageState::NotRun);
+  CHECK(coverageStateLabel(none.front()) == std::string("not run"));
+  CHECK(coverageStateLabel(row(none, "A_PASSES")) == std::string("passed"));
+}
+
+TEST_CASE("runCoveredExtensions reads the Catalog's covered set from the run",
+    "[cts][report][coverage]")
+{
+  auto a = coverageCase("a", "A", Verdict::Passed, {"A"});
+  a.catalogCoveredFeatures = {"A", "B"};
+  auto b = coverageCase("b", "B", Verdict::Passed, {"B"});
+  b.catalogCoveredFeatures = {"B", "C"};
+  bool recorded = false;
+  CHECK(runCoveredExtensions(keyed({a, b}), &recorded)
+      == std::set<std::string>{"A", "B", "C"});
+  CHECK(recorded);
+
+  // Sidecars from before the run recorded it.
+  const auto old = keyed({coverageCase("a", "A", Verdict::Passed, {"A"})});
+  CHECK(runCoveredExtensions(old, &recorded).empty());
+  CHECK_FALSE(recorded);
+}
+
+TEST_CASE("the text summary has a core row and notes an unrecorded Catalog",
+    "[cts][report][coverage]")
+{
+  auto withCatalog = keyed({coreCase("passes", Verdict::Passed),
+      coverageCase("passes", "A_PASSES", Verdict::Passed, {"A_PASSES"})});
+  for (auto &[key, r] : withCatalog)
+    r.catalogCoveredFeatures = {"A_PASSES"};
+  std::ostringstream out;
+  writeTextSummary(out,
+      "run",
+      withCatalog,
+      false,
+      extensionCoverage(withCatalog, {}, runCoveredExtensions(withCatalog)));
+  const std::string text = out.str();
+  const auto core = text.find("\n    core ");
+  REQUIRE(core != std::string::npos);
+  CHECK(text.find("passed", core) < text.find('\n', core + 1));
+  CHECK(text.find("A_PASSES") > core); // core leads the matrix
+  CHECK(text.find("which extensions the Catalog tests") == std::string::npos);
+
+  auto old = withCatalog;
+  for (auto &[key, r] : old)
+    r.catalogCoveredFeatures.clear();
+  std::ostringstream oldOut;
+  writeTextSummary(oldOut,
+      "run",
+      old,
+      false,
+      extensionCoverage(old, {}, runCoveredExtensions(old)));
+  CHECK(oldOut.str().find("which extensions the Catalog tests")
+      != std::string::npos);
+}
+
 TEST_CASE(
     "the text summary has a per-extension table and names a missing "
     "extension",
@@ -364,10 +483,37 @@ TEST_CASE("generateHtml leads with the extension matrix", "[cts][html]")
   CHECK(doc.find("not advertised, no Test") != std::string::npos);
   // Case rows carry the extensions they are evidence for.
   CHECK(doc.find("data-ext=\"A_PASSES\"") != std::string::npos);
+  // The core row is there, with nothing to filter here.
+  CHECK(doc.find("data-extension=\"core\">") != std::string::npos);
 
   // Without coverage, no matrix.
   CHECK(generateHtml("/tmp/myrun", results, HtmlOptions{})
             .find("class=\"coverage\"")
+      == std::string::npos);
+}
+
+TEST_CASE("generateHtml's core row filters to Tests that cover nothing",
+    "[cts][html]")
+{
+  auto results = keyed({coreCase("passes", Verdict::Passed),
+      coverageCase("passes", "A_PASSES", Verdict::Passed, {"A_PASSES"})});
+  HtmlOptions opts;
+  opts.coverage = extensionCoverage(results, {}, runCoveredExtensions(results));
+  const std::string doc = generateHtml("/tmp/myrun", results, opts);
+
+  CHECK(doc.find("data-extension=\"core\" data-cases") != std::string::npos);
+  // The core Case's row is what that filter selects.
+  const auto coreRow = doc.find("data-key=\"frame/passes/default\"");
+  REQUIRE(coreRow != std::string::npos);
+  CHECK(doc.rfind("data-ext=\"core\"", coreRow) != std::string::npos);
+  // No sidecar recorded the Catalog's covered set: the matrix says so.
+  CHECK(doc.find("which extensions the Catalog tests") != std::string::npos);
+
+  for (auto &[key, r] : results)
+    r.catalogCoveredFeatures = {"A_PASSES"};
+  opts.coverage = extensionCoverage(results, {}, runCoveredExtensions(results));
+  CHECK(generateHtml("/tmp/myrun", results, opts)
+            .find("which extensions the Catalog tests")
       == std::string::npos);
 }
 

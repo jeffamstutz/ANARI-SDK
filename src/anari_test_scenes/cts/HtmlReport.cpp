@@ -228,6 +228,7 @@ header {
 .coverage { margin-top: 26px; }
 .coverage .lbl { font-size: 11px; color: var(--muted2); text-transform: uppercase;
   letter-spacing: .07em; margin-bottom: 9px; }
+.coverage .note { font-size: 12px; color: var(--muted2); margin-bottom: 9px; }
 .ext-tbl { border: 1px solid var(--border); border-radius: 9px; overflow: hidden;
   background: #fff; }
 .ext-tbl .thead, .ext-tbl .ext { display: grid;
@@ -818,7 +819,9 @@ void appendTestRow(std::ostringstream &os,
       ? std::string("—")
       : fixed(r.durationMs, 2) + " ms";
 
-  std::string extList;
+  // What the matrix row filter matches: the covered extensions, or the core
+  // row for a Test that covers none.
+  std::string extList = r.coveredFeatures.empty() ? kCoreRow : "";
   for (const auto &ext : r.coveredFeatures)
     extList += (extList.empty() ? "" : " ") + ext;
   os << "<div class=\"test\" data-verdict=\"" << vc << "\" data-category=\""
@@ -882,27 +885,35 @@ const char *coverageStateClass(CoverageState state)
 
 // The per-extension matrix: one row per extension, the ones with Cases
 // clickable to filter the Case list to them.
-void appendCoverageMatrix(
-    std::ostringstream &os, const std::vector<ExtensionCoverage> &coverage)
+void appendCoverageMatrix(std::ostringstream &os,
+    const std::vector<ExtensionCoverage> &coverage,
+    bool catalogRecorded)
 {
   os << "<section class=\"coverage\"><div class=\"lbl\">Extensions — Cases "
-        "for which each is primary; click a row to list them</div>"
-        "<div class=\"ext-tbl\"><div class=\"thead\"><span>Extension</span>"
+        "for which each is primary (core: Tests that cover none); click a "
+        "row to list them</div>";
+  if (!catalogRecorded)
+    os << "<div class=\"note\">Note: " << htmlEscape(kUnrecordedCatalogNote)
+       << ".</div>";
+  os << "<div class=\"ext-tbl\"><div class=\"thead\"><span>Extension</span>"
         "<span>Advertised</span><span style=\"text-align:right\">Passed</span>"
         "<span style=\"text-align:right\">Failed</span><span "
         "style=\"text-align:right\">Skipped</span><span>State</span></div>";
   for (const auto &c : coverage) {
     const bool hasCases = c.passed + c.failed + c.skipped > 0;
+    const char *advertised = c.advertised ? "yes" : "no";
+    if (c.core)
+      advertised = "—";
     os << "<div class=\"ext\" data-extension=\"" << htmlEscape(c.extension)
        << "\"" << (hasCases ? " data-cases" : "") << ">"
        << "<span class=\"x\">" << htmlEscape(c.extension) << "</span>"
        << "<span class=\"" << (c.advertised ? "dark-fg" : "skip-fg") << "\">"
-       << (c.advertised ? "yes" : "no") << "</span>"
+       << advertised << "</span>"
        << "<span class=\"n pass-fg\">" << c.passed << "</span>"
        << "<span class=\"n fail-fg\">" << c.failed << "</span>"
        << "<span class=\"n skip-fg\">" << c.skipped << "</span>"
        << "<span><span class=\"state " << coverageStateClass(c.state) << "\">"
-       << htmlEscape(coverageStateName(c.state)) << "</span></span></div>";
+       << htmlEscape(coverageStateLabel(c)) << "</span></span></div>";
   }
   os << "</div></section>";
 }
@@ -1023,8 +1034,11 @@ std::string generateHtml(const std::filesystem::path &workdir,
 
   // The per-extension matrix leads: what the device implements, gets wrong,
   // and lacks.
-  if (!opts.coverage.empty())
-    appendCoverageMatrix(os, opts.coverage);
+  if (!opts.coverage.empty()) {
+    bool catalogRecorded = false;
+    runCoveredExtensions(results, &catalogRecorded);
+    appendCoverageMatrix(os, opts.coverage, catalogRecorded || results.empty());
+  }
 
   // Summary: pass-rate ring + stat cards.
   os << "<section class=\"summary\"><div class=\"ring-card\"><div class=\"ring\" "

@@ -181,6 +181,9 @@ struct Runner
 
   uint32_t m_effectiveAccumulationFrames{1};
   bool m_denoiseEnabled{false};
+  // coveredExtensions() of the Catalog being run, sorted; every sidecar
+  // records it (schema v3).
+  std::vector<std::string> m_catalogCovered;
   // Declared parameter types for the selected renderer subtype (name -> type),
   // resolved once from device introspection to type the CLI overrides.
   std::map<std::string, ANARIDataType> m_rendererParamTypes;

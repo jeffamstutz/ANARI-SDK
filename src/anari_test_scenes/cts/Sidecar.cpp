@@ -69,6 +69,7 @@ std::string toJson(const CaseResult &result)
   j["requiredFeatures"] = result.requiredFeatures;
   j["coveredFeatures"] = result.coveredFeatures;
   j["missingFeatures"] = result.missingFeatures;
+  j["catalogCoveredFeatures"] = result.catalogCoveredFeatures;
   j["verdict"] = verdictName(result.verdict);
   j["skipReason"] = result.skipReason;
   j["detail"] = result.detail;
@@ -162,6 +163,7 @@ bool fromJson(const std::string &text, CaseResult &out, bool *schemaMismatch)
   out.requiredFeatures = readStrings(j, "requiredFeatures");
   out.coveredFeatures = readStrings(j, "coveredFeatures");
   out.missingFeatures = readStrings(j, "missingFeatures");
+  out.catalogCoveredFeatures = readStrings(j, "catalogCoveredFeatures");
   out.verdict = verdictFromName(j.value("verdict", "skipped"));
   out.skipReason = j.value("skipReason", "");
   out.detail = j.value("detail", "");

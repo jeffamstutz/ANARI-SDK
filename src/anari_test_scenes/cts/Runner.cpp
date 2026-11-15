@@ -128,8 +128,10 @@ anari::Renderer configuredRenderer(
   return renderer.release();
 }
 
-CaseResult baseResult(
-    const TestDef &test, const Case &c, const DeviceSpec &device)
+CaseResult baseResult(const TestDef &test,
+    const Case &c,
+    const DeviceSpec &device,
+    const std::vector<std::string> &catalogCovered)
 {
   CaseResult r;
   r.category = c.category;
@@ -140,6 +142,7 @@ CaseResult baseResult(
   r.device = device;
   r.requiredFeatures = test.requiredFeatures;
   r.coveredFeatures = test.coveredFeatures;
+  r.catalogCoveredFeatures = catalogCovered;
   for (const auto &cv : c.values)
     r.axisValues.emplace_back(cv.axisName, anyToString(cv.value));
   return r;
@@ -319,7 +322,7 @@ void Runner::writeFeatureSkip(const TestDef &test,
     const std::set<std::string> &features,
     RunSummary &summary)
 {
-  CaseResult result = baseResult(test, c, m_options.device);
+  CaseResult result = baseResult(test, c, m_options.device, m_catalogCovered);
   result.verdict = Verdict::Skipped;
   result.missingFeatures = missingFeatures(test, features);
   result.skipReason = "device is missing a required feature:";
@@ -360,7 +363,7 @@ void Runner::writeCaseFailure(const TestDef &test,
     const std::string &detail,
     RunSummary &summary)
 {
-  CaseResult result = baseResult(test, c, m_options.device);
+  CaseResult result = baseResult(test, c, m_options.device, m_catalogCovered);
   result.verdict = Verdict::Failed;
   result.detail = detail;
   recordResult(c, result, summary);
@@ -450,6 +453,11 @@ RunSummary Runner::run(const Catalog &catalog,
     const std::set<std::string> &candidateFeatures)
 {
   resolveCapabilities(candidateFeatures);
+  // Every sidecar records what the whole Catalog covers, not just the
+  // filtered slice, so the report can tell an extension with no Test from one
+  // this run didn't select, from the results tree alone (ADR-0008).
+  const auto covered = coveredExtensions(catalog);
+  m_catalogCovered.assign(covered.begin(), covered.end());
   if (!m_workdir.writeGitignore())
     return workdirFailureSummary(catalog, filter);
   RunSummary summary;
@@ -472,7 +480,8 @@ RunSummary Runner::run(const Catalog &catalog,
           continue;
         }
 
-        CaseResult result = baseResult(*test, c, m_options.device);
+        CaseResult result =
+            baseResult(*test, c, m_options.device, m_catalogCovered);
 
         // Need ground truth for every channel before we can compare.
         bool haveGroundTruth = true;
@@ -595,7 +604,8 @@ void Runner::runBehaviorTest(const TestDef &test,
     // check becomes a failed sidecar and the run continues; SceneObjects owns
     // every handle and releases partial or complete builds on scope exit.
     try {
-      CaseResult result = baseResult(test, c, m_options.device);
+      CaseResult result =
+          baseResult(test, c, m_options.device, m_catalogCovered);
 
       SceneObjects scene = buildScene(test, c);
       if (!scene.valid()) {
@@ -682,8 +692,9 @@ void Runner::runIsolatedCase(
     break;
   }
 
-  CaseResult result =
-      haveResult ? written : baseResult(test, c, m_options.device);
+  CaseResult result = haveResult
+      ? written
+      : baseResult(test, c, m_options.device, m_catalogCovered);
   if (haveResult) {
     why += std::string("; before that, its check had ")
         + verdictName(written.verdict)

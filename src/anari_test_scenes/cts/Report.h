@@ -85,9 +85,14 @@ enum class CoverageState
 
 const char *coverageStateName(CoverageState state);
 
+// The name of the matrix row that collects the Cases of Tests covering no
+// extension (core behaviour such as the frame channels every device has).
+inline constexpr const char *kCoreRow = "core";
+
 struct ExtensionCoverage
 {
-  std::string extension;
+  std::string extension; // kCoreRow for the core row
+  bool core{false}; // the core row: not an extension; always "advertised"
   bool advertised{false};
   bool tested{false}; // some Test in the catalog covers it
   // Cases for which this is a primary extension.
@@ -97,17 +102,34 @@ struct ExtensionCoverage
   CoverageState state{CoverageState::NotAdvertisedNoTest};
 };
 
+// A row's state as the matrix shows it: coverageStateName(), less the
+// "advertised, " that doesn't apply to the core row.
+std::string coverageStateLabel(const ExtensionCoverage &row);
+
 // The extensions the run's device advertised: the union of the sidecars'
 // `device.extensions`. `recorded` (when non-null) is set false when no sidecar
 // recorded any (they predate schema v3).
 std::set<std::string> runExtensions(
     const std::map<std::string, CaseResult> &results, bool *recorded = nullptr);
 
-// One row per extension in `extensions` plus any extension that `tested` or a
-// Case's coveredFeatures names, sorted by name. `tested` is the set of
-// extensions some Test covers (coveredExtensions() of the catalog). An
-// extension a Case ran for counts as advertised even if the run did not record
-// the device's extensions.
+// The extensions the run's Catalog has a Test for: the union of the sidecars'
+// `catalogCoveredFeatures`. `recorded` (when non-null) is set false when no
+// sidecar recorded any (they predate it).
+std::set<std::string> runCoveredExtensions(
+    const std::map<std::string, CaseResult> &results, bool *recorded = nullptr);
+
+// What the report says when no sidecar recorded runCoveredExtensions().
+inline constexpr const char *kUnrecordedCatalogNote =
+    "the run did not record which extensions the Catalog tests (sidecars "
+    "from before it did); an extension counts as tested only if a Case in "
+    "the results covers it, so \"no Test\" may mean \"not run\"";
+
+// The core row first, then one row per extension in `extensions` plus any
+// extension that `tested` or a Case's coveredFeatures names, sorted by name.
+// `tested` is the set of extensions some Test covers (runCoveredExtensions()).
+// The core row counts the Cases that cover no extension. An extension a Case
+// ran for counts as advertised even if the run did not record the device's
+// extensions.
 std::vector<ExtensionCoverage> extensionCoverage(
     const std::map<std::string, CaseResult> &results,
     const std::vector<std::string> &extensions,

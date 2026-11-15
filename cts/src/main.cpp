@@ -551,17 +551,17 @@ int cmdRun(const Options &o)
   return s.failed > 0 ? 1 : 0;
 }
 
-// Reporting reads the results tree (and the catalog, for which extensions have
-// a Test); it never loads a device (ADR-0008).
+// Reporting reads the results tree only; it never loads a device or builds the
+// Catalog (ADR-0008).
 int cmdReport(const Options &o)
 {
   const std::string workdir =
       o.positionals.empty() ? o.workdir : o.positionals.front();
   auto results = loadResults(workdir, std::cerr);
-  // The catalog (not the run) says which extensions have a Test, so an
-  // extension the CTS doesn't test reads as such even in a filtered run.
+  // Which extensions have a Test is what the run recorded of its Catalog, so
+  // an extension the CTS doesn't test reads as such even in a filtered run.
   const auto coverage = extensionCoverage(
-      results, canonicalKhrExtensions(), coveredExtensions(buildCatalog()));
+      results, canonicalKhrExtensions(), runCoveredExtensions(results));
   writeTextSummary(std::cout, workdir, results, o.includeAll, coverage);
 
   if (!o.htmlOut.empty()) {

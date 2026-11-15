@@ -126,7 +126,7 @@ Catalog makeCatalog()
   makeTest("demo", "needs_bogus")
       .description("Checks feature-gated Test reporting.")
       .build(buildSphereWorld)
-      .requireFeature("ANARI_KHR_BOGUS_FEATURE")
+      .covers("ANARI_KHR_BOGUS_FEATURE")
       .registerInto(cat);
   return cat;
 }
@@ -563,6 +563,23 @@ TEST_CASE(
         == std::vector<std::string>{"ANARI_KHR_BOGUS_FEATURE"});
     CHECK(bogusResult.skipReason.find("ANARI_KHR_BOGUS_FEATURE")
         != std::string::npos);
+    // Every sidecar records which extensions the Catalog has a Test for.
+    CHECK(bogusResult.catalogCoveredFeatures
+        == std::vector<std::string>{"ANARI_KHR_BOGUS_FEATURE"});
+  }
+
+  SECTION("a filtered run records the whole Catalog's covered extensions")
+  {
+    REQUIRE(runner.generate(catalog, Filter{"geometry"}, features).passed == 5);
+    REQUIRE(runner.run(catalog, Filter{"geometry"}, features).passed == 5);
+    Case sph;
+    sph.category = "geometry";
+    sph.testName = "sphere";
+    CaseResult result;
+    REQUIRE(readSidecar(Workdir(root).sidecarPath(sph), result));
+    CHECK(result.coveredFeatures.empty());
+    CHECK(result.catalogCoveredFeatures
+        == std::vector<std::string>{"ANARI_KHR_BOGUS_FEATURE"});
   }
 
   SECTION("a result directory creation failure fails the Case")
