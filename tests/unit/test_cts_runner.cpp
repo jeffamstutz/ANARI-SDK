@@ -1577,8 +1577,8 @@ TEST_CASE("The built-in synchronization Tests pass on helide",
   // In-process (no isolation): the ctest TIMEOUT catches a hang.
   Runner runner(d, Workdir(root), opts);
   const auto s = runner.run(cat, Filter{"synchronization/"}, features);
-  CHECK(s.total == 2);
-  CHECK(s.passed == 2);
+  CHECK(s.total == 4);
+  CHECK(s.passed == 4);
 
   for (const auto *test : cat.filter(Filter{"synchronization/"})) {
     for (const auto &c : expand(*test)) {

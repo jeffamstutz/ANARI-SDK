@@ -7,7 +7,7 @@ Source inputs:
 - Active CTS catalog from `anariCts query-metadata`, after rebuilding the current checkout.
 - CTS source under `src/anari_test_scenes/cts/tests/`.
 
-Spec premise: section 2.4 says extensions are observable ANARI API behavior, usually object subtypes but also parameter behavior, function pre/post conditions, or property availability. Appendix B lists 54 KHR extensions in ANARI 1.1. The active CTS catalog has 91 tests and 331 cases.
+Spec premise: section 2.4 says extensions are observable ANARI API behavior, usually object subtypes but also parameter behavior, function pre/post conditions, or property availability. Appendix B lists 54 KHR extensions in ANARI 1.1. The active CTS catalog has 93 tests and 333 cases.
 
 ## Active CTS Size
 
@@ -21,12 +21,12 @@ Spec premise: section 2.4 says extensions are observable ANARI API behavior, usu
 | material | 15 | 86 |
 | renderer | 3 | 11 |
 | sampler | 5 | 51 |
-| synchronization | 2 | 2 |
+| synchronization | 4 | 4 |
 | volume | 1 | 10 |
 
 ## Extensions Currently Tested
 
-The CTS currently gates tests on 36 ANARI 1.1 extension names. A unit test
+The CTS currently gates tests on 37 ANARI 1.1 extension names. A unit test
 validates every active gate against the canonical names emitted by the extension
 utility generator.
 
@@ -35,6 +35,7 @@ utility generator.
 | `KHR_CAMERA_OMNIDIRECTIONAL` | `camera/omnidirectional` exercises `layout` with default and `equirectangular`. |
 | `KHR_CAMERA_ORTHOGRAPHIC` | `camera/orthographic` exercises `aspect`, `height`, `near`, `far`. |
 | `KHR_CAMERA_PERSPECTIVE` | `camera/camera_general` exercises `direction`, `up`, `imageRegion`; `camera/perspective` exercises `fovy`, `aspect`, `near`, `far`. |
+| `KHR_DEVICE_SYNCHRONIZATION` | `synchronization/different_objects_concurrently` renders a frame while four threads build, map, commit, query and release their own worlds, and checks every frame against the one rendered alone; `synchronization/map_during_render_never_tears` rewrites a mapped vertex array while frames render and checks that no frame shows it half written (ADR-0009 rules 3-4). |
 | `KHR_FRAME_ACCUMULATION` | `frame/progressive_rendering` opts into frame accumulation and verifies that repeated renders refine the image. |
 | `KHR_FRAME_CHANNEL_ALBEDO` | `frame/frame_albedo_channel` exercises `UFIXED8_VEC3`, `UFIXED8_RGB_SRGB`, `FLOAT32_VEC3`. |
 | `KHR_FRAME_CHANNEL_INSTANCE_ID` | `frame/frame_instanceID_channel` exercises explicit instance IDs. |
@@ -80,7 +81,6 @@ utility generator.
 | `KHR_CAMERA_SHUTTER` | Camera `shutter` and motion-blur interactions. |
 | `KHR_CAMERA_STEREO` | `stereoMode` values `left`, `right`, `sideBySide`, `topBottom`; `interpupillaryDistance`. |
 | `KHR_DATA_PARALLEL_MPI` | Frame `mpiCommunicator`. This is hard to image-compare, but still query/behavior-testable. |
-| `KHR_DEVICE_SYNCHRONIZATION` | Calls from different threads on different objects of one device at once. The timed behaviour-test form for it exists (`synchronization/*`, ADR-0009), but its two Tests check single-threaded rules and don't require this extension; the concurrent rules (ADR-0009 candidates 3-4) are next. |
 | `KHR_GEOMETRY_QUAD_MOTION_DEFORMATION` | Quad `motion.vertex.position`, `motion.vertex.normal`, `motion.vertex.tangent` arrays-of-arrays plus `time`. |
 | `KHR_GEOMETRY_TRIANGLE_MOTION_DEFORMATION` | Triangle deformation arrays-of-arrays plus `time`. |
 | `KHR_INSTANCE_TRANSFORM_ARRAY` | Matrix-array transforms and array instance IDs on transform instances. |
@@ -110,7 +110,7 @@ Light tests cover the main subtype parameter surfaces for directional, point, sp
 
 Volume/spatial-field coverage tests structuredRegular plus transferFunction1D, including origin/spacing/filter, valueRange, color/opacity modes, and unitDistance. It does not cover cubic filtering, nanovdb, unstructured fields, structuredRegular data element-type breadth, transfer-function `visible`, or `FLOAT64_BOX1` valueRange.
 
-Synchronization coverage (`synchronization/*`, timed behaviour tests run in a child process each, ADR-0009) checks that `anariRenderFrame`, `anariFrameReady(ANARI_NO_WAIT)` and `ANARI_NO_WAIT` property queries don't wait for a render held off by a mapped shared array, and that a completion callback may call back into the device. It doesn't cover concurrent calls from several threads (`KHR_DEVICE_SYNCHRONIZATION`), torn frames while arrays are mapped, re-rendering a frame that is still rendering, rendering from a completion callback, or `ANARI_NO_WAIT` queries during an executing (not just queued) render; ADR-0009 lists these with helide's known status (it would fail re-rendering from a callback, and blocks re-rendering a frame whose render is in flight).
+Synchronization coverage (`synchronization/*`, timed behaviour tests run in a child process each, ADR-0009) checks that `anariRenderFrame`, `anariFrameReady(ANARI_NO_WAIT)` and `ANARI_NO_WAIT` property queries don't wait for a render held off by a mapped shared array, that a completion callback may call back into the device, that threads may work on different objects while a frame renders (`KHR_DEVICE_SYNCHRONIZATION`), and that rewriting a mapped array while frames render never tears a frame. It doesn't cover re-rendering a frame that is still rendering, rendering from a completion callback, or `ANARI_NO_WAIT` queries during an executing (not just queued) render; ADR-0009 lists these with helide's known status (it would fail re-rendering from a callback, and blocks re-rendering a frame whose render is in flight).
 
 Instance coverage only tests the basic `transform` subtype with one explicit matrix. It does not cover instance color/attribute parameters, transform arrays, motion instance subtypes, instance `id` arrays, or motion blur/shutter interactions.
 
@@ -118,5 +118,5 @@ Instance coverage only tests the basic `transform` subtype with one explicit mat
 
 1. Add focused CTS tests for the 1.1 new extensions: MPI query/behavior, transform arrays, light primary visibility, denoise, nanovdb, cubic filter, and unstructured field; isosurface already has a Test.
 2. Add motion/shutter family tests as a group: camera shutter, camera rolling shutter, camera motion transformation, triangle/quad deformation, instance motion transform, and instance decomposed motion.
-3. Add the remaining synchronization rules from ADR-0009, starting with concurrent calls on different objects (`KHR_DEVICE_SYNCHRONIZATION`) and mapping arrays during renders without tearing.
+3. Add the remaining synchronization rules from ADR-0009 (candidates 5 onwards).
 4. Deepen typed-format coverage for geometry attributes/colors, samplers, frame channels, volume color/valueRange, and ID channels.

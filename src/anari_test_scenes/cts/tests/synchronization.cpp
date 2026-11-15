@@ -8,18 +8,25 @@
 
 #include "../AnariObject.h"
 #include "../BuildContext.h"
+#include "../FrameReadback.h"
 #include "../GeometryBuilder.h"
 #include "../GeometryLayout.h"
 #include "../LightBuilder.h"
+#include "../Metrics.h"
 #include "../SurfaceBuilder.h"
 #include "../TestBuilder.h"
 #include "../TestDef.h"
 #include "../WorldBuilder.h"
 #include "Categories.h"
 // std
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
+#include <condition_variable>
 #include <cstdint>
+#include <functional>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -40,8 +47,17 @@ constexpr auto kReturnBudget = 1000ms;
 // How long checkCallbackReentry() leaves the callback to run on its own
 // before waiting on the frame.
 constexpr auto kCallbackDeadline = 10s;
-// Every Case finishes in well under a second on a conforming device.
+// Every Case finishes in well under a second on a conforming device (the
+// concurrent ones in a few seconds).
 constexpr auto kCaseTimeout = 30s;
+
+// The concurrent checks (KHR_DEVICE_SYNCHRONIZATION): how many frames the
+// render thread renders while other threads work, and how many threads work.
+constexpr int kConcurrentFrames = 40;
+constexpr int kWorkerThreads = 4;
+// The torn-frame check's scene: enough triangles that a render reading a
+// half-written position array shows it.
+constexpr int kTearTriangles = 16;
 
 // A world with one triangle whose vertex positions are a shared array over
 // app memory, which a check maps to hold renders of the world off.
@@ -72,13 +88,13 @@ struct SharedArrayWorld
   }
 };
 
-// The Tests' world, used only for the runner's camera framing: the triangle
-// the checks render (the checks build their own, to map its array).
-anari::World triangleWorld(BuildContext &ctx)
+// The Tests' world, used only for the runner's camera framing: the triangles
+// the checks render (the checks build their own, to map their arrays).
+anari::World triangleSoupWorld(BuildContext &ctx, int primitiveCount)
 {
   auto d = ctx.device();
   TriangleSpec spec;
-  spec.primitiveCount = 1;
+  spec.primitiveCount = primitiveCount;
   auto geom = buildTriangleGeometry(d, spec);
   auto mat = makeMatteMaterial(d, float3(0.7f, 0.5f, 0.3f));
   auto surface = makeSurface(d, geom, mat);
@@ -89,6 +105,11 @@ anari::World triangleWorld(BuildContext &ctx)
   anari::release(d, mat);
   anari::release(d, surface);
   return world;
+}
+
+anari::World triangleWorld(BuildContext &ctx)
+{
+  return triangleSoupWorld(ctx, 1);
 }
 
 UniqueAnariObject<anari::Frame> newFrame(anari::Device d,
@@ -354,6 +375,460 @@ BehaviorResult checkCallbackReentry(anari::Device d,
   return findings.result("the callback's calls all returned");
 }
 
+// Keeps anariRenderFrame from overlapping any other call, which
+// KHR_DEVICE_SYNCHRONIZATION still requires ("anariRenderFrame must be
+// synchronized with all other ANARI calls as well"), while letting the other
+// threads' calls overlap each other and the asynchronous renders. A pending
+// render goes ahead of new calls, so the working threads can't starve it.
+class RenderFrameGate
+{
+ public:
+  // Runs fn, a group of calls on objects this thread owns, overlapping other
+  // threads' calls but no anariRenderFrame.
+  void calls(const std::function<void()> &fn)
+  {
+    {
+      std::unique_lock<std::mutex> lock(m_mutex);
+      m_changed.wait(lock, [&]() { return !m_renderPending; });
+      ++m_activeCalls;
+    }
+    fn();
+    {
+      std::lock_guard<std::mutex> lock(m_mutex);
+      --m_activeCalls;
+    }
+    m_changed.notify_all();
+  }
+
+  // Calls anariRenderFrame with no other call in progress.
+  void renderFrame(anari::Device d, anari::Frame f)
+  {
+    std::unique_lock<std::mutex> lock(m_mutex);
+    m_renderPending = true;
+    m_changed.wait(lock, [&]() { return m_activeCalls == 0; });
+    anariRenderFrame(d, f);
+    m_renderPending = false;
+    lock.unlock();
+    m_changed.notify_all();
+  }
+
+ private:
+  std::mutex m_mutex;
+  std::condition_variable m_changed;
+  int m_activeCalls{0};
+  bool m_renderPending{false};
+};
+
+// Joins a thread on scope exit, so an early return can't leave one running.
+struct JoinOnExit
+{
+  std::vector<std::thread> &threads;
+  ~JoinOnExit()
+  {
+    for (auto &t : threads) {
+      if (t.joinable())
+        t.join();
+    }
+  }
+};
+
+// Renders the frame and reads its color channel, with no other thread active.
+FrameReadbackResult renderAlone(
+    anari::Device d, anari::Frame f, uint32_t w, uint32_t h)
+{
+  anariRenderFrame(d, f);
+  anariFrameReady(d, f, ANARI_WAIT);
+  return readFrameChannel(d, f, Channel::Color, w, h);
+}
+
+// Whether two frames are identical, pixel for pixel.
+bool framesEqual(const Image &a, const Image &b)
+{
+  return changedFraction(a, b, 0) == 0.0;
+}
+
+std::string percentOf(double fraction)
+{
+  std::ostringstream text;
+  text.setf(std::ios::fixed);
+  text.precision(2);
+  text << fraction * 100.0 << "%";
+  return text.str();
+}
+
+// What one working thread in checkDifferentObjectsConcurrently() did.
+struct WorkerReport
+{
+  int iterations{0};
+  std::string failure; // the first thing it found wrong
+};
+
+// One working thread's loop: build, map, commit, query and release a small
+// world of its own, offset along x so its bounds tell it apart from the
+// others', until told to stop.
+void workOnOwnObjects(anari::Device d,
+    RenderFrameGate &gate,
+    int index,
+    const std::atomic<bool> &stop,
+    WorkerReport &report)
+{
+  const float3 offset(10.f * float(index + 1), 0.f, 0.f);
+  const std::vector<float3> layout = layoutTriangleSoup(1);
+
+  while (!stop) {
+    gate.calls([&]() {
+      // The vertex positions are a managed array the thread writes through
+      // a mapping, a little further along on each iteration. (Managed, so the
+      // app's memory isn't reused while a released shared array may still be
+      // copying it.)
+      const float3 shift =
+          offset + float3(0.f, 0.f, 0.01f * float(report.iterations % 8));
+      auto array = anari::newArray1D(d, ANARI_FLOAT32_VEC3, layout.size());
+      auto *mapped = static_cast<float3 *>(anariMapArray(d, array));
+      if (!mapped && report.failure.empty())
+        report.failure = "mapping its array returned null";
+      if (mapped) {
+        for (size_t i = 0; i < layout.size(); ++i)
+          mapped[i] = layout[i] + shift;
+      }
+      anariUnmapArray(d, array);
+
+      auto geom = anari::newObject<anari::Geometry>(d, "triangle");
+      anari::setAndReleaseParameter(d, geom, "vertex.position", array);
+      anari::commitParameters(d, geom);
+      auto mat = makeMatteMaterial(d, float3(0.2f, 0.4f, 0.8f));
+      auto surface = makeSurface(d, geom, mat);
+      WorldContents wc;
+      wc.surfaces = {surface};
+      auto world = assembleWorld(d, wc);
+
+      anari::scenes::Bounds bounds{};
+      const int found = anariGetProperty(d,
+          world,
+          "bounds",
+          ANARI_FLOAT32_BOX3,
+          &bounds,
+          sizeof(bounds),
+          ANARI_WAIT);
+      // The world holds only this thread's triangle: its bounds are the
+      // triangle's (to a small tolerance for padding), not another thread's.
+      float3 lower = layout[0] + shift, upper = lower;
+      for (const auto &p : layout) {
+        lower = anari::math::min(lower, p + shift);
+        upper = anari::math::max(upper, p + shift);
+      }
+      constexpr float kTolerance = 0.05f;
+      bool near = true;
+      for (int a = 0; a < 3; ++a) {
+        near = near && std::fabs(bounds[0][a] - lower[a]) <= kTolerance
+            && std::fabs(bounds[1][a] - upper[a]) <= kTolerance;
+      }
+      if (report.failure.empty()) {
+        if (!found)
+          report.failure = "its world's 'bounds' query with ANARI_WAIT failed";
+        else if (!near) {
+          report.failure =
+              "its world's bounds aren't its own triangle's (another "
+              "thread's objects leaked into it, or its writes were lost)";
+        }
+      }
+
+      anari::release(d, world);
+      anari::release(d, surface);
+      anari::release(d, mat);
+      anari::release(d, geom);
+    });
+    ++report.iterations;
+  }
+}
+
+// KHR_DEVICE_SYNCHRONIZATION: "different threads [may] operate concurrently
+// on different objects within the same device". While one thread renders a
+// frame again and again, several others each create a small world, write its
+// vertices through a mapped array, commit it, query its bounds and
+// release it, over and over. Every frame equals the one rendered with nothing
+// else going on, each thread's world has its own bounds, and (with
+// failOnDeviceErrors) the device reports no ERROR.
+BehaviorResult checkDifferentObjectsConcurrently(anari::Device d,
+    anari::World world,
+    anari::Camera camera,
+    anari::Renderer renderer,
+    uint32_t w,
+    uint32_t h)
+{
+  auto frame = newFrame(d, world, camera, renderer, w, h);
+  const auto f = frame.get();
+  anari::commitParameters(d, f);
+
+  Findings findings;
+  const auto reference = renderAlone(d, f, w, h);
+  if (!reference) {
+    findings.fail(
+        "reading the frame rendered alone failed: " + reference.detail);
+    return findings.result("");
+  }
+
+  RenderFrameGate gate;
+  std::atomic<bool> stop{false};
+  std::vector<WorkerReport> reports(kWorkerThreads);
+  int differing = 0;
+  double worstFraction = 0.0;
+  std::string readFailure;
+  {
+    std::vector<std::thread> threads;
+    JoinOnExit joiner{threads};
+    for (int i = 0; i < kWorkerThreads; ++i) {
+      threads.emplace_back(workOnOwnObjects,
+          d,
+          std::ref(gate),
+          i,
+          std::cref(stop),
+          std::ref(reports[i]));
+    }
+
+    for (int i = 0; i < kConcurrentFrames; ++i) {
+      gate.renderFrame(d, f);
+      // Calls on the frame alone: these may overlap the other threads' calls.
+      anariFrameReady(d, f, ANARI_WAIT);
+      const auto image = readFrameChannel(d, f, Channel::Color, w, h);
+      if (!image) {
+        readFailure = image.detail;
+        break;
+      }
+      const double fraction = changedFraction(reference.image, image.image, 0);
+      if (fraction != 0.0) {
+        ++differing;
+        worstFraction = std::max(worstFraction, fraction);
+      }
+    }
+    stop = true;
+  }
+
+  if (!readFailure.empty())
+    findings.fail(
+        "reading a frame rendered concurrently failed: " + readFailure);
+  if (differing > 0) {
+    findings.fail(std::to_string(differing) + " of "
+        + std::to_string(kConcurrentFrames)
+        + " frames rendered while other threads worked differ from the frame "
+          "rendered alone (up to "
+        + percentOf(worstFraction) + " of pixels)");
+  }
+  std::string iterations;
+  for (int i = 0; i < kWorkerThreads; ++i) {
+    if (!reports[i].failure.empty())
+      findings.fail("thread " + std::to_string(i) + ": " + reports[i].failure);
+    iterations += (i ? ", " : "") + std::to_string(reports[i].iterations);
+  }
+  findings.notes.push_back(std::to_string(kConcurrentFrames)
+      + " frames rendered while " + std::to_string(kWorkerThreads)
+      + " threads built and released worlds (" + iterations + " each)");
+  return findings.result("every frame matched the one rendered alone");
+}
+
+// A world of kTearTriangles triangles whose vertex positions are a shared
+// array over app memory, which checkMapNeverTears() rewrites through a mapping
+// between two layouts: the soup as laid out, and the soup moved a little.
+struct PositionArrayWorld
+{
+  std::vector<float3> laidOut = layoutTriangleSoup(kTearTriangles);
+  std::vector<float3> moved;
+  std::vector<float3> positions = laidOut;
+  UniqueAnariObject<anari::Array1D> positionArray;
+  UniqueAnariObject<anari::World> world;
+
+  explicit PositionArrayWorld(anari::Device d)
+  {
+    // Move each triangle by a tenth of the soup's width, enough to change
+    // every triangle's pixels and little enough to stay in the framed view.
+    float lowX = laidOut[0].x, highX = lowX;
+    for (const auto &p : laidOut) {
+      lowX = std::min(lowX, p.x);
+      highX = std::max(highX, p.x);
+    }
+    const float3 shift(0.1f * (highX - lowX), 0.f, 0.f);
+    for (const auto &p : laidOut)
+      moved.push_back(p + shift);
+
+    positionArray = UniqueAnariObject<anari::Array1D>(
+        d, anari::newArray1D(d, positions.data(), positions.size()));
+    auto geom = anari::newObject<anari::Geometry>(d, "triangle");
+    anari::setParameter(d, geom, "vertex.position", positionArray.get());
+    anari::commitParameters(d, geom);
+    auto mat = makeMatteMaterial(d, float3(0.7f, 0.5f, 0.3f));
+    auto surface = makeSurface(d, geom, mat);
+    auto light = makeDirectionalLight(d, float3(0.f, -1.f, -1.f));
+    WorldContents wc;
+    wc.surfaces = {surface};
+    wc.lights = {light};
+    world = UniqueAnariObject<anari::World>(d, assembleWorld(d, wc));
+    anari::release(d, geom);
+    anari::release(d, mat);
+    anari::release(d, surface);
+    anari::release(d, light);
+  }
+
+  // Writes one layout through a mapping of the position array, half the
+  // triangles at a time. The pause gives a render that ignores the mapping
+  // time to read the array half written.
+  void write(float3 *mapped, bool movedLayout, bool pause) const
+  {
+    const auto &from = movedLayout ? moved : laidOut;
+    const size_t half = (from.size() / 6) * 3; // whole triangles
+    std::copy(from.begin(), from.begin() + half, mapped);
+    if (pause)
+      std::this_thread::sleep_for(500us);
+    std::copy(from.begin() + half, from.end(), mapped + half);
+  }
+};
+
+// anariMapArray: "Applications are only permitted to write to the memory
+// visible to ANARIArray objects if all array objects involved are mapped.
+// Mapping a shared array object indicates that the device should not execute
+// any rendering operations (or internal state updates, such as building
+// acceleration structures) of any parent objects". With
+// KHR_DEVICE_SYNCHRONIZATION one thread keeps mapping the world's vertex
+// position array, rewriting it (the triangles as laid out, then moved, half of
+// them at a time) and unmapping it, while another renders frames of that
+// world. Every frame equals the world rendered alone in one of the two
+// layouts, never a mix; once the writing stops, the next frame shows the last
+// layout written.
+BehaviorResult checkMapNeverTears(anari::Device d,
+    anari::World,
+    anari::Camera camera,
+    anari::Renderer renderer,
+    uint32_t w,
+    uint32_t h)
+{
+  PositionArrayWorld scene(d);
+  const auto array = scene.positionArray.get();
+  auto frame = newFrame(d, scene.world.get(), camera, renderer, w, h);
+  const auto f = frame.get();
+  anari::commitParameters(d, f);
+
+  Findings findings;
+  const auto laidOutFrame = renderAlone(d, f, w, h);
+  auto *mapped = static_cast<float3 *>(anariMapArray(d, array));
+  if (mapped != scene.positions.data())
+    findings.fail("mapping a shared array didn't return the app's memory");
+  if (mapped)
+    scene.write(mapped, true, false);
+  anariUnmapArray(d, array);
+  const auto movedFrame = renderAlone(d, f, w, h);
+  if (!laidOutFrame || !movedFrame) {
+    findings.fail("reading a frame rendered alone failed: "
+        + (laidOutFrame ? movedFrame.detail : laidOutFrame.detail));
+    return findings.result("");
+  }
+  if (framesEqual(laidOutFrame.image, movedFrame.image)) {
+    findings.fail(
+        "the frames rendered alone before and after moving the triangles "
+        "through the mapping are the same (the render didn't use the "
+        "positions written)");
+    return findings.result("");
+  }
+
+  RenderFrameGate gate;
+  std::atomic<bool> stop{false};
+  std::atomic<int> rewrites{0};
+  std::atomic<bool> writerMappedOwnMemory{true};
+  std::mutex issuedMutex;
+  std::condition_variable issuedChanged;
+  int framesIssued = 0;
+  bool lastMoved = true;
+  int laidOutFrames = 0, movedFrames = 0, torn = 0;
+  std::string readFailure;
+  {
+    std::vector<std::thread> threads;
+    JoinOnExit joiner{threads};
+    // One rewrite per render, started once the render is issued, so it
+    // overlaps the render in flight. Rewriting back to back instead would keep
+    // the array mapped nearly all the time and could starve the renders,
+    // which (per anariMapArray) wait for the unmap.
+    threads.emplace_back([&]() {
+      bool moveNext = false;
+      int rewritten = 0;
+      while (true) {
+        {
+          std::unique_lock<std::mutex> lock(issuedMutex);
+          issuedChanged.wait(
+              lock, [&]() { return stop || framesIssued > rewritten; });
+          if (stop)
+            break;
+          rewritten = framesIssued;
+        }
+        // Map, write and unmap as one group, so the array is never left
+        // mapped while an anariRenderFrame call waits to go through the gate.
+        gate.calls([&]() {
+          auto *p = static_cast<float3 *>(anariMapArray(d, array));
+          if (p != scene.positions.data())
+            writerMappedOwnMemory = false;
+          if (p)
+            scene.write(p, moveNext, true);
+          anariUnmapArray(d, array);
+        });
+        lastMoved = moveNext;
+        moveNext = !moveNext;
+        ++rewrites;
+      }
+    });
+
+    for (int i = 0; i < kConcurrentFrames; ++i) {
+      gate.renderFrame(d, f);
+      {
+        std::lock_guard<std::mutex> lock(issuedMutex);
+        ++framesIssued;
+      }
+      issuedChanged.notify_all();
+      anariFrameReady(d, f, ANARI_WAIT);
+      const auto image = readFrameChannel(d, f, Channel::Color, w, h);
+      if (!image) {
+        readFailure = image.detail;
+        break;
+      }
+      if (framesEqual(laidOutFrame.image, image.image))
+        ++laidOutFrames;
+      else if (framesEqual(movedFrame.image, image.image))
+        ++movedFrames;
+      else
+        ++torn;
+    }
+    {
+      std::lock_guard<std::mutex> lock(issuedMutex);
+      stop = true;
+    }
+    issuedChanged.notify_all();
+  }
+
+  if (!readFailure.empty())
+    findings.fail(
+        "reading a frame rendered concurrently failed: " + readFailure);
+  if (!writerMappedOwnMemory)
+    findings.fail("mapping a shared array didn't return the app's memory");
+  if (torn > 0) {
+    findings.fail(std::to_string(torn) + " of "
+        + std::to_string(kConcurrentFrames)
+        + " frames match neither layout rendered alone (a render read the "
+          "array while it was mapped and half written)");
+  }
+
+  const auto last = renderAlone(d, f, w, h);
+  const auto &expected = lastMoved ? movedFrame : laidOutFrame;
+  if (!last)
+    findings.fail(
+        "reading the frame after the writing stopped failed: " + last.detail);
+  else if (!framesEqual(expected.image, last.image)) {
+    findings.fail(std::string("after the writing stopped, the frame isn't the ")
+        + (lastMoved ? "moved" : "laid-out")
+        + " layout last written through the mapping");
+  }
+
+  findings.notes.push_back(std::to_string(laidOutFrames) + " laid-out and "
+      + std::to_string(movedFrames) + " moved frames while the array was "
+      + "rewritten " + std::to_string(rewrites.load()) + " times");
+  return findings.result("no frame was torn");
+}
+
 } // namespace
 
 void registerSynchronizationTests(Catalog &catalog)
@@ -382,6 +857,49 @@ void registerSynchronizationTests(Catalog &catalog)
       .timeout(kCaseTimeout)
       .failOnDeviceErrors()
       .covers("ANARI_KHR_FRAME_COMPLETION_CALLBACK")
+      .requireFeatures(kSupportMatteTriangle)
+      .registerInto(catalog);
+
+  makeTest("synchronization", "different_objects_concurrently")
+      .description(
+          "KHR_DEVICE_SYNCHRONIZATION, spec 3.1: \"This lowers the scope of "
+          "required synchronization to individual ANARI objects allowing "
+          "different threads to operate concurrently on different objects "
+          "within the same device.\" While one thread renders a frame "
+          "repeatedly (anariRenderFrame kept apart from every other call, as "
+          "3.1 still requires), four threads each create a world, write its "
+          "vertices through a mapped array, commit it, query its "
+          "bounds with ANARI_WAIT and release it, over and over. Every frame "
+          "equals the frame rendered alone, each world's bounds are its own, "
+          "and the device reports no ERROR.")
+      .build(triangleWorld)
+      .behavior(checkDifferentObjectsConcurrently)
+      .timeout(kCaseTimeout)
+      .failOnDeviceErrors()
+      .covers("ANARI_KHR_DEVICE_SYNCHRONIZATION")
+      .requireFeatures(kSupportMatteTriangle)
+      .registerInto(catalog);
+
+  makeTest("synchronization", "map_during_render_never_tears")
+      .description(
+          "anariMapArray: \"Applications are only permitted to write to the "
+          "memory visible to ANARIArray objects if all array objects involved "
+          "are mapped. Mapping a shared array object indicates that the "
+          "device should not execute any rendering operations ... of any "
+          "parent objects\". With KHR_DEVICE_SYNCHRONIZATION, one thread "
+          "maps the world's vertex position array, rewrites it (16 "
+          "triangles as laid out, then moved, half of them at a time) and "
+          "unmaps it, over and over, while another renders frames of the "
+          "world. Every frame equals one of the two layouts rendered alone, "
+          "never a mix; after the writing stops the frame shows the last "
+          "layout written.")
+      .build([](BuildContext &ctx) {
+        return triangleSoupWorld(ctx, kTearTriangles);
+      })
+      .behavior(checkMapNeverTears)
+      .timeout(kCaseTimeout)
+      .failOnDeviceErrors()
+      .covers("ANARI_KHR_DEVICE_SYNCHRONIZATION")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 }
