@@ -55,6 +55,22 @@ ANARIDataType normalFormatFromString(const std::string &s)
   return ANARI_UNKNOWN;
 }
 
+namespace {
+
+bool endsWith(const std::string &s, const std::string &suffix)
+{
+  return s.size() >= suffix.size()
+      && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+} // namespace
+
+bool isFrameTypeAxis(const std::string &axisName)
+{
+  return axisName.rfind("frame_", 0) == 0 && endsWith(axisName, "_type")
+      && axisName.size() > std::string("frame__type").size();
+}
+
 ANARIDataType caseChannelFormat(const Case &c, Channel channel)
 {
   // The axis name and string->type mapping that overrides this channel's

@@ -3,6 +3,7 @@
 
 #include "Discrimination.h"
 #include "Expansion.h"
+#include "FrameFormats.h"
 #include "Metrics.h"
 #include "Relations.h"
 #include "Value.h"
@@ -18,12 +19,6 @@ namespace anari {
 namespace cts {
 
 namespace {
-
-bool endsWith(const std::string &s, const std::string &suffix)
-{
-  return s.size() >= suffix.size()
-      && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
-}
 
 std::string axisValue(const Case &c, const std::string &axis)
 {
@@ -53,12 +48,6 @@ std::string fixed(double v, int precision)
 
 } // namespace
 
-bool isFrameTypeAxis(const std::string &axisName)
-{
-  return axisName.rfind("frame_", 0) == 0 && endsWith(axisName, "_type")
-      && axisName.size() > std::string("frame__type").size();
-}
-
 std::vector<DiscriminationPair> discriminationPairs(
     const TestDef &test, const std::vector<Case> &cases)
 {
@@ -66,8 +55,7 @@ std::vector<DiscriminationPair> discriminationPairs(
   std::set<std::pair<std::string, std::string>> seen;
   for (const auto &group : relationGroups(test, cases)) {
     const auto &axis = test.axes[group.axis];
-    if (axis.kind != AxisKind::Permutation || isFrameTypeAxis(axis.name)
-        || test.noEffectCheck.count(axis.name))
+    if (axis.kind != AxisKind::Permutation || isFrameTypeAxis(axis.name))
       continue;
     for (size_t k = 1; k < group.cases.size(); ++k) {
       for (size_t p = 0; p < k; ++p) {
