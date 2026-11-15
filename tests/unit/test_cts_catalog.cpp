@@ -611,3 +611,24 @@ TEST_CASE("Catalog registers, lists, and filters tests", "[cts][catalog]")
     CHECK(catalog.filter(Filter{"nomatch"}).empty());
   }
 }
+
+TEST_CASE("a filter naming a Case selects Cases; a Test pattern does not",
+    "[cts][catalog][filter]")
+{
+  Catalog cat;
+  makeTest("light", "spot").permute("p", {"sphere", "cube"}).registerInto(cat);
+  makeTest("geometry", "sphere").registerInto(cat);
+  const auto &spot = cat.tests().front();
+  const auto cases = expand(spot);
+
+  // "sphere" names the Test geometry/sphere only, not light/spot's Case.
+  CHECK(cat.filter(Filter{"sphere"}).size() == 1);
+  CHECK_FALSE(matches(Filter{"sphere"}, spot, cases[0]));
+
+  // A pattern with two '/' names Cases.
+  const Filter one{"light/spot/sphere"};
+  CHECK(cat.filter(one).size() == 1);
+  CHECK(matches(one, spot, cases[0]));
+  CHECK_FALSE(matches(one, spot, cases[1]));
+  CHECK(matches(Filter{"light/spot/*"}, spot, cases[1]));
+}

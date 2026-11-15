@@ -96,7 +96,8 @@ enum class CoverageState
   // Advertised; none failed or skipped, but some passed their self-checks
   // with the Ground truth they ask for not evaluated.
   PassedWithoutGroundTruth,
-  // Advertised; none failed, some passed, and some were skipped.
+  // Advertised; none failed, some passed, and some were skipped or carry an
+  // unevaluated (opted-out) assertion.
   PartlyScored,
   Failed, // advertised; at least one of its Cases failed
   NotAdvertised, // the device doesn't advertise it (its Cases skip)
