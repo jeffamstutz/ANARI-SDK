@@ -153,15 +153,19 @@ void registerLightTests(Catalog &catalog)
       })
       .renderer(darkRenderer)
       .simplified()
+      // The baseline cone, straight down from above the grid's centre, lights
+      // most of it, so moving, turning, narrowing or dimming the light changes
+      // a large share of the lit pixels.
       .permute("position",
-          V{Any(float3(0.5f, 0.5f, 0.5f)), Any(float3(0.3f, 0.3f, 0.3f))})
+          V{Any(float3(0.f, 0.f, 1.f)), Any(float3(0.4f, 0.4f, 1.f))})
       .permute("direction",
-          V{Any(float3(0.f, -0.242536f, -0.970143f)),
-              Any(float3(0.f, 0.f, -0.970143f))})
-      .permute("openingAngle", V{Any(0.5f), none()})
-      .permute("falloffAngle", V{none(), Any(1.1f)})
-      .permute("intensity", V{none(), Any(0.6f)})
-      .permute("power", V{none(), Any(0.4f)})
+          V{Any(float3(0.f, 0.f, -1.f)),
+              Any(float3(0.f, 0.371391f, -0.928477f))})
+      .permute("openingAngle", V{Any(1.6f), Any(0.8f)})
+      .permute("falloffAngle", V{none(), Any(0.6f)})
+      .permute("intensity", V{none(), Any(0.3f)})
+      .permute("power", V{none(), Any(0.5f)})
+      .groundTruth("falloff shape has no analytic answer")
       .covers("ANARI_KHR_LIGHT_SPOT")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
