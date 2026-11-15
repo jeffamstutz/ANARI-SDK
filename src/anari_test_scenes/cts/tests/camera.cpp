@@ -57,6 +57,12 @@ Any box2(float lx, float ly, float hx, float hy)
   return Any(ANARI_FLOAT32_BOX2, v);
 }
 
+// camera_general's imageRegion: the middle half of the sensor on each axis.
+// Its edges are whole pixels at any even run size, so the Case renders the
+// crop at the crop's own size and must equal the crop of the full frame.
+constexpr float kRegionLo = 0.25f;
+constexpr float kRegionHi = 0.75f;
+
 void cp(BuildContext &ctx, anari::Device d, anari::Camera c, const char *param)
 {
   applyParameterValue(d, c, param, ctx.value(param).raw());
@@ -82,10 +88,32 @@ void registerCameraTests(Catalog &catalog)
         anari::commitParameters(d, c);
         return c;
       })
+      // The region Case renders at the region's pixel size (a skip when the
+      // run's size doesn't put its edges on whole pixels).
+      .frameSize([](BuildContext &ctx, FrameSize run) -> CaseFrameSize {
+        if (!ctx.value("imageRegion").valid())
+          return run;
+        return regionFrameSize(run, kRegionLo, kRegionLo, kRegionHi, kRegionHi);
+      })
       .simplified()
       .permute("direction", V{none(), Any(float3(0.20601f, 0.f, -0.97855f))})
       .permute("up", V{none(), Any(float3(0.f, -0.97855f, 0.20601f))})
-      .permute("imageRegion", V{none(), box2(0.25f, 0.3f, 0.75f, 0.8f)})
+      .permute("imageRegion",
+          V{none(), box2(kRegionLo, kRegionLo, kRegionHi, kRegionHi)})
+      .expectDerived("imageRegion",
+          anyToString(box2(kRegionLo, kRegionLo, kRegionHi, kRegionHi)),
+          "the region's crop of the full frame",
+          [](const Siblings &s) -> ExpectedImage {
+            const Image &full = s.at("none");
+            const auto rect = regionPixels(full.width,
+                full.height,
+                kRegionLo,
+                kRegionLo,
+                kRegionHi,
+                kRegionHi);
+            return rect ? crop(full, *rect) : Image{};
+          })
+      .noGroundTruth()
       .covers("ANARI_KHR_CAMERA_PERSPECTIVE")
       .requireFeatures(kSubjectSurface)
       .registerInto(catalog);

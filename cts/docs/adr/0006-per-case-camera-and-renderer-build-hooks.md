@@ -32,3 +32,10 @@ output-format axis (`frame_color_type`) is handled separately by the runner,
 which reads it from the Case and selects the color buffer's `ANARIDataType`,
 quantizing float color buffers to the 8-bit comparison image identically in
 generate and run.
+
+Update (ADR-0010, ticket 16): a third per-Case hook, `frameSize(BuildContext&,
+FrameSize run)` (`.frameSize(...)`), sets the Case's frame size relative to the
+run's. The runner frames its default camera for that size and renders the
+Case's frame at it; a camera hook that wants the aspect reads the axis values
+the size was derived from.
+
