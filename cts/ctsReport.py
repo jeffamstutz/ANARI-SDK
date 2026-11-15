@@ -16,8 +16,9 @@ Command:
 
 The sidecar schema is versioned (schemaVersion); this reader targets version 3
 (v2 added the producing-device identity; v3 the extensions behind a Case:
-requiredFeatures, coveredFeatures, missingFeatures and device.extensions) and
-warns on a mismatch.
+requiredFeatures, coveredFeatures, missingFeatures, device.extensions and
+catalogCoveredFeatures, the last only for the C++ report's per-extension
+matrix) and warns on a mismatch.
 """
 
 import argparse

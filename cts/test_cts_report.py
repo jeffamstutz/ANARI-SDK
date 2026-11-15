@@ -46,6 +46,7 @@ def make_sidecar(
         "requiredFeatures": ["ANARI_KHR_GEOMETRY_TRIANGLE", "ANARI_KHR_MATERIAL_MATTE"],
         "coveredFeatures": ["ANARI_KHR_GEOMETRY_TRIANGLE"],
         "missingFeatures": [],
+        "catalogCoveredFeatures": ["ANARI_KHR_GEOMETRY_TRIANGLE"],
         "verdict": verdict,
         "durationMs": duration_ms,
         "channels": [

@@ -129,8 +129,9 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   `writeSidecar`) and reads (`fromJson`/`readSidecar`) the contract.
 - `Report.{h,cpp}` — reads the results tree (`loadResults`), aggregates it
   (`summarize`, `runDevice`, and per extension `extensionCoverage` over the
-  canonical KHR list from `code_gen/api/` and the Catalog's covered
-  extensions), and emits the text summary. `kReportMetrics` is
+  canonical KHR list from `code_gen/api/` and the covered extensions the run
+  recorded of its Catalog, `runCoveredExtensions`, plus a `core` row), and
+  emits the text summary. `kReportMetrics` is
   the single list of reported metrics. Pure; unit-tested.
 - `HtmlReport.{h,cpp}` — renders the self-contained interactive HTML report
   (inline CSS/JS, optional base64 `--embed`); pure `htmlEscape`/`base64Encode`
@@ -196,5 +197,6 @@ i.e. a field they should know to rely on — and update both readers in lockstep
 v2 did the latter: it added the `device` object that labels a run (plus the
 optional per-channel `diffImage`/`thresholdImage` debug paths). v3 added the
 extensions behind a Case (`requiredFeatures`, `coveredFeatures`,
-`missingFeatures`, `device.extensions`) for the per-extension report, so the
-readers target v3 and warn on older sidecars, prompting a regenerate.
+`missingFeatures`, `device.extensions`, and `catalogCoveredFeatures`, what the
+run's whole Catalog covers) for the per-extension report, so the readers
+target v3 and warn on older sidecars, prompting a regenerate.

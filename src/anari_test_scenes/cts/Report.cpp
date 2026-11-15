@@ -190,6 +190,15 @@ const char *coverageStateName(CoverageState state)
   return "unknown";
 }
 
+std::string coverageStateLabel(const ExtensionCoverage &row)
+{
+  const std::string name = coverageStateName(row.state);
+  const std::string prefix = "advertised, ";
+  if (row.core && name.rfind(prefix, 0) == 0)
+    return name.substr(prefix.size());
+  return name;
+}
+
 std::set<std::string> runExtensions(
     const std::map<std::string, CaseResult> &results, bool *recorded)
 {
@@ -201,6 +210,18 @@ std::set<std::string> runExtensions(
   }
   if (recorded)
     *recorded = any;
+  return out;
+}
+
+std::set<std::string> runCoveredExtensions(
+    const std::map<std::string, CaseResult> &results, bool *recorded)
+{
+  std::set<std::string> out;
+  for (const auto &[key, r] : results)
+    out.insert(
+        r.catalogCoveredFeatures.begin(), r.catalogCoveredFeatures.end());
+  if (recorded)
+    *recorded = !out.empty();
   return out;
 }
 
@@ -220,35 +241,39 @@ std::vector<ExtensionCoverage> extensionCoverage(
   for (const auto &ext : tested)
     row(ext).tested = true;
 
-  // The extensions with a Case skipped for want of Ground truth; other skips
-  // are for a missing extension.
-  std::set<std::string> noGroundTruth;
-  for (const auto &[key, r] : results) {
-    for (const auto &ext : r.coveredFeatures) {
-      auto &c = row(ext);
-      switch (r.verdict) {
-      case Verdict::Passed:
-        ++c.passed;
-        break;
-      case Verdict::Failed:
-        ++c.failed;
-        break;
-      case Verdict::Skipped:
-        ++c.skipped;
-        if (r.skipReason == kNoGroundTruthReason)
-          noGroundTruth.insert(ext);
-        break;
-      }
+  ExtensionCoverage core;
+  core.extension = kCoreRow;
+  core.core = true;
+  core.advertised = true; // a device has no choice about core
+  core.tested = true;
+
+  // Tally one Case into a row, noting the rows with a Case skipped for want
+  // of Ground truth (other skips are for a missing extension).
+  std::set<const ExtensionCoverage *> noGroundTruth;
+  auto tally = [&](ExtensionCoverage &c, const CaseResult &r) {
+    switch (r.verdict) {
+    case Verdict::Passed:
+      ++c.passed;
+      break;
+    case Verdict::Failed:
+      ++c.failed;
+      break;
+    case Verdict::Skipped:
+      ++c.skipped;
+      if (r.skipReason == kNoGroundTruthReason)
+        noGroundTruth.insert(&c);
+      break;
     }
+  };
+  for (const auto &[key, r] : results) {
+    if (r.coveredFeatures.empty())
+      tally(core, r);
+    for (const auto &ext : r.coveredFeatures)
+      tally(row(ext), r);
   }
 
   const auto advertised = runExtensions(results);
-  std::vector<ExtensionCoverage> out;
-  out.reserve(rows.size());
-  for (auto &[ext, c] : rows) {
-    const int cases = c.passed + c.failed + c.skipped;
-    c.tested = c.tested || cases > 0;
-    c.advertised = advertised.count(ext) || c.passed + c.failed > 0;
+  auto classify = [&](ExtensionCoverage &c) {
     if (!c.tested)
       c.state = c.advertised ? CoverageState::AdvertisedNoTest
                              : CoverageState::NotAdvertisedNoTest;
@@ -258,12 +283,23 @@ std::vector<ExtensionCoverage> extensionCoverage(
       c.state = CoverageState::Failed;
     else if (c.passed > 0)
       c.state = CoverageState::Passed;
-    else if (noGroundTruth.count(ext))
+    else if (noGroundTruth.count(&c))
       c.state = CoverageState::NoGroundTruth;
     else if (c.skipped > 0)
       c.state = CoverageState::MissingSupport;
     else
       c.state = CoverageState::NotRun;
+  };
+
+  std::vector<ExtensionCoverage> out;
+  out.reserve(rows.size() + 1);
+  classify(core);
+  out.push_back(std::move(core));
+  for (auto &[ext, c] : rows) {
+    const int cases = c.passed + c.failed + c.skipped;
+    c.tested = c.tested || cases > 0;
+    c.advertised = advertised.count(ext) || c.passed + c.failed > 0;
+    classify(c);
     out.push_back(std::move(c));
   }
   return out;
@@ -306,6 +342,8 @@ void writeTextSummary(std::ostream &out,
   if (!coverage.empty()) {
     bool recorded = false;
     runExtensions(results, &recorded);
+    bool catalogRecorded = false;
+    runCoveredExtensions(results, &catalogRecorded);
     size_t extWidth = 12;
     for (const auto &c : coverage)
       extWidth = std::max(extWidth, c.extension.size() + 1);
@@ -315,15 +353,20 @@ void writeTextSummary(std::ostream &out,
              "(sidecars older than schema v"
           << kSidecarSchemaVersion
           << "); \"advertised\" is inferred from the Cases that ran\n";
+    if (!catalogRecorded && !results.empty())
+      out << "    note: " << kUnrecordedCatalogNote << "\n";
     out << "    " << std::left << std::setw(static_cast<int>(extWidth))
         << "extension" << std::right << "advertised  passed  failed  skipped"
         << "  state\n";
-    for (const auto &c : coverage)
+    for (const auto &c : coverage) {
+      const char *advertised = c.advertised ? "yes" : "no";
+      if (c.core)
+        advertised = "-";
       out << "    " << std::left << std::setw(static_cast<int>(extWidth))
-          << c.extension << std::right << std::setw(10)
-          << (c.advertised ? "yes" : "no") << std::setw(8) << c.passed
-          << std::setw(8) << c.failed << std::setw(9) << c.skipped << "  "
-          << coverageStateName(c.state) << "\n";
+          << c.extension << std::right << std::setw(10) << advertised
+          << std::setw(8) << c.passed << std::setw(8) << c.failed
+          << std::setw(9) << c.skipped << "  " << coverageStateLabel(c) << "\n";
+    }
   }
 
   const auto keys = reportCaseKeys(results, includeAll);

@@ -31,7 +31,10 @@ namespace cts {
 // `coveredFeatures` (the primary ones it is evidence for) and `missingFeatures`
 // (the required ones the device lacks; non-empty exactly when the Case was
 // skipped for them), plus `device.extensions`, the extensions the device
-// advertised for the run. All read as empty from older sidecars.
+// advertised for the run, and `catalogCoveredFeatures`, the extensions some
+// Test in the run's Catalog covers (whether or not the run selected it), so
+// the report can tell "no Test" from "not run" from the results tree alone
+// (ADR-0008). All read as empty from older sidecars.
 constexpr int kSidecarSchemaVersion = 3;
 
 // The skipReason of a Case skipped because it has no Ground truth. The report
@@ -97,6 +100,9 @@ struct CaseResult
   std::vector<std::string> requiredFeatures;
   std::vector<std::string> coveredFeatures;
   std::vector<std::string> missingFeatures;
+  // What the run's whole Catalog covers (schema v3), sorted: the same in every
+  // sidecar of a run.
+  std::vector<std::string> catalogCoveredFeatures;
   Verdict verdict{Verdict::Skipped};
   std::string skipReason; // empty unless skipped
   std::string detail; // human-readable note (e.g. a behavioral check's outcome)
