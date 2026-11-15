@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "Relations.h"
+#include "FrameSize.h"
 #include "Metrics.h"
 #include "Value.h"
 // std
@@ -27,7 +28,7 @@ std::string percent(double fraction)
 
 std::string sizeOf(const Image &image)
 {
-  return std::to_string(image.width) + "x" + std::to_string(image.height);
+  return sizeText(FrameSize{image.width, image.height});
 }
 
 // Why a partner's images can't be used, or empty when they can.
@@ -59,7 +60,7 @@ void notCompared(RelationOutcome &out, std::string detail)
 
 // What one Channel of a Case is compared against: an image, and the mask
 // that limits the comparison (null: every pixel).
-struct Reference
+struct ComparisonTarget
 {
   const Image *image{nullptr};
   const Image *mask{nullptr};
@@ -78,7 +79,7 @@ enum class Bound
 // what was compared against, for the detail.
 void judge(RelationOutcome &out,
     const TestDef &test,
-    const std::vector<Reference> &reference,
+    const std::vector<ComparisonTarget> &reference,
     const std::vector<Image> &actual,
     int tau,
     Bound bound,
@@ -182,7 +183,7 @@ RelationOutcome effect(const TestDef &test,
     notCompared(out, problem);
     return out;
   }
-  std::vector<Reference> reference;
+  std::vector<ComparisonTarget> reference;
   for (const auto &image : renders[partner].images)
     reference.push_back({&image, nullptr});
   judge(out,
@@ -305,7 +306,7 @@ RelationOutcome equivalence(const TestDef &test,
   if (!out.assertion.detail.empty())
     return out;
 
-  std::vector<Reference> reference;
+  std::vector<ComparisonTarget> reference;
   for (const auto &e : expected)
     reference.push_back({&e.image, e.masked() ? &e.mask : nullptr});
   judge(out,
