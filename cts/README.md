@@ -45,21 +45,6 @@ cmake -DBUILD_CTS=ON -DBUILD_HELIDE_DEVICE=ON ..
 cmake --build . -j
 ```
 
-The glTF asset tests are gated separately on `CTS_ENABLE_GLTF` (decoupled from
-`BUILD_CTS`, since they need only the glTF loader, not the tool itself):
-
-```bash
-cmake -DBUILD_CTS=ON -DBUILD_HELIDE_DEVICE=ON -DCTS_ENABLE_GLTF=ON ..
-```
-
-That registers one Test per asset under `cts/gltf-Sample-Assets/` (override the
-location at runtime with `ANARI_CTS_GLTF_ASSETS`); it is a no-op when the assets
-directory is absent. Texture-heavy assets need the optional encodings the SDK's
-glTF loader supports — build with `-DUSE_DRACO=ON -DUSE_KTX=ON -DUSE_WEBP=ON`
-for full coverage; without them, expect benign "Could not decode image" warnings
-(those Cases still pass, since ground truth and candidate are both rendered by
-the same device).
-
 The text summary and HTML report are built into `anariCts` and need nothing
 further. The Python layer is needed *only* for a PDF, and then only Python 3.9+
 plus `reportlab`. See [pyproject.toml](pyproject.toml).

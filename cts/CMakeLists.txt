@@ -10,11 +10,7 @@
 # runner, and Test definitions it drives compile into the internal static
 # anari_cts_core target (defined beside its sources in anari_test_scenes/).
 #
-# This directory also provides:
-#   - the optional glTF sample-asset payload the glTF asset-scan factory reads
-#     (in-tree under gltf-Sample-Assets/; the factory registers no glTF Tests if
-#     it is absent), and
-#   - installation of the Python reporting layer.
+# This directory also installs the Python reporting layer.
 #
 # It is added to the build when a CTS consumer or its install payload is needed.
 
@@ -84,15 +80,6 @@ if (BUILD_TESTING)
   )
 endif()
 
-## glTF sample assets ##
-
-if (CTS_ENABLE_GLTF AND NOT EXISTS ${CMAKE_CURRENT_LIST_DIR}/gltf-Sample-Assets)
-  message(WARNING
-    "CTS_ENABLE_GLTF is ON but ${CMAKE_CURRENT_LIST_DIR}/gltf-Sample-Assets is "
-    "missing; the glTF asset tests will register nothing. Fetch the assets from "
-    "https://github.com/KhronosGroup/glTF-Sample-Assets into that directory.")
-endif()
-
 ## Installation ##
 
 if (INSTALL_CTS)
@@ -101,9 +88,4 @@ if (INSTALL_CTS)
     ${CMAKE_CURRENT_LIST_DIR}/pyproject.toml
     DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/anari/cts
   )
-  if (CTS_ENABLE_GLTF AND EXISTS ${CMAKE_CURRENT_LIST_DIR}/gltf-Sample-Assets)
-    install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/gltf-Sample-Assets
-      DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/anari/cts
-    )
-  endif()
 endif()

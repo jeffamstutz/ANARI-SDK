@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "Sidecar.h"
-// nlohmann json (vendored with the glTF loader)
+// nlohmann json (vendored under scenes/file/)
 #include "scenes/file/nlohmann/json.hpp"
 // std
 #include <atomic>

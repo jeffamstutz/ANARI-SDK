@@ -23,11 +23,6 @@ removed; see `docs/adr/0001`–`0002`).
 # From the SDK root build directory. The tool builds under BUILD_CTS or BUILD_TESTING.
 cmake -DBUILD_CTS=ON -DBUILD_HELIDE_DEVICE=ON ..
 cmake --build . -j
-
-# glTF asset tests are gated separately (decoupled from BUILD_CTS):
-cmake -DBUILD_CTS=ON -DBUILD_HELIDE_DEVICE=ON -DCTS_ENABLE_GLTF=ON ..
-# ...and need the optional encodings for full texture coverage:
-#   -DUSE_DRACO=ON -DUSE_KTX=ON -DUSE_WEBP=ON
 ```
 
 Relevant targets: `anariCts` (the CTS tool), `anari_cts_core` (the internal
@@ -199,9 +194,8 @@ ctsReport.py              reads the results tree too; retained only for the PDF
 
 **Tests (the catalog):** `cts/tests/<category>.cpp` (geometry, material, sampler,
 light, camera, frame, renderer, instance, volume, synchronization) each define a
-`register<Category>Tests(Catalog&)`; `cts/tests/gltf.cpp` is the glTF
-asset-scanning factory (gated on `ENABLE_GLTF`). `BuiltinTests.cpp` wires them
-all into the catalog.
+`register<Category>Tests(Catalog&)`. `BuiltinTests.cpp` wires them all into the
+catalog.
 
 **Unit tests:** `tests/unit/test_cts_*.cpp` (catalog/expansion/filter/builder,
 metrics, relations, discrimination, results/sidecar/workdir, report/html, runner, isolation).
