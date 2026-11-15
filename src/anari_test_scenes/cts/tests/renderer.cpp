@@ -82,6 +82,7 @@ void registerRendererTests(Catalog &catalog)
               Any(float4(0.f, 0.f, 1.f, 1.f)),
               Any(float4(0.f, 0.f, 1.f, 0.5f))})
       .covers("ANARI_KHR_RENDERER_BACKGROUND_COLOR")
+      .requireFeature(kSupportPerspective)
       .registerInto(catalog);
 
   makeTest("renderer", "renderer_background_image")
@@ -95,6 +96,7 @@ void registerRendererTests(Catalog &catalog)
             d, r, "background", anari::newArray2D(d, img.data(), res, res));
       })
       .covers("ANARI_KHR_RENDERER_BACKGROUND_IMAGE")
+      .requireFeature(kSupportPerspective)
       .registerInto(catalog);
 }
 

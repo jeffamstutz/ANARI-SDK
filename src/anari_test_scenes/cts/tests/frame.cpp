@@ -348,7 +348,8 @@ void registerFrameTests(Catalog &catalog)
       .channels({Channel::ObjectId})
       .covers("ANARI_KHR_FRAME_CHANNEL_OBJECT_ID")
       .requireFeatures({"ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR",
-          "ANARI_KHR_VOLUME_TRANSFER_FUNCTION1D"})
+          "ANARI_KHR_VOLUME_TRANSFER_FUNCTION1D",
+          kSupportPerspective})
       .registerInto(catalog);
 
   // ---- instance id channel --------------------------------------------------

@@ -20,10 +20,12 @@ An extension a Test is evidence for (`covers(...)`): its Cases count toward
 that extension in the Report's per-extension matrix. Always also required.
 
 **Support extension**:
-An extension a Test needs only to build its scene (the triangle and matte
-material its surface is made of), required but not covered. A Test requires an
-extension only when it can't work without it; an incidental light is not
-required.
+An extension a Test needs only to build and render its scene, required but not
+covered: the geometry and material its surface is made of, and the camera it
+renders with (perspective, unless the Test brings its own camera). An
+incidental light is not required. An extension only some of a Test's Cases need
+(such as an image sampler a material Case binds) is not required yet: gating is
+per Test, and per-Case gating is pending (ticket 22).
 
 **Axis**:
 A named parameter dimension a Test is expanded over. Every Axis is either a

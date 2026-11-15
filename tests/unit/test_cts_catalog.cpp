@@ -369,6 +369,36 @@ TEST_CASE("built-in Tests require the support extensions their scenes use",
   CHECK(needs(*instance, "ANARI_KHR_MATERIAL_MATTE"));
 }
 
+// The runner renders with a perspective camera unless the Test brings its own,
+// so such a Test requires it (and a device without one skips the Test).
+TEST_CASE("built-in Tests on the default camera require perspective",
+    "[cts][catalog][features]")
+{
+  Catalog catalog;
+  registerBuiltinTests(catalog);
+  for (const auto &test : catalog.tests()) {
+    if (test.cameraBuild)
+      continue;
+    DYNAMIC_SECTION(test.id())
+    {
+      CHECK(std::count(test.requiredFeatures.begin(),
+                test.requiredFeatures.end(),
+                "ANARI_KHR_CAMERA_PERSPECTIVE")
+          == 1);
+    }
+  }
+
+  // A Test with its own camera requires that one, not the default.
+  for (const auto &test : catalog.tests()) {
+    if (test.id() != "camera/orthographic")
+      continue;
+    CHECK(std::count(test.requiredFeatures.begin(),
+              test.requiredFeatures.end(),
+              "ANARI_KHR_CAMERA_PERSPECTIVE")
+        == 0);
+  }
+}
+
 TEST_CASE("the built-in catalog covers the extensions it tests",
     "[cts][catalog][features]")
 {

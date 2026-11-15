@@ -168,7 +168,9 @@ tree exactly as the C++ `report` does. Text and HTML live in C++.
 plus the focused `*Builder.h` helpers; add a short `description()` of the
 primary check, then declare axes, the primary extension(s) with `covers()`,
 the support extensions the scene can't do without with `requireFeatures()`
-(a missing one must skip the Test, not fail it), and channels.
+(a missing one must skip the Test, not fail it; the shared sets in
+`cts/tests/Categories.h` include the default perspective camera, so a Test
+that brings its own camera requires that one instead), and channels.
 
 **New synchronization rule** (or any check a device fails by hanging): a
 behaviour Test in `cts/tests/synchronization.cpp` with `.timeout(...)` and

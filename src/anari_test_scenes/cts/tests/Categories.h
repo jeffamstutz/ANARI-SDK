@@ -16,15 +16,25 @@ namespace anari {
 namespace cts {
 
 // Support extensions (TestBuilder::requireFeatures) for the scenes many Tests
-// share: what a Test needs to build its scene but is not evidence for. A Test
-// requires an extension only when it can't work without it: the geometry and
-// material its surface is made of. The directional light most scenes add is
-// not required: a device without one ignores it and still renders the scene
-// the Test is about.
+// share: what a Test needs to build and render its scene but is not evidence
+// for. A Test requires the geometry and material its surface is made of and
+// the camera it renders with: the runner's default camera is perspective, so
+// every set below includes it, and a Test that brings its own camera
+// (TestBuilder::camera) requires that camera instead. The directional light
+// most scenes add is not required: a device without one ignores it and still
+// renders the scene the Test is about. Extensions only some of a Test's Cases
+// need (such as the image samplers some material Cases bind) are not required
+// yet: gating per Case is pending (cts-1.2-coverage ticket 22).
+inline constexpr const char *kSupportPerspective =
+    "ANARI_KHR_CAMERA_PERSPECTIVE";
+inline const std::vector<std::string> kSupportTriangle = {
+    "ANARI_KHR_GEOMETRY_TRIANGLE", kSupportPerspective};
 inline const std::vector<std::string> kSupportMatte = {
-    "ANARI_KHR_MATERIAL_MATTE"};
+    "ANARI_KHR_MATERIAL_MATTE", kSupportPerspective};
 inline const std::vector<std::string> kSupportMatteTriangle = {
-    "ANARI_KHR_GEOMETRY_TRIANGLE", "ANARI_KHR_MATERIAL_MATTE"};
+    "ANARI_KHR_GEOMETRY_TRIANGLE",
+    "ANARI_KHR_MATERIAL_MATTE",
+    kSupportPerspective};
 
 void registerGeometryTests(Catalog &catalog);
 void registerMaterialTests(Catalog &catalog);
