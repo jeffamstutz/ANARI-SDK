@@ -297,7 +297,9 @@ rendering for the whole Test and returns only a bool and a string.
     coordinates (Image convention, row 0 at the bottom) through the Case's
     camera (`CameraProjection.h`: perspective or orthographic, with its
     image region). The runner records the projection of the camera it
-    frames: the spec's default `fovy` (pi/3) and the Case's aspect. A Test's
+    frames, whose `fovy` it now sets explicitly to the spec's default (pi/3)
+    so `project()` doesn't rely on the device's default, and whose aspect is
+    the Case's. A Test's
     own `.camera` hook records its camera with
     `BuildContext::setCameraProjection()`; without that, `project()` fails
     the check, saying so. `fovy`, `height` and `aspect` describe the whole

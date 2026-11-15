@@ -106,8 +106,8 @@ std::string valueText(float value)
 
 std::string valueText(const Rgba8 &value)
 {
-  return "(" + std::to_string(value[0]) + ", " + std::to_string(value[1])
-      + ", " + std::to_string(value[2]) + ", " + std::to_string(value[3]) + ")";
+  return "(" + std::to_string(value[0]) + ", " + std::to_string(value[1]) + ", "
+      + std::to_string(value[2]) + ", " + std::to_string(value[3]) + ")";
 }
 
 double valueDistance(uint32_t a, uint32_t b)
@@ -203,9 +203,9 @@ bool ExactCheck::recordPixels(std::string name,
   f.channel = channelName(channel);
   if (where && (where->width != width || where->height != height)) {
     f.passed = false;
-    f.detail = f.name + ": the mask is " + sizeText({where->width, where->height})
-        + " but the " + f.channel + " channel is "
-        + sizeText({width, height});
+    f.detail = f.name + ": the mask is "
+        + sizeText({where->width, where->height}) + " but the " + f.channel
+        + " channel is " + sizeText({width, height});
     m_findings.push_back(std::move(f));
     return false;
   }
@@ -239,7 +239,8 @@ bool ExactCheck::recordPixels(std::string name,
     f.detail = f.name + ": no " + f.channel + " pixel was checked";
   } else {
     f.detail = f.name + ": " + std::to_string(f.offending) + " of "
-        + std::to_string(f.checked) + " checked " + f.channel + " pixels offend";
+        + std::to_string(f.checked) + " checked " + f.channel
+        + " pixels offend";
     if (f.first)
       f.detail += "; first at (" + std::to_string(f.first->x) + ", "
           + std::to_string(f.first->y) + "): got " + f.first->got
@@ -262,8 +263,8 @@ bool ExactCheck::measure(
   f.limit = limit;
   f.passed = !std::isnan(value)
       && (limit == Limit::AtLeast ? value >= bound : value <= bound);
-  f.detail = f.name + " " + numberText(value) + ", required "
-      + limitText(limit) + " " + numberText(bound);
+  f.detail = f.name + " " + numberText(value) + ", required " + limitText(limit)
+      + " " + numberText(bound);
   m_findings.push_back(std::move(f));
   return m_findings.back().passed;
 }
@@ -279,6 +280,20 @@ std::vector<ExactOutcome> evaluateExactChecks(const TestDef &test,
   std::vector<ExactOutcome> out;
   if (test.exactChecks.empty())
     return out;
+  // Every channel must be the Case's size, so project() and the channel
+  // views agree on what a pixel is.
+  for (const auto &ch : channels) {
+    if (ch.image.width == size.width && ch.image.height == size.height)
+      continue;
+    for (const auto &check : test.exactChecks)
+      out.push_back(toOutcome(check.label,
+          failedFinding("the check",
+              std::string("the ") + channelName(ch.channel) + " channel is "
+                  + sizeText({ch.image.width, ch.image.height})
+                  + " but the Case is " + sizeText(size))));
+    return out;
+  }
+
   BuildContext values;
   for (const auto &cv : c.values)
     values.set(cv.axisName, cv.value);
@@ -312,8 +327,9 @@ SelfCheckResults evaluateSelfChecks(const TestDef &test,
     const SelfCheckDefaults &defaults)
 {
   if (inputs.size() != cases.size())
-    throw std::invalid_argument("evaluateSelfChecks: " + std::to_string(inputs.size())
-        + " inputs for " + std::to_string(cases.size()) + " Cases");
+    throw std::invalid_argument(
+        "evaluateSelfChecks: " + std::to_string(inputs.size()) + " inputs for "
+        + std::to_string(cases.size()) + " Cases");
   SelfCheckResults results;
   results.exact.resize(cases.size());
   std::vector<CaseRender> renders(cases.size());
@@ -323,8 +339,8 @@ SelfCheckResults evaluateSelfChecks(const TestDef &test,
     const CaseChannels &in = *inputs[i];
     FrameSize size = in.size;
     if ((size.width == 0 || size.height == 0) && !in.channels.empty())
-      size = {in.channels.front().image.width,
-          in.channels.front().image.height};
+      size = {
+          in.channels.front().image.width, in.channels.front().image.height};
     results.exact[i] =
         evaluateExactChecks(test, cases[i], size, in.channels, in.camera);
     renders[i].state = CaseRender::State::Rendered;

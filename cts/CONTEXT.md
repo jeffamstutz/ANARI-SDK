@@ -70,10 +70,10 @@ _Avoid_: instance, permutation (as a noun for the result)
 A self-check recorded in a Case's Sidecar (its `assertions`): an Effect or an
 Equivalence relating it to partner Cases of the same Test that differ from it
 only in one axis (an Effect's partner, or the siblings a Derived expectation
-read), with the score (changed fraction), the bound, pass/fail and a
-detail; or one finding of an Exact check on the Case alone. A failed pair is attributed to the later Case in the axis's value
-order. A Case's verdict is the conjunction of its Ground-truth comparison and
-its evaluated Assertions (ADR-0010).
+read), with the score (changed fraction), the bound, pass/fail and a detail; or
+one finding of an Exact check on the Case alone. A failed pair is attributed to
+the later Case in the axis's value order. A Case's verdict is the conjunction
+of its Ground-truth comparison and its evaluated Assertions (ADR-0010).
 _Avoid_: check (too vague), relation (the pair, not the record)
 
 **Effect**:
