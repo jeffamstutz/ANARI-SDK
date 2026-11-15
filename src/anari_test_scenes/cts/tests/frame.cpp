@@ -3,6 +3,7 @@
 
 #include "../AnariObject.h"
 #include "../BuildContext.h"
+#include "../FrameAccumulation.h"
 #include "../FrameReadback.h"
 #include "../GeometryBuilder.h"
 #include "../GeometryLayout.h"
@@ -15,8 +16,8 @@
 #include "../WorldBuilder.h"
 #include "Categories.h"
 // std
-#include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -147,12 +148,89 @@ BehaviorResult checkFrameCompletionCallback(anari::Device d,
          : "frame completion callback did not fire"};
 }
 
-// Behavioral check: a progressive renderer accumulates across successive
-// renders of the same frame, refining the image; a non-progressive one
-// reproduces an identical image. Render once, accumulate several more renders,
-// then compare against the first. The 10-render accumulation and the >10-pixel
-// bar mirror the original behavioral test (which compared frame 1 against the
-// 10x-accumulated frame), not just two consecutive frames.
+// The KHR_FRAME_ACCUMULATION check (FrameAccumulation.h) over the runner's
+// world, camera and renderer: one frame with accumulation enabled. The world
+// change replaces the world's surfaces with one triangle of a contrasting
+// colour; the world is the Case's own, so changing it is safe.
+class DeviceAccumulationTarget : public AccumulationTarget
+{
+ public:
+  DeviceAccumulationTarget(anari::Device d,
+      anari::World world,
+      anari::Camera camera,
+      anari::Renderer renderer,
+      uint32_t w,
+      uint32_t h)
+      : m_d(d),
+        m_world(world),
+        m_camera(camera),
+        m_renderer(renderer),
+        m_w(w),
+        m_h(h),
+        m_frame(newFrame())
+  {}
+
+  void render() override
+  {
+    anari::render(m_d, m_frame.get());
+    anari::wait(m_d, m_frame.get());
+  }
+
+  FrameReadbackResult color() override
+  {
+    return readFrameChannel(m_d, m_frame.get(), Channel::Color, m_w, m_h);
+  }
+
+  std::optional<float> refinementProgress() override
+  {
+    float p = 0.f;
+    if (!anari::getProperty(
+            m_d, m_frame.get(), "refinementProgress", p, ANARI_WAIT))
+      return std::nullopt;
+    return p;
+  }
+
+  void changeWorld() override
+  {
+    TriangleSpec spec;
+    spec.primitiveCount = 1;
+    auto geom = buildTriangleGeometry(m_d, spec);
+    auto mat = makeMatteMaterial(m_d, float3(0.1f, 0.3f, 0.9f));
+    auto surface = makeSurface(m_d, geom, mat);
+    anari::setAndReleaseParameter(
+        m_d, m_world, "surface", anari::newArray1D(m_d, &surface, 1));
+    anari::commitParameters(m_d, m_world);
+    anari::release(m_d, geom);
+    anari::release(m_d, mat);
+    anari::release(m_d, surface);
+  }
+
+  FrameReadbackResult renderFresh() override
+  {
+    auto frame = newFrame();
+    anari::render(m_d, frame.get());
+    anari::wait(m_d, frame.get());
+    return readFrameChannel(m_d, frame.get(), Channel::Color, m_w, m_h);
+  }
+
+ private:
+  UniqueAnariObject<anari::Frame> newFrame()
+  {
+    auto frame = behaviorFrame(m_d, m_world, m_camera, m_renderer, m_w, m_h);
+    anari::setParameter(m_d, frame.get(), "accumulation", true);
+    anari::commitParameters(m_d, frame.get());
+    return frame;
+  }
+
+  anari::Device m_d;
+  anari::World m_world;
+  anari::Camera m_camera;
+  anari::Renderer m_renderer;
+  uint32_t m_w;
+  uint32_t m_h;
+  UniqueAnariObject<anari::Frame> m_frame;
+};
+
 BehaviorResult checkProgressiveRendering(anari::Device d,
     anari::World world,
     anari::Camera camera,
@@ -160,41 +238,8 @@ BehaviorResult checkProgressiveRendering(anari::Device d,
     uint32_t w,
     uint32_t h)
 {
-  auto frame = behaviorFrame(d, world, camera, renderer, w, h);
-  const auto f = frame.get();
-  anari::setParameter(d, f, "accumulation", true);
-  anari::commitParameters(d, f);
-
-  auto snapshot = [&]() {
-    return readFrameChannel(d, f, Channel::Color, w, h);
-  };
-
-  anari::render(d, f);
-  anari::wait(d, f);
-  const auto first = snapshot();
-
-  constexpr int kAccumulationFrames = 10;
-  for (int i = 0; i < kAccumulationFrames; ++i) {
-    anari::render(d, f);
-    anari::wait(d, f);
-  }
-  const auto accumulated = snapshot();
-
-  if (!first)
-    return {false, "initial color readback failed: " + first.detail};
-  if (!accumulated)
-    return {false, "accumulated color readback failed: " + accumulated.detail};
-
-  size_t changed = 0;
-  for (size_t i = 0; i < first.image.rgba.size(); i += 4) {
-    if (!std::equal(first.image.rgba.begin() + i,
-            first.image.rgba.begin() + i + 4,
-            accumulated.image.rgba.begin() + i))
-      ++changed;
-  }
-
-  const bool ok = changed > 10;
-  return {ok, std::to_string(changed) + " pixels changed after accumulation"};
+  DeviceAccumulationTarget target(d, world, camera, renderer, w, h);
+  return checkFrameAccumulation(target);
 }
 
 } // namespace
@@ -386,7 +431,8 @@ void registerFrameTests(Catalog &catalog)
 
   makeTest("frame", "progressive_rendering")
       .description(
-          "Checks that progressive frame accumulation converges over time.")
+          "Checks that frame accumulation converges across renders, restarts "
+          "after a world change, and reports a sane refinementProgress.")
       .build([](BuildContext &ctx) {
         return triangleSurfaceWorld(ctx, float3(0.7f, 0.5f, 0.3f), 1);
       })
