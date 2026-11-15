@@ -4,6 +4,7 @@
 #include "Runner.h"
 #include "BuildContext.h"
 #include "DeviceFailure.h"
+#include "DeviceProbe.h"
 #include "Expansion.h"
 #include "FrameFormats.h"
 #include "FrameReadback.h"
@@ -225,7 +226,7 @@ Runner::Runner(anari::Device device,
       m_options(std::move(options))
 {}
 
-const std::string &Runner::deviceFailure()
+const std::string &Runner::probeOnce()
 {
   if (!m_deviceFailure) {
     m_deviceFailure = (!m_device || !m_options.onlyCase.empty())
@@ -419,7 +420,7 @@ RunSummary Runner::generate(const Catalog &catalog,
   if (!m_workdir.writeGitignore())
     return workdirFailureSummary(catalog, filter);
   RunSummary summary;
-  summary.deviceFailure = deviceFailure();
+  summary.deviceFailure = probeOnce();
   if (!summary.deviceFailure.empty())
     return summary;
   for (const TestDef *test : catalog.filter(filter)) {
@@ -477,7 +478,7 @@ RunSummary Runner::run(const Catalog &catalog,
     return workdirFailureSummary(catalog, filter);
   RunSummary summary;
   // A device that can't render is one run-level failure, not one per Case.
-  summary.deviceFailure = deviceFailure();
+  summary.deviceFailure = probeOnce();
   if (!summary.deviceFailure.empty()) {
     if (!writeDeviceFailure(
             m_workdir, {m_options.device, summary.deviceFailure}))

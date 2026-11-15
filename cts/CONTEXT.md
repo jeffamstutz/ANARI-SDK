@@ -73,6 +73,18 @@ _Avoid_: reference image, golden image, baseline
 A frame output buffer (color, depth, albedo, normal, primitive/object/instance
 id) that can be compared independently.
 
+**Probe frame**:
+The small frame of an empty world that `run` and `generate` render, and whose
+color channel they map, before the first Case. A device that can't render it
+stops the command with one error naming the device's own ERROR messages,
+instead of failing every Case.
+_Avoid_: smoke test (that is the `sink` build check)
+
+**Run record**:
+`results/run.json`, which a run that stopped at the Probe frame leaves in the
+Results tree: the device and why it could not render. Not a Sidecar (it has no
+verdict); a run whose device renders the Probe frame removes it.
+
 **Sidecar**:
 The machine-readable JSON file the C++ runner writes next to a Case's images:
 which axis values it ran, its per-channel metric scores and pass/fail verdict,

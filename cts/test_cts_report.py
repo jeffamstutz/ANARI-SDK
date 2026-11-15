@@ -306,6 +306,43 @@ class PdfReportTests(unittest.TestCase):
 
         self.assertFalse(generate_pdf.call_args.kwargs["include_all"])
 
+    def test_a_run_that_stopped_at_the_probe_is_read_and_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workdir = Path(temp) / "candidate"
+            out_path = Path(temp) / "report.pdf"
+            self.assertIsNone(ctsReport.load_device_failure(workdir))
+            record = workdir / "results" / "run.json"
+            record.parent.mkdir(parents=True)
+            record.write_text(
+                json.dumps(
+                    {
+                        "runRecordVersion": 1,
+                        "deviceCouldNotRender": {
+                            "device": {"library": "helide_gpu"},
+                            "reason": "channel.color mapped data is null",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            failure = ctsReport.load_device_failure(workdir)
+            self.assertEqual(failure["reason"], "channel.color mapped data is null")
+            self.assertEqual(failure["device"]["library"], "helide_gpu")
+            # It is not a sidecar.
+            self.assertEqual(ctsReport.load_results(workdir), {})
+
+            with mock.patch.object(ctsReport, "generate_pdf") as generate_pdf:
+                return_code = ctsReport.main(
+                    ["report", str(workdir), "--pdf", str(out_path)]
+                )
+
+        self.assertEqual(return_code, 1)
+        self.assertEqual(
+            generate_pdf.call_args.kwargs["device_failure"]["reason"],
+            "channel.color mapped data is null",
+        )
+
     def test_pdf_output_path_is_required(self):
         with self.assertRaises(SystemExit):
             ctsReport.main(["report", "somewhere"])
