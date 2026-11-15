@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "TestBuilder.h"
+#include "Value.h"
 // std
 #include <algorithm>
+#include <stdexcept>
 
 namespace anari {
 namespace cts {
@@ -35,6 +37,12 @@ TestBuilder &TestBuilder::camera(CameraFn fn)
 TestBuilder &TestBuilder::renderer(RendererFn fn)
 {
   m_def.rendererConfig = std::move(fn);
+  return *this;
+}
+
+TestBuilder &TestBuilder::frameSize(FrameSizeFn fn)
+{
+  m_def.frameSize = std::move(fn);
   return *this;
 }
 
@@ -93,6 +101,31 @@ TestBuilder &TestBuilder::equivalenceTolerance(
 {
   m_def.equivalenceTolerances[std::move(axis)] =
       EquivalenceTolerance{maxFraction, tau};
+  return *this;
+}
+
+TestBuilder &TestBuilder::expectDerived(
+    std::string axis, std::string value, std::string description, DerivedFn fn)
+{
+  const std::string where = "test `" + m_def.id() + "`: expectDerived(`" + axis
+      + "`, `" + value + "`): ";
+  const auto a = std::find_if(m_def.axes.begin(),
+      m_def.axes.end(),
+      [&](const Axis &x) { return x.name == axis; });
+  if (a == m_def.axes.end())
+    throw std::invalid_argument(where + "no such axis (declare it first)");
+  if (std::none_of(a->values.begin(), a->values.end(), [&](const Any &v) {
+        return anyToString(v) == value;
+      }))
+    throw std::invalid_argument(where + "the axis has no such value");
+  if (m_def.derivedFor(axis, value))
+    throw std::invalid_argument(where + "already declared");
+  if (description.empty() || !fn)
+    throw std::invalid_argument(where + "needs a description and a function");
+  m_def.derivedExpectations.push_back(DerivedExpectation{std::move(axis),
+      std::move(value),
+      std::move(description),
+      std::move(fn)});
   return *this;
 }
 

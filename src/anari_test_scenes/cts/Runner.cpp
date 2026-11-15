@@ -306,9 +306,17 @@ void Runner::applyRendererParams(anari::Renderer renderer)
   }
 }
 
-Runner::SceneObjects Runner::buildScene(const TestDef &test, const Case &c)
+CaseFrameSize Runner::frameSizeOf(const TestDef &test, const Case &c) const
+{
+  return resolveFrameSize(
+      test, c, FrameSize{m_options.width, m_options.height}, m_device);
+}
+
+Runner::SceneObjects Runner::buildScene(
+    const TestDef &test, const Case &c, FrameSize size)
 {
   SceneObjects scene;
+  scene.size = size;
   if (!test.build)
     return scene;
 
@@ -324,8 +332,7 @@ Runner::SceneObjects Runner::buildScene(const TestDef &test, const Case &c)
   scene.camera = UniqueAnariObject<anari::Camera>(m_device,
       test.cameraBuild
           ? test.cameraBuild(ctx, scene.bounds)
-          : defaultCamera(
-                m_device, scene.bounds, m_options.width, m_options.height));
+          : defaultCamera(m_device, scene.bounds, size.width, size.height));
   scene.renderer = UniqueAnariObject<anari::Renderer>(m_device,
       configuredRenderer(
           m_device, m_options.device.renderer, m_options.ambientRadiance));
@@ -396,7 +403,16 @@ void Runner::writeCaseFailure(const TestDef &test,
 
 std::vector<Image> Runner::renderCase(const TestDef &test, const Case &c)
 {
-  SceneObjects scene = buildScene(test, c);
+  const CaseFrameSize size = frameSizeOf(test, c);
+  if (!size.resolved())
+    return {};
+  return renderImages(test, c, size.size);
+}
+
+std::vector<Image> Runner::renderImages(
+    const TestDef &test, const Case &c, FrameSize size)
+{
+  SceneObjects scene = buildScene(test, c, size);
   if (!scene.valid())
     return {};
 
@@ -415,8 +431,8 @@ std::vector<Image> Runner::renderCase(const TestDef &test, const Case &c)
         scene.camera.get(),
         scene.renderer.get(),
         ch,
-        m_options.width,
-        m_options.height,
+        size.width,
+        size.height,
         depthScale,
         chFmt,
         m_effectiveAccumulationFrames));
@@ -496,6 +512,19 @@ Runner::CaseOutcome Runner::runCase(
   };
 
   try {
+    // The Case's frame size; one that isn't whole pixels at the run's size
+    // skips the Case (and fails the relations that need it).
+    const CaseFrameSize size = frameSizeOf(test, c);
+    if (!size.resolved()) {
+      result.verdict = Verdict::Skipped;
+      result.skipReason = size.skipReason;
+      out.render.state = CaseRender::State::Skipped;
+      out.render.error = size.skipReason;
+      return out;
+    }
+    result.frameWidth = size.size.width;
+    result.frameHeight = size.size.height;
+
     // Ground truth for every channel, when the Test compares against it.
     bool haveGroundTruth = test.usesGroundTruth();
     std::vector<Image> groundTruth;
@@ -519,7 +548,7 @@ Runner::CaseOutcome Runner::runCase(
     }
 
     const auto start = std::chrono::steady_clock::now();
-    auto images = renderCase(test, c);
+    auto images = renderImages(test, c, size.size);
     const auto end = std::chrono::steady_clock::now();
     result.durationMs =
         std::chrono::duration<double, std::milli>(end - start).count();
@@ -621,8 +650,24 @@ void Runner::runRenderTest(const TestDef &test,
   // Phase 1, per Case: the selected Cases and the partners their relations
   // need (support renders).
   const bool relations = hasRelations(test);
-  const std::vector<bool> toRender =
-      relations ? renderSet(test, cases, chosen) : chosen;
+  std::vector<bool> toRender = chosen;
+  if (relations) {
+    try {
+      toRender = renderSet(test, cases, chosen);
+    } catch (const std::invalid_argument &e) {
+      // The Cases can't be grouped by their values (caseValueIndices()).
+      for (size_t i = 0; i < cases.size(); ++i) {
+        if (!chosen[i])
+          continue;
+        summary.total++;
+        writeCaseFailure(test,
+            cases[i],
+            std::string("cannot relate the Test's Cases: ") + e.what(),
+            summary);
+      }
+      return;
+    }
+  }
   std::vector<CaseOutcome> outcomes(cases.size());
   std::vector<CaseRender> renders(cases.size());
   for (size_t i = 0; i < cases.size(); ++i) {
@@ -637,22 +682,35 @@ void Runner::runRenderTest(const TestDef &test,
   std::vector<bool> participated(cases.size(), false);
   for (auto &rel : evaluateRelations(test, cases, renders, m_selfChecks)) {
     if (rel.assertion.evaluated)
-      participated[rel.partnerIndex] = true;
+      for (size_t p : rel.partners)
+        participated[p] = true;
     if (!chosen[rel.caseIndex])
       continue;
     CaseOutcome &outcome = outcomes[rel.caseIndex];
     const Case &c = cases[rel.caseIndex];
+    const size_t index = outcome.result.assertions.size();
     Assertion a = std::move(rel.assertion);
-    if (rel.channelIndex >= 0) {
+    if (rel.channelIndex >= 0 && !rel.partners.empty()) {
       const Channel ch = test.channels[size_t(rel.channelIndex)];
       a.partnerImage = m_workdir.relativeToRoot(
-          m_workdir.resultImagePath(cases[rel.partnerIndex], ch));
+          m_workdir.resultImagePath(cases[rel.partners.front()], ch));
     }
     if (rel.mask.valid()) {
-      const auto path = m_workdir.assertionMaskPath(
-          c, a.kind, outcome.result.assertions.size());
+      const auto path = m_workdir.assertionMaskPath(c, a.kind, index);
       a.maskImage = m_workdir.relativeToRoot(path);
       outcome.artifacts.push_back({path, std::move(rel.mask)});
+    }
+    // A derived expectation's expected image (a Variant's is its partner's,
+    // partnerImage).
+    if (rel.expected.valid()) {
+      const auto path = m_workdir.expectedImagePath(c, a.kind, index);
+      a.expectedImage = m_workdir.relativeToRoot(path);
+      outcome.artifacts.push_back({path, std::move(rel.expected)});
+    }
+    if (rel.expectedMask.valid()) {
+      const auto path = m_workdir.expectedMaskPath(c, a.kind, index);
+      a.expectedMaskImage = m_workdir.relativeToRoot(path);
+      outcome.artifacts.push_back({path, std::move(rel.expectedMask)});
     }
     outcome.result.assertions.push_back(std::move(a));
   }
@@ -697,7 +755,15 @@ void Runner::generateTest(const TestDef &test,
   // A Ground-truth file shared by Variants is written from the Case holding
   // every Variant axis's first value, so it doesn't depend on which Variant
   // rendered last (ADR-0010, decision 9).
-  const auto indices = caseValueIndices(test, cases);
+  std::vector<std::vector<size_t>> indices;
+  try {
+    indices = caseValueIndices(test, cases);
+  } catch (const std::invalid_argument &e) {
+    std::cerr << "error: cannot relate the Cases of " << test.id() << ": "
+              << e.what() << "\n";
+    summary.failed += count;
+    return;
+  }
   auto writerOf = [&](size_t i) {
     auto key = indices[i];
     for (size_t a = 0; a < test.axes.size(); ++a)
@@ -726,10 +792,16 @@ void Runner::generateTest(const TestDef &test,
   for (size_t i = 0; i < cases.size(); ++i) {
     if (!toRender[i])
       continue;
+    const CaseFrameSize size = frameSizeOf(test, cases[i]);
+    if (!size.resolved()) {
+      renders[i].state = CaseRender::State::Skipped;
+      renders[i].error = size.skipReason;
+      continue;
+    }
     // A throwing build helper (or fatal) loses only this Case's Ground
     // truth; the rest of the generate run continues (ADR-0003).
     try {
-      auto images = renderCase(test, cases[i]);
+      auto images = renderImages(test, cases[i], size.size);
       if (images.size() == test.channels.size()) {
         renders[i].state = CaseRender::State::Rendered;
         renders[i].images = std::move(images);
@@ -752,6 +824,10 @@ void Runner::generateTest(const TestDef &test,
     if (!chosen[i])
       continue;
     const size_t w = writerOf(i);
+    if (renders[w].state == CaseRender::State::Skipped) {
+      summary.skipped++;
+      continue;
+    }
     if (written[w] < 0) {
       bool ok = renders[w].state == CaseRender::State::Rendered;
       if (ok) {
@@ -770,12 +846,21 @@ void Runner::generateTest(const TestDef &test,
       summary.failed++;
   }
 
-  // The Reference device's own Variants must agree.
+  // The Reference device's own Variants must agree. (Derived expectations
+  // on Permutation axes are the Candidate's business: their siblings aren't
+  // rendered here.)
   for (const auto &rel :
       evaluateRelations(test, cases, renders, m_selfChecks)) {
-    if (rel.assertion.kind != kEquivalenceAssertion || rel.assertion.passed
-        || !chosen[rel.caseIndex]
-        || renders[rel.partnerIndex].state != CaseRender::State::Rendered)
+    const bool variant =
+        std::any_of(test.axes.begin(), test.axes.end(), [&](const Axis &a) {
+          return a.name == rel.assertion.axis && a.kind == AxisKind::Variant;
+        });
+    const bool partnersRendered =
+        std::all_of(rel.partners.begin(), rel.partners.end(), [&](size_t p) {
+          return renders[p].state == CaseRender::State::Rendered;
+        });
+    if (rel.assertion.kind != kEquivalenceAssertion || !variant
+        || rel.assertion.passed || !chosen[rel.caseIndex] || !partnersRendered)
       continue;
     summary.variantDisagreements++;
     std::cerr << "warning: the Reference device's Variants disagree: "
@@ -811,7 +896,17 @@ void Runner::runBehaviorTest(const TestDef &test,
       CaseResult result =
           baseResult(test, c, m_options.device, m_catalogCovered);
 
-      SceneObjects scene = buildScene(test, c);
+      const CaseFrameSize size = frameSizeOf(test, c);
+      if (!size.resolved()) {
+        result.verdict = Verdict::Skipped;
+        result.skipReason = size.skipReason;
+        recordResult(c, result, summary);
+        continue;
+      }
+      result.frameWidth = size.size.width;
+      result.frameHeight = size.size.height;
+
+      SceneObjects scene = buildScene(test, c, size.size);
       if (!scene.valid()) {
         result.verdict = Verdict::Failed;
         result.detail = "world/camera/renderer build failed";
@@ -827,8 +922,8 @@ void Runner::runBehaviorTest(const TestDef &test,
           scene.world.get(),
           scene.camera.get(),
           scene.renderer.get(),
-          m_options.width,
-          m_options.height);
+          scene.size.width,
+          scene.size.height);
       const auto end = std::chrono::steady_clock::now();
       result.durationMs =
           std::chrono::duration<double, std::milli>(end - start).count();

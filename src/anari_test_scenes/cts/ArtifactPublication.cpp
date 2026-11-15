@@ -207,9 +207,12 @@ bool referencedImagesReadable(const Workdir &workdir, const CaseResult &result)
       return false;
   }
   for (const auto &assertion : result.assertions) {
-    if (!assertion.maskImage.empty()
-        && !readableImage(resolveSidecarPath(workdir, assertion.maskImage)))
-      return false;
+    for (const std::string *path : {&assertion.maskImage,
+             &assertion.expectedImage,
+             &assertion.expectedMaskImage}) {
+      if (!path->empty() && !readableImage(resolveSidecarPath(workdir, *path)))
+        return false;
+    }
   }
   return true;
 }
@@ -237,9 +240,13 @@ bool resultArtifactsMatch(const Workdir &workdir,
           resolveSidecarPath(workdir, path).lexically_normal());
   }
   for (const auto &assertion : result.assertions) {
-    if (!assertion.maskImage.empty())
-      referencedResultPaths.insert(
-          resolveSidecarPath(workdir, assertion.maskImage).lexically_normal());
+    for (const std::string *path : {&assertion.maskImage,
+             &assertion.expectedImage,
+             &assertion.expectedMaskImage}) {
+      if (!path->empty())
+        referencedResultPaths.insert(
+            resolveSidecarPath(workdir, *path).lexically_normal());
+    }
   }
   return artifactPaths == referencedResultPaths;
 }

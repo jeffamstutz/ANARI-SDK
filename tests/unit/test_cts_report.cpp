@@ -806,6 +806,49 @@ TEST_CASE("fromJson round-trips assertions and the Ground-truth flags",
   CHECK(back.assertions[2].kind == "exact");
 }
 
+TEST_CASE("fromJson round-trips a Case's frame size and derived expectation",
+    "[cts][sidecar]")
+{
+  CaseResult r =
+      makeCase("camera", "camera_general", "region", Verdict::Passed);
+  r.frameWidth = 128;
+  r.frameHeight = 64;
+  Assertion a;
+  a.kind = kEquivalenceAssertion;
+  a.axis = "imageRegion";
+  a.relatedCases = {"none"};
+  a.expectation = "the region's crop of the full frame";
+  a.passed = true;
+  a.expectedImage =
+      "results/camera/camera_general/region.equivalence-0."
+      "expected.png";
+  a.expectedMaskImage =
+      "results/camera/camera_general/region.equivalence-0."
+      "expected-mask.png";
+  r.assertions.push_back(a);
+
+  CaseResult back;
+  REQUIRE(fromJson(toJson(r), back));
+  CHECK(back.frameWidth == 128);
+  CHECK(back.frameHeight == 64);
+  REQUIRE(back.assertions.size() == 1);
+  CHECK(back.assertions[0].expectation == a.expectation);
+  CHECK(back.assertions[0].expectedImage == a.expectedImage);
+  CHECK(back.assertions[0].expectedMaskImage == a.expectedMaskImage);
+
+  // Older v4 sidecars have none of it.
+  CaseResult old;
+  REQUIRE(
+      fromJson("{\"schemaVersion\":4,\"verdict\":\"passed\","
+               "\"assertions\":[{\"kind\":\"equivalence\"}]}",
+          old));
+  CHECK(old.frameWidth == 0);
+  CHECK(old.frameHeight == 0);
+  REQUIRE(old.assertions.size() == 1);
+  CHECK(old.assertions[0].expectation.empty());
+  CHECK(old.assertions[0].expectedImage.empty());
+}
+
 TEST_CASE("a v3 sidecar reads as compared exactly when it has scores",
     "[cts][sidecar]")
 {

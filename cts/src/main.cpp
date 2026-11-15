@@ -603,10 +603,17 @@ int cmdCheckDiscrimination(const Options &o)
 {
   auto catalog = buildCatalog();
   const RunOptions defaults;
-  const auto result = checkDiscrimination(catalog.filter(Filter{o.filter}),
-      builtinIndistinguishableAllowList(),
-      {defaults.ssimThreshold, defaults.psnrThreshold},
-      groundTruthFrom(Workdir(o.workdir)));
+  DiscriminationResult result;
+  try {
+    result = checkDiscrimination(catalog.filter(Filter{o.filter}),
+        builtinIndistinguishableAllowList(),
+        {defaults.ssimThreshold, defaults.psnrThreshold},
+        groundTruthFrom(Workdir(o.workdir)));
+  } catch (const std::invalid_argument &e) {
+    // A Test whose Cases can't be grouped by their values.
+    std::cerr << "error: check-discrimination: " << e.what() << "\n";
+    return 2;
+  }
   writeDiscriminationReport(std::cout, result, o.includeAll);
   if (result.pairsCompared == 0) {
     std::cerr << "error: check-discrimination: no Ground truth to compare "

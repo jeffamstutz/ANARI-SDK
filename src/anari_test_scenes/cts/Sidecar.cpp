@@ -74,6 +74,8 @@ std::string toJson(const CaseResult &result)
   j["skipReason"] = result.skipReason;
   j["detail"] = result.detail;
   j["durationMs"] = result.durationMs;
+  j["frameSize"] = {
+      {"width", result.frameWidth}, {"height", result.frameHeight}};
   j["usesGroundTruth"] = result.usesGroundTruth;
   j["groundTruthEvaluated"] = result.groundTruthEvaluated;
   j["groundTruthReason"] = result.groundTruthReason;
@@ -113,6 +115,7 @@ std::string toJson(const CaseResult &result)
     e["kind"] = a.kind;
     e["axis"] = a.axis;
     e["cases"] = a.relatedCases;
+    e["expectation"] = a.expectation;
     e["channel"] = a.channel;
     // A non-finite score (not computed) serializes as null.
     e["score"] = a.score;
@@ -123,6 +126,8 @@ std::string toJson(const CaseResult &result)
     e["detail"] = a.detail;
     e["partnerImage"] = a.partnerImage;
     e["maskImage"] = a.maskImage;
+    e["expectedImage"] = a.expectedImage;
+    e["expectedMaskImage"] = a.expectedMaskImage;
     j["assertions"].push_back(std::move(e));
   }
 
@@ -194,6 +199,10 @@ bool fromJson(const std::string &text, CaseResult &out, bool *schemaMismatch)
   out.skipReason = j.value("skipReason", "");
   out.detail = j.value("detail", "");
   out.durationMs = j.value("durationMs", 0.0);
+  if (const auto fs = j.find("frameSize"); fs != j.end() && fs->is_object()) {
+    out.frameWidth = fs->value("width", 0u);
+    out.frameHeight = fs->value("height", 0u);
+  }
 
   if (const auto axes = j.find("axes"); axes != j.end() && axes->is_array())
     for (const auto &ax : *axes)
@@ -235,6 +244,7 @@ bool fromJson(const std::string &text, CaseResult &out, bool *schemaMismatch)
       a.kind = e.value("kind", "");
       a.axis = e.value("axis", "");
       a.relatedCases = readStrings(e, "cases");
+      a.expectation = e.value("expectation", "");
       a.channel = e.value("channel", "");
       a.score = numberOrNan(e.value("score", json()));
       a.threshold = numberOrNan(e.value("threshold", json()));
@@ -244,6 +254,8 @@ bool fromJson(const std::string &text, CaseResult &out, bool *schemaMismatch)
       a.detail = e.value("detail", "");
       a.partnerImage = e.value("partnerImage", "");
       a.maskImage = e.value("maskImage", "");
+      a.expectedImage = e.value("expectedImage", "");
+      a.expectedMaskImage = e.value("expectedMaskImage", "");
       out.assertions.push_back(std::move(a));
     }
   }

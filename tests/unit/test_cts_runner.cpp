@@ -20,6 +20,7 @@
 #include "cts/Runner.h"
 #include "cts/SurfaceBuilder.h"
 #include "cts/TestBuilder.h"
+#include "cts/ViewBuilder.h"
 #include "cts/WorldBuilder.h"
 // helium
 #include "helium/BaseFrame.h"
@@ -900,6 +901,124 @@ TEST_CASE("Runner fails the effect of an axis the build ignores",
     CHECK(summary.variantDisagreements == 1);
     CHECK_FALSE(std::filesystem::exists(
         root / "ground_truth" / "demo" / "ignores_axis"));
+  }
+
+  std::filesystem::remove_all(root, ec);
+  anari::release(d, d);
+  anari::unloadLibrary(lib);
+}
+
+TEST_CASE(
+    "Runner renders each Case at its frame size and checks a derived crop",
+    "[cts][runner][helide]")
+{
+  anari::Library lib = anari::loadLibrary("helide", statusFunc, nullptr);
+  if (!lib) {
+    WARN("helide library not available; skipping frame-size test");
+    return;
+  }
+  anari::Device d = anari::newDevice(lib, "default");
+  REQUIRE(d != nullptr);
+  anari::commitParameters(d, d);
+
+  const auto root =
+      std::filesystem::temp_directory_path() / "cts_runner_framesize_test";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+
+  // The middle of the sensor, rendered at its own pixel size, must equal the
+  // crop of the full frame (camera/camera_general's imageRegion in small).
+  const float region[4] = {0.25f, 0.25f, 0.75f, 0.75f};
+  const Any box(ANARI_FLOAT32_BOX2, region);
+  Catalog catalog;
+  makeTest("demo", "region")
+      .build(buildTriangleWorld)
+      .camera([](BuildContext &ctx, const anari::scenes::Bounds &bounds) {
+        auto dev = ctx.device();
+        PerspectiveCameraOptions opts;
+        opts.aspect = 1.f;
+        auto c = makePerspectiveCamera(dev, cameraFromBounds(bounds), opts);
+        const Any r = ctx.value("imageRegion");
+        if (r.valid()) {
+          anariSetParameter(
+              dev, c, "imageRegion", ANARI_FLOAT32_BOX2, r.raw().data());
+          anari::commitParameters(dev, c);
+        }
+        return c;
+      })
+      .frameSize([](BuildContext &ctx, FrameSize run) -> CaseFrameSize {
+        if (!ctx.value("imageRegion").valid())
+          return run;
+        return regionFrameSize(run, 0.25f, 0.25f, 0.75f, 0.75f);
+      })
+      .permute("imageRegion", std::vector<Any>{none(), box})
+      .expectDerived("imageRegion",
+          anyToString(box),
+          "the region's crop of the full frame",
+          [](const Siblings &s) -> ExpectedImage {
+            const Image &full = s.at("none");
+            const auto rect = regionPixels(
+                full.width, full.height, 0.25f, 0.25f, 0.75f, 0.75f);
+            return rect ? crop(full, *rect) : Image{};
+          })
+      .noGroundTruth()
+      .registerInto(catalog);
+
+  const auto cases = expand(*catalog.filter(Filter{"demo/region"}).front());
+  REQUIRE(cases.size() == 2);
+  const Case &full = cases[0];
+  const Case &part = cases[1];
+
+  RunOptions opts;
+  opts.device = {"helide", "default", "default"};
+  const Workdir wd(root);
+
+  SECTION("whole pixels: the region Case renders the crop's size and matches")
+  {
+    opts.width = 64;
+    opts.height = 64;
+    Runner runner(d, wd, opts);
+    const auto summary = runner.run(catalog, Filter{"demo/region"}, {});
+    CHECK(summary.total == 2);
+    CHECK(summary.failed == 0);
+    CHECK(summary.passed == 2);
+
+    CaseResult rf, rp;
+    REQUIRE(readSidecar(wd.sidecarPath(full), rf));
+    REQUIRE(readSidecar(wd.sidecarPath(part), rp));
+    CHECK(rf.frameWidth == 64);
+    CHECK(rf.frameHeight == 64);
+    CHECK(rp.frameWidth == 32);
+    CHECK(rp.frameHeight == 32);
+    CHECK(
+        loadPNG(wd.resultImagePath(part, Channel::Color).string()).width == 32);
+
+    // One equivalence, no effect pair: the region value is derived.
+    REQUIRE(rp.assertions.size() == 1);
+    const auto &a = rp.assertions[0];
+    CHECK(a.kind == kEquivalenceAssertion);
+    CHECK(a.axis == "imageRegion");
+    CHECK(a.relatedCases == std::vector<std::string>{"none"});
+    CHECK(a.expectation == "the region's crop of the full frame");
+    CHECK(a.passed);
+    REQUIRE_FALSE(a.expectedImage.empty());
+    const Image expected = loadPNG((root / a.expectedImage).string());
+    CHECK(expected.width == 32);
+    CHECK(expected.height == 32);
+    // The full-frame Case is the sibling of an evaluated expectation.
+    CHECK(rf.verdict == Verdict::Passed);
+  }
+
+  SECTION("not whole pixels: the region Case is skipped with the reason")
+  {
+    opts.width = 66;
+    opts.height = 66;
+    Runner runner(d, wd, opts);
+    runner.run(catalog, Filter{"demo/region"}, {});
+    CaseResult rp;
+    REQUIRE(readSidecar(wd.sidecarPath(part), rp));
+    CHECK(rp.verdict == Verdict::Skipped);
+    CHECK(rp.skipReason.find("whole pixels at 66x66") != std::string::npos);
   }
 
   std::filesystem::remove_all(root, ec);

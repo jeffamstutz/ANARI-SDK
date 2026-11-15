@@ -110,8 +110,9 @@ struct Runner
       const Filter &filter,
       const std::set<std::string> &candidateFeatures);
 
-  // Render a single Case's channels (in TestDef::channels order). Empty if the
-  // world could not be built. Public for testing and reuse.
+  // Render a single Case's channels (in TestDef::channels order) at its frame
+  // size (resolveFrameSize()). Empty if the world could not be built or the
+  // Case has no frame size. Public for testing and reuse.
   std::vector<Image> renderCase(const TestDef &test, const Case &c);
 
  private:
@@ -125,6 +126,7 @@ struct Runner
     UniqueAnariObject<anari::Camera> camera;
     UniqueAnariObject<anari::Renderer> renderer;
     anari::scenes::Bounds bounds{};
+    FrameSize size; // the Case's frame size
 
     // A renderable scene needs all three objects; a build hook (or default
     // camera/renderer) returning null leaves it invalid.
@@ -163,9 +165,17 @@ struct Runner
       const std::set<std::string> &referenceFeatures,
       RunSummary &summary);
 
-  // Build a Case's world and camera, then configure its renderer. SceneObjects
-  // owns every handle and releases partial or complete builds on scope exit.
-  SceneObjects buildScene(const TestDef &test, const Case &c);
+  // Build a Case's world and camera (framed for `size`), then configure its
+  // renderer. SceneObjects owns every handle and releases partial or complete
+  // builds on scope exit.
+  SceneObjects buildScene(const TestDef &test, const Case &c, FrameSize size);
+
+  // Render a Case's channels at `size`.
+  std::vector<Image> renderImages(
+      const TestDef &test, const Case &c, FrameSize size);
+
+  // The Case's frame size: its Test's hook applied to the run's size.
+  CaseFrameSize frameSizeOf(const TestDef &test, const Case &c) const;
 
   // Resolve the requested accumulation/denoise options against one device's
   // advertised feature set. Accumulation is gated off when

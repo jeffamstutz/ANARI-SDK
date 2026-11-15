@@ -15,8 +15,9 @@
 
 // The relational pass of the self-checks (ADR-0010): given a Test, its Cases
 // and the Candidate's own 8-bit comparison images of them, which Cases must
-// differ (effect, the meaning of a Permutation axis) and which must match
-// (equivalence, the meaning of a Variant axis). Pure: no device, and no
+// differ (effect, the meaning of a Permutation axis) and which must match an
+// image derived from their siblings (equivalence: a derived expectation, of
+// which a Variant axis is the identity case). Pure: no device, and no
 // filesystem except loadCaseRender(), which reads a Case's images back from
 // the results tree so a Case rendered in another process can take part.
 namespace anari {
@@ -44,13 +45,18 @@ struct CaseRender
     Absent, // not rendered in this run (not selected, and no one's partner)
     Rendered,
     Failed, // build or render failed; `error` says why
+    Skipped, // not rendered for a reason of its own (`error`), e.g. its size
   };
   State state{State::Absent};
   std::vector<Image> images; // in TestDef::channels order
   std::string error;
 };
 
-// Each Case's value index on every axis, in axis order.
+// Each Case's value index on every axis, in axis order. A Case value is
+// matched to its axis's values by string form (anyToString()); a value that
+// matches none of them, or more than one, or an axis the Case has no value
+// for, throws std::invalid_argument naming the Test, the Case and the value
+// (it would otherwise put the Case in the wrong group).
 std::vector<std::vector<size_t>> caseValueIndices(
     const TestDef &test, const std::vector<Case> &cases);
 
@@ -63,46 +69,61 @@ struct RelationGroup
 {
   size_t axis{0};
   std::vector<size_t> cases;
+  std::vector<size_t> values; // each Case's value index on `axis`
 };
 
 std::vector<RelationGroup> relationGroups(
     const TestDef &test, const std::vector<Case> &cases);
+
+// Whether value `valueIndex` of axis `axis` has a declared derived expectation
+// (`.expectDerived`), which exempts it from the axis's effect pairs.
+bool hasDerivedExpectation(const TestDef &test, size_t axis, size_t valueIndex);
 
 // Whether a Test has any relational self-check (an axis with two values or
 // more; an opted-out Permutation axis still records its opt-out).
 bool hasRelations(const TestDef &test);
 
 // The Cases that must be rendered for the relations attributed to the
-// `selected` ones: the selected Cases plus their partners. A partner that
-// isn't selected is a support render (its images are written; it is not
-// scored).
+// `selected` ones: the selected Cases plus their partners (for a derived
+// expectation, every sibling on its axis; for a Variant, the first value's
+// Case). A partner that isn't selected is a support render (its images are
+// written; it is not scored).
 std::vector<bool> renderSet(const TestDef &test,
     const std::vector<Case> &cases,
     const std::vector<bool> &selected);
 
-// One assertion, attributed to Case `caseIndex`, about its relation to Case
-// `partnerIndex`. Image paths in `assertion` are left empty for the runner.
+// One assertion, attributed to Case `caseIndex`, about its relation to the
+// Cases `partners` (an effect's partner, or the siblings a derived expectation
+// read). Image paths in `assertion` are left empty for the runner.
 struct RelationOutcome
 {
   size_t caseIndex{0};
-  size_t partnerIndex{0};
+  std::vector<size_t> partners;
   Assertion assertion;
   // The scored Channel's index into TestDef::channels, or -1 when nothing was
   // compared.
   int channelIndex{-1};
   // For a failed check whose images were comparable: where they changed.
   Image mask;
+  // For a declared derived expectation (not a Variant's identity), the
+  // expected image of the scored Channel and its mask, if it has one.
+  Image expected;
+  Image expectedMask;
 };
 
 // Evaluate every effect and equivalence of a Test (ADR-0010):
 //  - effect, per Permutation axis not opted out: every pair within each group
 //    must differ by changed fraction >= the minimum on at least one Channel;
-//  - equivalence, per Variant axis: every Case is compared with the group's
-//    first-value Case, and must be within the maximum on every Channel;
+//    values with a derived expectation take no part;
+//  - equivalence, per derived expectation: the Case must be within the
+//    maximum of the image its function derives from its siblings, on every
+//    Channel (only the masked pixels, when it returns a mask); a Variant
+//    axis's non-first values derive the first value's image unchanged;
 //  - an opted-out axis yields an unevaluated entry carrying its reason.
-// A pair is attributed to its later Case (axis value order) and names its
-// partner. Pairs whose later Case is absent or failed are not evaluated; a
-// partner that is absent or failed fails the pair.
+// An effect pair is attributed to its later Case (axis value order) and names
+// its partner; an equivalence to the derived Case, naming the siblings it
+// read. A Case that is absent, failed or skipped carries nothing; a partner
+// that is fails the assertion. Throws as caseValueIndices() does.
 std::vector<RelationOutcome> evaluateRelations(const TestDef &test,
     const std::vector<Case> &cases,
     const std::vector<CaseRender> &renders,
