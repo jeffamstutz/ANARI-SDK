@@ -408,6 +408,21 @@ TEST_CASE("the built-in catalog covers the extensions it tests",
   CHECK(covered.count("ANARI_KHR_LIGHT_POINT") == 1);
   CHECK(covered.count("ANARI_KHR_GEOMETRY_TRIANGLE") == 1);
   CHECK(covered.count("ANARI_KHR_CAMERA_STEREO") == 0); // no Test yet
+
+  // The concurrent synchronization rules (ADR-0009 rules 3-4) are the only
+  // ones that make calls from several threads at once, so they alone require
+  // the extension that allows it.
+  std::vector<std::string> needSynchronization;
+  for (const auto &test : catalog.tests()) {
+    if (std::count(test.requiredFeatures.begin(),
+            test.requiredFeatures.end(),
+            "ANARI_KHR_DEVICE_SYNCHRONIZATION"))
+      needSynchronization.push_back(test.id());
+  }
+  CHECK(needSynchronization
+      == std::vector<std::string>{
+          "synchronization/different_objects_concurrently",
+          "synchronization/map_during_render_never_tears"});
 }
 
 TEST_CASE("every built-in Test has a human-readable description",

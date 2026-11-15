@@ -85,12 +85,12 @@ runner directly and rely on the ctest `TIMEOUT` instead.
 - A rule a device breaks by blocking for a *bounded* time (say, while a render
   actually executes) needs a render that runs long enough to measure, which is
   device-dependent. The rules below that need it are left for later.
-- The rules below don't need `KHR_DEVICE_SYNCHRONIZATION`: they never make two
-  calls at once. Calls that share an object (by default, the device) "may not
-  overlap", so while a completion callback may run on another thread, the check
-  makes no call; it waits for the callback to finish (up to 10 s, for a device
-  that runs callbacks inside `anariFrameReady(ANARI_WAIT)`) and only then waits
-  on the frame. Rules with calls from several threads at once must require
+- Rules 1 and 2 below don't need `KHR_DEVICE_SYNCHRONIZATION`: they never make
+  two calls at once. Calls that share an object (by default, the device) "may
+  not overlap", so while a completion callback may run on another thread, the
+  check makes no call; it waits for the callback to finish (up to 10 s, for a
+  device that runs callbacks inside `anariFrameReady(ANARI_WAIT)`) and only then
+  waits on the frame. Rules with calls from several threads at once must require
   `ANARI_KHR_DEVICE_SYNCHRONIZATION`.
 
 ## The rule set
@@ -125,6 +125,54 @@ Implemented (category `synchronization`):
    after the frame completes" (one per render).
    Whether the callback sees its frame as ready, and has a duration, is noted,
    not asserted.
+3. `different_objects_concurrently` (requires and covers
+   `KHR_DEVICE_SYNCHRONIZATION`) — while one thread renders a frame 40 times,
+   four threads each create a world, write its vertices through a mapped managed
+   array, commit it, query its `bounds` with `ANARI_WAIT` and release it, over
+   and over. Every frame equals the frame rendered before the threads started
+   (exactly), each thread's world has its own triangle's bounds, and no ERROR is
+   reported. Spec: section 3.1, "This lowers the scope of required
+   synchronization to individual ANARI objects allowing different threads to
+   operate concurrently on different objects within the same device." The same
+   paragraph still requires `anariRenderFrame` to "be synchronized with all
+   other ANARI calls", so the check keeps each `anariRenderFrame` call apart
+   from the other threads' calls (a gate the render goes through ahead of new
+   calls); the renders themselves, `anariFrameReady(ANARI_WAIT)` and mapping the
+   frame overlap them freely. helide passes; halcyon (2026-11-15) crashes in
+   most runs, finalizing one thread's geometry during another thread's commit
+   flush.
+4. `map_during_render_never_tears` (requires and covers
+   `KHR_DEVICE_SYNCHRONIZATION`) — 16 triangles whose vertex positions are a
+   shared array; after each of 40 renders is issued, an app thread maps the
+   array, rewrites it (the triangles as laid out, or moved, alternately; half
+   the triangles, a 0.5 ms pause, then the rest) and unmaps it. Every frame
+   equals one of the two layouts rendered alone, never a mix; after the writing
+   stops, the next frame shows the last layout written (and the two layouts must
+   render differently, or the check fails as vacuous). Spec: `anariMapArray`,
+   "Applications are only permitted to write to the memory visible to ANARIArray
+   objects if all array objects involved are mapped. Mapping a shared array
+   object indicates that the device should not execute any rendering operations
+   (or internal state updates, such as building acceleration structures) of any
+   parent objects". Rule 1 and candidate 5 treat *when* a render runs relative
+   to a mapping as the recommendation the "should" makes it; this rule asserts
+   only what the frame shows. The app is permitted to write while the array is
+   mapped, so a frame mixing two writes shows a scene the app never presented;
+   reading the permission to write as allowing that would make it meaningless.
+   That reading is this rule's, not the spec's words, and a spec decision
+   otherwise would drop the rule. The map, the writes and the unmap go through
+   the gate as one group, so the array is never mapped while an
+   `anariRenderFrame` call waits for the gate. One rewrite per render, not back
+   to back: an array kept mapped nearly all the time starves renders that wait
+   for the unmap, which helide and halcyon both do. The check is a stress test,
+   not a forced state: whether a rewrite overlaps a render's execution depends
+   on timing (the pause between halves widens the window), so a device that
+   ignores mappings fails it with high but not certain probability, and the
+   detail can't say how many rewrites overlapped. Rules 3 and 4 compare frames
+   exactly, so they assume the runner's renderer is deterministic for one scene;
+   a renderer that adds noise per render would fail them falsely. The array is
+   the vertex positions rather than colors (halcyon's stress test uses a color
+   array) because helide doesn't re-render after an unmap of a vertex attribute
+   array it doesn't observe, which is a separate bug.
 
 Candidates, from `KHR_DEVICE_SYNCHRONIZATION` and halcyon's
 `tests/test_synchronization.cpp`, each to check against the spec text before it
@@ -132,14 +180,8 @@ becomes a Test. Items marked *spec gap* need a spec decision first; helide's
 current behaviour, where known, is noted, and a rule helide breaks would be
 added as a failing Test and reported, not weakened.
 
-3. Different threads may use different objects of the same device at once
-   (`KHR_DEVICE_SYNCHRONIZATION`): threads committing parameters on their own
-   objects, mapping their own arrays and querying properties while frames
-   render, with no crash, error or hang. Needs the extension.
-4. Mapping an array while renders are in flight never tears a frame: an app
-   thread keeps rewriting a mapped color array (all red, then all blue) while
-   frames render; every frame is uniformly one color (halcyon's stress test).
-   Pass/fail from the frame's pixels, not ground truth.
+3. *Done*: `different_objects_concurrently`, above.
+4. *Done*: `map_during_render_never_tears`, above.
 5. A render issued while a shared array is mapped sees what was written before
    the unmap (halcyon "frame waits for mapped array"). The spec's "should not
    execute" makes the holding-off a recommendation; the render seeing the final
