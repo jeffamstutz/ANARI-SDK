@@ -20,3 +20,10 @@ platforms (the scene `seed` parameters exist for exactly this reason).
 
 **Update (see ADR-0007):** the `seed` mechanism named above is superseded for CTS
 geometry by a deterministic RNG-free Layout; determinism is now by construction.
+
+**Update (see ADR-0010):** Ground truth is now optional per Test. A Test
+declares `.groundTruth("reason")` when its appearance has no analytic answer,
+or `.noGroundTruth()` when it is fully self-checked (effect and equivalence
+between its own Cases); `generate` skips the latter. A Variant's shared file is
+written from its first value's Case only. Unit tests still generate their
+images in code: nothing is committed or fetched.

@@ -1,7 +1,9 @@
 # Conformance Test Suite (CTS)
 
 The CTS validates an ANARI device implementation by rendering a known battery of
-scenes and comparing the output against ground-truth images. This context covers
+scenes, checking each Test's Cases against each other (effect and equivalence,
+ADR-0010) and, where appearance has no analytic answer, comparing the output
+against ground-truth images. This context covers
 the C++ test catalog, the C++ runner that executes it, and the C++ reporting
 that summarizes runs (with a Python layer retained only for PDF).
 
@@ -33,19 +35,44 @@ Permutation or a Variant.
 _Avoid_: dimension, parameter list
 
 **Permutation**:
-An Axis whose values produce *different* expected output, so each value gets its
-own ground-truth image.
+An Axis whose values must produce *different* output. Each value gets its own
+ground-truth image, and Cases differing only in it are checked for an Effect on
+the Candidate itself, unless the Test opts the axis out
+(`.noEffectCheck(axis, reason)`) because its effect can't be judged by image
+difference.
 
 **Variant**:
 An Axis whose values must produce *identical* output (e.g. `soup` vs `indexed`).
-All values share one ground-truth image, which asserts implementation
-equivalence.
+Each Case is checked for Equivalence with the Case holding the axis's first
+value, on the Candidate itself. All values share one ground-truth image,
+written from the first value's Case.
 
 **Case**:
 One concrete combination of axis values produced by expanding a Test. A Case is
-what actually gets rendered and compared. Variant values of the same Case map to
-a shared ground-truth image; Permutation values map to distinct ones.
+what actually gets rendered, compared with its Ground truth (if its Test has
+one), and related to the other Cases of its Test by Assertions. Variant values
+of the same Case map to a shared ground-truth image; Permutation values map to
+distinct ones.
 _Avoid_: instance, permutation (as a noun for the result)
+
+**Assertion**:
+A self-check recorded in a Case's Sidecar (its `assertions`): an Effect or an
+Equivalence relating it to a partner Case of the same Test that differs from it
+only in one axis, with the score (changed fraction), the bound, pass/fail and a
+detail. A failed pair is attributed to the later Case in the axis's value
+order. A Case's verdict is the conjunction of its Ground-truth comparison and
+its evaluated Assertions (ADR-0010).
+_Avoid_: check (too vague), relation (the pair, not the record)
+
+**Effect**:
+What a Permutation axis asserts: Cases differing only in it render
+differently, i.e. their changed fraction (share of pixels whose largest
+per-channel difference exceeds τ) is at least a minimum on some Channel. Every
+pair within a group is checked.
+
+**Equivalence**:
+What a Variant axis asserts: a Case renders like the Case holding the axis's
+first value, i.e. their changed fraction is at most a maximum on every Channel.
 
 **Timed behaviour test**:
 A Test whose check (not an image) decides pass/fail, and which declares a
@@ -61,13 +88,23 @@ The device whose renders define ground truth (currently helide).
 _Avoid_: golden device
 
 **Candidate**:
-The device being tested against ground truth.
+The device being tested: against itself (its Cases' Assertions) and, for a
+Test that has Ground truth, against the Reference device's images.
 _Avoid_: device under test, SUT
 
 **Ground truth**:
 The expected reference image(s) a Case is compared against, produced by the
-Reference device.
+Reference device. Optional per Test: declared with `.groundTruth(reason)`
+where appearance has no analytic answer, absent with `.noGroundTruth()` for a
+fully self-checked Test (undeclared means compared, until ticket 04). A Case
+that passed its Assertions while its Ground truth was missing is "passed,
+Ground truth not evaluated".
 _Avoid_: reference image, golden image, baseline
+
+**Support render**:
+A Case rendered only because a selected Case's Assertion needs it as a partner
+(the `--filter` excluded it): its images are written so the partner can be
+shown, but it is not scored, gets no Sidecar and is not counted.
 
 **Channel**:
 A frame output buffer (color, depth, albedo, normal, primitive/object/instance
@@ -88,6 +125,7 @@ verdict); a run whose device renders the Probe frame removes it.
 **Sidecar**:
 The machine-readable JSON file the C++ runner writes next to a Case's images:
 which axis values it ran, its per-channel metric scores and pass/fail verdict,
+its Assertions and whether its Ground truth was evaluated,
 any skip reason, timing, image paths, the producing device's identity and the
 extensions it advertised, the Test's required, primary and missing extensions,
 and the extensions the run's whole Catalog has a Test for. One per Case.
@@ -107,10 +145,13 @@ The human-facing summary of one run, produced by `anariCts report` from the
 Results tree: a text summary (default) or an interactive HTML report (`--html`).
 Both include a per-extension matrix: for every canonical KHR extension, whether
 the device advertised it, the passed/failed/skipped Cases it is primary for, and
-a state (`passed`, `failed`, `not advertised`, `advertised, no Ground truth`,
-...; `no Test` when the run's Catalog, as its Sidecars record it, has no Test
-covering it). A leading `core` row counts the Cases of Tests that cover no
-extension. A PDF is an optional extra still produced by `ctsReport.py`.
+a state (`passed` only when every Case was fully scored, `passed, Ground truth
+not evaluated`, `advertised, partly scored`, `failed`, `not advertised`,
+`advertised, no Ground truth`, ...; `no Test` when the run's Catalog, as its
+Sidecars record it, has no Test covering it), classified from the Cases'
+verdicts and Ground-truth flags. A leading `core` row counts the Cases of Tests
+that cover no extension. The text summary counts failures by kind (effect,
+equivalence, Ground truth, other). A PDF is an optional extra still produced by `ctsReport.py`.
 _Avoid_: manifest
 
 ### Tooling
