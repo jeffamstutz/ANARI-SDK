@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstring>
 #include <limits>
+#include <utility>
 
 namespace anari {
 namespace cts {
@@ -279,6 +280,16 @@ FrameReadbackResult decodeFrameChannel(Channel channel,
   }
 
   return result;
+}
+
+ChannelValues toChannelValues(Channel channel, FrameReadbackResult &&readback)
+{
+  ChannelValues out;
+  out.channel = channel;
+  out.image = std::move(readback.image);
+  out.depth = std::move(readback.depth);
+  out.ids = std::move(readback.ids);
+  return out;
 }
 
 FrameReadbackResult readFrameChannel(anari::Device device,

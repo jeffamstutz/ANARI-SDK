@@ -7,6 +7,7 @@
 #include "CameraProjection.h"
 #include "Case.h"
 #include "Channel.h"
+#include "FrameReadback.h"
 #include "FrameSize.h"
 #include "Image.h"
 #include "Relations.h"
@@ -33,17 +34,6 @@
 namespace anari {
 namespace cts {
 
-// One rendered Channel of a Case, as an exact check sees it: the 8-bit
-// comparison image, plus the raw values of the depth (FLOAT32) and ID
-// (UINT32) Channels. Kept in memory for the per-Case phase only.
-struct ChannelValues
-{
-  Channel channel{Channel::Color};
-  Image image;
-  std::vector<float> depth; // Channel::Depth
-  std::vector<uint32_t> ids; // Channel::PrimitiveId / ObjectId / InstanceId
-};
-
 // An 8-bit RGBA pixel of a comparison image.
 using Rgba8 = std::array<uint8_t, 4>;
 
@@ -67,7 +57,8 @@ struct ChannelView
 template <>
 inline Rgba8 ChannelView<Rgba8>::at(uint32_t x, uint32_t y) const
 {
-  const auto *p = static_cast<const uint8_t *>(data) + (size_t(y) * width + x) * 4;
+  const auto *p =
+      static_cast<const uint8_t *>(data) + (size_t(y) * width + x) * 4;
   return {p[0], p[1], p[2], p[3]};
 }
 
@@ -150,6 +141,15 @@ class ExactCheck
       FrameSize size,
       const std::vector<ChannelValues> &channels,
       std::optional<CameraProjection> camera);
+  // It keeps references to the axis values and channels: no temporaries.
+  ExactCheck(BuildContext &&,
+      FrameSize,
+      const std::vector<ChannelValues> &,
+      std::optional<CameraProjection>) = delete;
+  ExactCheck(const BuildContext &,
+      FrameSize,
+      std::vector<ChannelValues> &&,
+      std::optional<CameraProjection>) = delete;
 
   // The Case's axis values (as a build hook reads them).
   const BuildContext &values() const
@@ -203,7 +203,8 @@ class ExactCheck
       Pred pred,
       const PixelMask *where = nullptr)
   {
-    return recordPixels(std::move(name),
+    return recordPixels(
+        std::move(name),
         view.channel,
         view.width,
         view.height,
@@ -223,7 +224,8 @@ class ExactCheck
       double tolerance = 0.0,
       const PixelMask *where = nullptr)
   {
-    return recordPixels(std::move(name),
+    return recordPixels(
+        std::move(name),
         view.channel,
         view.width,
         view.height,

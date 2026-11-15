@@ -48,7 +48,8 @@ std::optional<math::float2> projectToPixel(
   if (!(extent.x > 0.f) || !(extent.y > 0.f))
     return std::nullopt;
   const float2 inRegion = (screen - camera.regionLo) / extent;
-  return float2(inRegion.x * float(size.width), inRegion.y * float(size.height));
+  return float2(
+      inRegion.x * float(size.width), inRegion.y * float(size.height));
 }
 
 } // namespace cts

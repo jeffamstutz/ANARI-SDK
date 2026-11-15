@@ -125,19 +125,15 @@ anari::cts::ChannelValues decodedChannel(anari::cts::Channel channel,
       anari::cts::decodeFrameChannel(channel, mapped, w, h, depthScale);
   if (!decoded)
     throw std::runtime_error(decoded.detail);
-  anari::cts::ChannelValues out;
-  out.channel = channel;
-  out.image = std::move(decoded.image);
-  out.depth = std::move(decoded.depth);
-  out.ids = std::move(decoded.ids);
-  return out;
+  return anari::cts::toChannelValues(channel, std::move(decoded));
 }
 
 // A `uint32_t` ID channel whose pixel (x, y) holds `id(x, y)`.
 template <typename Fn>
-anari::cts::ChannelValues idChannel(
-    uint32_t w, uint32_t h, Fn id, anari::cts::Channel channel =
-        anari::cts::Channel::PrimitiveId)
+anari::cts::ChannelValues idChannel(uint32_t w,
+    uint32_t h,
+    Fn id,
+    anari::cts::Channel channel = anari::cts::Channel::PrimitiveId)
 {
   std::vector<uint32_t> buffer(static_cast<size_t>(w) * h);
   for (uint32_t y = 0; y < h; ++y)

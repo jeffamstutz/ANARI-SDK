@@ -105,12 +105,7 @@ ChannelValues renderChannel(anari::Device d,
   auto readback = readFrameChannel(d, f, ch, w, h, depthScale);
   if (!readback)
     throw std::runtime_error(readback.detail);
-  ChannelValues out;
-  out.channel = ch;
-  out.image = std::move(readback.image);
-  out.depth = std::move(readback.depth);
-  out.ids = std::move(readback.ids);
-  return out;
+  return toChannelValues(ch, std::move(readback));
 }
 
 // The default render camera: a perspective camera framing the world bounds,
@@ -125,11 +120,15 @@ anari::Camera defaultCamera(anari::Device d,
   PerspectiveCameraOptions camOpts;
   if (h != 0)
     camOpts.aspect = static_cast<float>(w) / static_cast<float>(h);
+  // The spec's default, set explicitly so project() doesn't depend on the
+  // device's default.
+  camOpts.fovy = CameraProjection{}.fovy;
   projection = CameraProjection{};
   projection.type = CameraProjection::Type::Perspective;
   projection.position = camDesc.position;
   projection.direction = camDesc.direction;
   projection.up = camDesc.up;
+  projection.fovy = *camOpts.fovy;
   projection.aspect = camOpts.aspect.value_or(1.f);
   return makePerspectiveCamera(d, camDesc, camOpts);
 }

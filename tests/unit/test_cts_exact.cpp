@@ -634,3 +634,23 @@ TEST_CASE("frame readback keeps raw depth and ID values", "[cts][exact]")
   CHECK(ri.ids == ids);
   CHECK(ri.depth.empty());
 }
+
+TEST_CASE(
+    "an exact check fails when a channel isn't the Case's size", "[cts][exact]")
+{
+  const std::vector<ChannelValues> channels = {
+      idChannel(kW, kH, [](uint32_t, uint32_t) { return 1u; })};
+  const TestDef test =
+      makeTest("t", "ids")
+          .channels({Channel::PrimitiveId})
+          .expectExact("never runs",
+              [](ExactCheck &x) { x.measure("ran", 1.0, Limit::AtLeast, 0.0); })
+          .take();
+  Case c;
+  const auto out =
+      evaluateExactChecks(test, c, {kW, kH + 1}, channels, std::nullopt);
+  REQUIRE(out.size() == 1);
+  CHECK_FALSE(out[0].assertion.passed);
+  CHECK(out[0].assertion.detail
+      == "the primitiveId channel is 16x8 but the Case is 16x9");
+}

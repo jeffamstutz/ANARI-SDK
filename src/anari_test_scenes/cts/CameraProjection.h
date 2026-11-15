@@ -44,7 +44,8 @@ struct CameraProjection
 // [x, x + 1) x [y, y + 1)). Empty for a point behind a perspective camera
 // (or in its plane) or a degenerate camera. The result may lie outside the
 // frame.
-std::optional<anari::math::float2> projectToPixel(const CameraProjection &camera,
+std::optional<anari::math::float2> projectToPixel(
+    const CameraProjection &camera,
     FrameSize size,
     const anari::math::float3 &world);
 

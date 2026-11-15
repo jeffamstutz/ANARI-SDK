@@ -52,10 +52,23 @@ struct FrameReadbackResult
   }
 };
 
+// One rendered Channel of a Case, as an exact check sees it (ADR-0010): the
+// 8-bit comparison image, plus the raw values of the depth (FLOAT32) and ID
+// (UINT32) Channels. Kept in memory for the per-Case phase only.
+struct ChannelValues
+{
+  Channel channel{Channel::Color};
+  Image image;
+  std::vector<float> depth; // Channel::Depth
+  std::vector<uint32_t> ids; // Channel::PrimitiveId / ObjectId / InstanceId
+};
+
+// A successful readback of `channel` as ChannelValues (consumes it).
+ChannelValues toChannelValues(Channel channel, FrameReadbackResult &&readback);
+
 // Validate and decode one mapped Channel into the CTS comparison-image format.
 // depthScale is used only for Channel::Depth.
-FrameReadbackResult decodeFrameChannel(
-    Channel channel,
+FrameReadbackResult decodeFrameChannel(Channel channel,
     const MappedFrameDescriptor &mapped,
     uint32_t expectedWidth,
     uint32_t expectedHeight,
@@ -64,8 +77,7 @@ FrameReadbackResult decodeFrameChannel(
 // Map, validate, and decode one frame Channel. The scoped mapping pairs every
 // successful map with exactly one unmap, including validation failures and
 // exceptions raised while allocating or converting the comparison image.
-FrameReadbackResult readFrameChannel(
-    anari::Device device,
+FrameReadbackResult readFrameChannel(anari::Device device,
     anari::Frame frame,
     Channel channel,
     uint32_t expectedWidth,
