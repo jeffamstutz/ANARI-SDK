@@ -33,10 +33,15 @@ struct Workdir
   // results/<category>/<test>/<caseId>.<channel>.diff.png (debug image)
   std::filesystem::path diffImagePath(const Case &c, Channel channel) const;
   // results/<category>/<test>/<caseId>.<channel>.threshold.png (debug image)
-  std::filesystem::path thresholdImagePath(const Case &c, Channel channel) const;
+  std::filesystem::path thresholdImagePath(
+      const Case &c, Channel channel) const;
   // ground_truth/<category>/<test>/<gtKey>.<channel>.png
   std::filesystem::path groundTruthImagePath(
       const Case &c, Channel channel) const;
+
+  // results/run.json: the run-level record of a device that could not render
+  // (DeviceFailure.h). Not a Sidecar.
+  std::filesystem::path runRecordPath() const;
 
   // A path expressed relative to the workdir root (for storing in sidecars).
   std::string relativeToRoot(const std::filesystem::path &p) const;

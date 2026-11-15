@@ -96,6 +96,7 @@ if (BUILD_CTS OR BUILD_TESTING)
     cts/Case.cpp
     cts/Catalog.cpp
     cts/DeviceErrorLog.cpp
+    cts/DeviceFailure.cpp
     cts/Expansion.cpp
     cts/Filter.cpp
     cts/FrameFormats.cpp

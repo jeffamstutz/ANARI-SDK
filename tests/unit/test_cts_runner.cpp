@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "catch.hpp"
+#include "helium_test_device.h"
 // cts
 #include "cts/BuiltinTests.h"
 #include "cts/Case.h"
 #include "cts/Catalog.h"
 #include "cts/DeviceErrorLog.h"
+#include "cts/DeviceFailure.h"
 #include "cts/Expansion.h"
 #include "cts/FrameFormats.h"
 #include "cts/FrameReadback.h"
@@ -17,6 +19,8 @@
 #include "cts/SurfaceBuilder.h"
 #include "cts/TestBuilder.h"
 #include "cts/WorldBuilder.h"
+// helium
+#include "helium/BaseFrame.h"
 // std
 #include <chrono>
 #include <filesystem>
@@ -1378,4 +1382,264 @@ TEST_CASE("The built-in synchronization Tests pass on helide",
   std::filesystem::remove_all(root, ec);
   anari::release(d, d);
   anari::unloadLibrary(lib);
+}
+
+// The probe frame: a device that can't render ////////////////////////////////
+
+namespace {
+
+// A frame whose render reports an ERROR and whose color channel maps null
+// (as helide_gpu's does when SDL3 can't initialise), or, with 'renders' set,
+// maps a black probe-sized image.
+struct StubFrame : public helium::BaseFrame
+{
+  StubFrame(helium::BaseGlobalDeviceState *s, bool renders)
+      : BaseFrame(s), m_renders(renders)
+  {}
+
+  bool isValid() const override
+  {
+    return true;
+  }
+  bool getProperty(const std::string_view &,
+      ANARIDataType,
+      void *,
+      uint64_t,
+      uint32_t) override
+  {
+    return false;
+  }
+  void commitParameters() override {}
+  void finalize() override {}
+  void renderFrame() override
+  {
+    if (!m_renders)
+      reportMessage(ANARI_SEVERITY_ERROR,
+          "[stub] SDL_InitSubSystem(SDL_INIT_VIDEO) failed: libSDL3.so.0: "
+          "cannot open shared object file");
+  }
+  void *map(std::string_view,
+      uint32_t *width,
+      uint32_t *height,
+      ANARIDataType *pixelType) override
+  {
+    if (!m_renders) {
+      *width = 0;
+      *height = 0;
+      *pixelType = ANARI_UNKNOWN;
+      return nullptr;
+    }
+    *width = kProbeFrameSize;
+    *height = kProbeFrameSize;
+    *pixelType = ANARI_UFIXED8_RGBA_SRGB;
+    return m_pixels.data();
+  }
+  void unmap(std::string_view) override {}
+  int frameReady(ANARIWaitMask) override
+  {
+    return 1;
+  }
+  void discard() override {}
+
+ private:
+  bool m_renders{false};
+  std::vector<uint32_t> m_pixels =
+      std::vector<uint32_t>(kProbeFrameSize * kProbeFrameSize, 0);
+};
+
+// A device whose objects do nothing; its frames are StubFrames. It reports
+// through a status callback that records into 'errors', as anariCts's does.
+struct StubRenderDevice : public helium_test::TestDevice
+{
+  StubRenderDevice(DeviceErrorLog &errors, bool renders) : m_renders(renders)
+  {
+    state()->statusCB = recordError;
+    state()->statusCBUserPtr = &errors;
+  }
+
+  ANARIWorld newWorld() override
+  {
+    return (ANARIWorld) new helium_test::StubObject(ANARI_WORLD, state());
+  }
+  ANARICamera newCamera(const char *) override
+  {
+    return (ANARICamera) new helium_test::StubObject(ANARI_CAMERA, state());
+  }
+  ANARIRenderer newRenderer(const char *) override
+  {
+    return (ANARIRenderer) new helium_test::StubObject(ANARI_RENDERER, state());
+  }
+  ANARIFrame newFrame() override
+  {
+    return (ANARIFrame) new StubFrame(state(), m_renders);
+  }
+
+  anari::Device handle()
+  {
+    return this_device();
+  }
+
+ private:
+  static void recordError(const void *userData,
+      ANARIDevice,
+      ANARIObject,
+      ANARIDataType,
+      ANARIStatusSeverity severity,
+      ANARIStatusCode,
+      const char *message)
+  {
+    static_cast<DeviceErrorLog *>(const_cast<void *>(userData))
+        ->record(severity, message);
+  }
+
+  bool m_renders{false};
+};
+
+// A Test whose build would author a world; on a device that can't render, it
+// must never run.
+Catalog probeCatalog(std::shared_ptr<int> builds)
+{
+  Catalog cat;
+  makeTest("geometry", "triangle")
+      .build([builds](BuildContext &) -> anari::World {
+        ++*builds;
+        return nullptr;
+      })
+      .registerInto(cat);
+  return cat;
+}
+
+} // namespace
+
+TEST_CASE("probeDevice names the device's own error", "[cts][runner][probe]")
+{
+  DeviceErrorLog errors;
+  errors.record(ANARI_SEVERITY_WARNING, "only a warning");
+
+  SECTION("a device that renders the probe frame")
+  {
+    auto *device = new StubRenderDevice(errors, true);
+    CHECK(probeDevice(device->handle(), "default", &errors).empty());
+    device->state()->commitBuffer.clear();
+    delete device;
+  }
+
+  SECTION("a device whose frame maps null")
+  {
+    auto *device = new StubRenderDevice(errors, false);
+    const auto reason = probeDevice(device->handle(), "default", &errors);
+    CHECK(
+        reason.find("channel.color mapped data is null") != std::string::npos);
+    CHECK(reason.find("libSDL3.so.0: cannot open shared object file")
+        != std::string::npos);
+    CHECK(reason.find("only a warning") == std::string::npos);
+    device->state()->commitBuffer.clear();
+    delete device;
+  }
+
+  SECTION("a message the device repeats is named once, with a count")
+  {
+    errors.record(ANARI_SEVERITY_ERROR, "init failed");
+    errors.record(ANARI_SEVERITY_ERROR, "init failed");
+    auto *device = new StubRenderDevice(errors, false);
+    const auto reason = probeDevice(device->handle(), "default", &errors);
+    CHECK(reason.find("init failed (2 times)") != std::string::npos);
+    CHECK(reason.find("init failed", reason.find("init failed") + 1)
+        == std::string::npos);
+    device->state()->commitBuffer.clear();
+    delete device;
+  }
+
+  SECTION("a device that can't create the objects")
+  {
+    auto *device = new helium_test::TestDevice;
+    const auto reason =
+        probeDevice(device->this_device(), "pathtracer", nullptr);
+    CHECK_FALSE(reason.empty());
+    delete device;
+  }
+}
+
+TEST_CASE("Runner stops before the first Case when the device can't render",
+    "[cts][runner][probe]")
+{
+  const auto root = std::filesystem::temp_directory_path() / "cts_probe_test";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+  const Workdir workdir(root);
+
+  DeviceErrorLog errors;
+  auto *device = new StubRenderDevice(errors, false);
+  auto builds = std::make_shared<int>(0);
+  const Catalog cat = probeCatalog(builds);
+  Case tri;
+  tri.category = "geometry";
+  tri.testName = "triangle";
+
+  RunOptions opts;
+  opts.device = {"stub", "default", "default"};
+  opts.deviceErrors = &errors;
+  Runner runner(device->handle(), workdir, opts);
+
+  SECTION("run writes one run-level record and no per-Case result")
+  {
+    const auto s = runner.run(cat, Filter{""}, {});
+    CHECK(s.deviceFailure.find("mapped data is null") != std::string::npos);
+    CHECK(s.deviceFailure.find("libSDL3.so.0") != std::string::npos);
+    CHECK(s.total == 0);
+    CHECK(s.failed == 0);
+    CHECK(*builds == 0);
+    CHECK_FALSE(std::filesystem::exists(workdir.sidecarPath(tri)));
+
+    const auto record = readDeviceFailure(workdir);
+    REQUIRE(record);
+    CHECK(record->device.library == "stub");
+    CHECK(record->reason == s.deviceFailure);
+
+    // Later slices of the same run (--stdin) stop the same way.
+    const auto again = runner.run(cat, Filter{""}, {});
+    CHECK(again.deviceFailure == s.deviceFailure);
+    CHECK(*builds == 0);
+  }
+
+  SECTION("generate writes no Ground truth")
+  {
+    const auto s = runner.generate(cat, Filter{""}, {});
+    CHECK_FALSE(s.deviceFailure.empty());
+    CHECK(s.total == 0);
+    CHECK(*builds == 0);
+    CHECK_FALSE(std::filesystem::exists(
+        workdir.groundTruthImagePath(tri, Channel::Color)));
+  }
+
+  device->state()->commitBuffer.clear();
+  delete device;
+  std::filesystem::remove_all(root, ec);
+}
+
+TEST_CASE("A run whose device renders the probe clears an earlier record",
+    "[cts][runner][probe]")
+{
+  const auto root =
+      std::filesystem::temp_directory_path() / "cts_probe_clear_test";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+  const Workdir workdir(root);
+  REQUIRE(writeDeviceFailure(workdir, {{"stub"}, "an earlier failure"}));
+
+  DeviceErrorLog errors;
+  auto *device = new StubRenderDevice(errors, true);
+  auto builds = std::make_shared<int>(0);
+  Runner runner(device->handle(), workdir, RunOptions{});
+
+  // The Case runs (it is skipped for want of Ground truth).
+  const auto s = runner.run(probeCatalog(builds), Filter{""}, {});
+  CHECK(s.deviceFailure.empty());
+  CHECK(s.total == 1);
+  CHECK(s.skipped == 1);
+  CHECK_FALSE(readDeviceFailure(workdir));
+
+  device->state()->commitBuffer.clear();
+  delete device;
+  std::filesystem::remove_all(root, ec);
 }

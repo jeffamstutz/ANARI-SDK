@@ -83,7 +83,9 @@ _Avoid_: manifest, results file
 
 **Results tree**:
 The `results/` subtree of a Workdir — the full set of a run's Sidecars and
-images. It is the cross-language contract: every reader (the C++ `report`
+images, plus `run.json` when the run stopped because the device could not
+render a probe frame (then there are no Sidecars from that run). It is the
+cross-language contract: every reader (the C++ `report`
 command and the Python PDF layer) consumes it by globbing, and none of them
 render or open a device.
 _Avoid_: manifest

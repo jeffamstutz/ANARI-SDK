@@ -8,6 +8,7 @@
 // std
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -37,6 +38,9 @@ struct HtmlOptions
   // the page; each row with Cases filters the Case list to them. Empty omits
   // the matrix.
   std::vector<ExtensionCoverage> coverage;
+  // Set when the run stopped because the device could not render
+  // (readDeviceFailure()): the page leads with why.
+  std::optional<DeviceFailure> deviceFailure;
 };
 
 // Render the full HTML document for a run's results tree.

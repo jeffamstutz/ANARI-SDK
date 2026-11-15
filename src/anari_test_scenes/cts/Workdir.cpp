@@ -63,6 +63,11 @@ std::filesystem::path Workdir::groundTruthImagePath(
       / (c.groundTruthKey() + "." + channelName(channel) + ".png");
 }
 
+std::filesystem::path Workdir::runRecordPath() const
+{
+  return resultsDir() / "run.json";
+}
+
 std::string Workdir::relativeToRoot(const std::filesystem::path &p) const
 {
   std::error_code ec;

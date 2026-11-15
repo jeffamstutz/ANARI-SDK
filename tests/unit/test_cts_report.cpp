@@ -3,6 +3,7 @@
 
 #include "catch.hpp"
 // cts
+#include "cts/DeviceFailure.h"
 #include "cts/HtmlReport.h"
 #include "cts/Report.h"
 #include "cts/Sidecar.h"
@@ -645,4 +646,87 @@ TEST_CASE("loadResults globs the results tree", "[cts][report]")
   CHECK(results.begin()->second.verdict == Verdict::Failed);
 
   std::filesystem::remove_all(root, ec);
+}
+
+// A device that could not render ////////////////////////////////////////////
+
+TEST_CASE(
+    "A device failure record round-trips and is not a Sidecar", "[cts][report]")
+{
+  const auto root =
+      std::filesystem::temp_directory_path() / "cts_devicefailure_test";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+  const Workdir wd(root);
+
+  CHECK_FALSE(readDeviceFailure(wd));
+
+  DeviceFailure failure;
+  failure.device = {"helide_gpu", "default", "default"};
+  failure.reason =
+      "channel.color mapped data is null; the device reported: "
+      "libSDL3.so.0: cannot open shared object file";
+  REQUIRE(writeDeviceFailure(wd, failure));
+  CHECK(wd.runRecordPath().parent_path() == wd.resultsDir());
+
+  const auto back = readDeviceFailure(wd);
+  REQUIRE(back);
+  CHECK(back->device.library == "helide_gpu");
+  CHECK(back->reason == failure.reason);
+
+  // The results tree's sidecar reader passes over it, without a warning.
+  std::ostringstream warnings;
+  CHECK(loadResults(root, warnings).empty());
+  CHECK(warnings.str().empty());
+
+  clearDeviceFailure(wd);
+  CHECK_FALSE(readDeviceFailure(wd));
+  clearDeviceFailure(wd); // no record: nothing to do
+
+  std::filesystem::remove_all(root, ec);
+}
+
+TEST_CASE("The report states why the device could not render", "[cts][report]")
+{
+  DeviceFailure failure;
+  failure.device = {"helide_gpu", "default", "default"};
+  failure.reason = "channel.color mapped data is null";
+
+  SECTION("a run that stopped at the probe has no Case table")
+  {
+    std::ostringstream out;
+    writeTextSummary(out, "run", {}, false, {}, &failure);
+    const auto text = out.str();
+    CHECK(text.find("device could not render: channel.color mapped data is "
+                    "null")
+        != std::string::npos);
+    CHECK(text.find("helide_gpu") != std::string::npos);
+    CHECK(text.find("cases:") == std::string::npos);
+    CHECK(text.find("by category") == std::string::npos);
+  }
+
+  SECTION("Case results left by an earlier run are flagged as such")
+  {
+    const auto results =
+        keyed({makeCase("geometry", "sphere", "default", Verdict::Passed)});
+    std::ostringstream out;
+    writeTextSummary(out, "run", results, false, {}, &failure);
+    const auto text = out.str();
+    CHECK(text.find("device could not render") != std::string::npos);
+    CHECK(text.find("from an earlier run") != std::string::npos);
+    CHECK(text.find("1 cases") != std::string::npos);
+  }
+
+  SECTION("the HTML report states it too")
+  {
+    HtmlOptions opts;
+    opts.deviceFailure = failure;
+    const std::string doc = generateHtml("/tmp/myrun", {}, opts);
+    CHECK(doc.find("Device could not render") != std::string::npos);
+    CHECK(doc.find("channel.color mapped data is null") != std::string::npos);
+    CHECK(doc.find("helide_gpu") != std::string::npos);
+    CHECK(generateHtml("/tmp/myrun", {}, HtmlOptions{})
+              .find("Device could not render")
+        == std::string::npos);
+  }
 }

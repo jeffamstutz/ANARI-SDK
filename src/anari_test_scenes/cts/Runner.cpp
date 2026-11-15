@@ -3,6 +3,7 @@
 
 #include "Runner.h"
 #include "BuildContext.h"
+#include "DeviceFailure.h"
 #include "Expansion.h"
 #include "FrameFormats.h"
 #include "FrameReadback.h"
@@ -224,6 +225,17 @@ Runner::Runner(anari::Device device,
       m_options(std::move(options))
 {}
 
+const std::string &Runner::deviceFailure()
+{
+  if (!m_deviceFailure) {
+    m_deviceFailure = (!m_device || !m_options.onlyCase.empty())
+        ? std::string()
+        : probeDevice(
+              m_device, m_options.device.renderer, m_options.deviceErrors);
+  }
+  return *m_deviceFailure;
+}
+
 bool Runner::selected(const Case &c) const
 {
   return m_options.onlyCase.empty() || c.qualifiedId() == m_options.onlyCase;
@@ -407,6 +419,9 @@ RunSummary Runner::generate(const Catalog &catalog,
   if (!m_workdir.writeGitignore())
     return workdirFailureSummary(catalog, filter);
   RunSummary summary;
+  summary.deviceFailure = deviceFailure();
+  if (!summary.deviceFailure.empty())
+    return summary;
   for (const TestDef *test : catalog.filter(filter)) {
     // Behavioral tests verify themselves at run time and have no ground truth.
     if (test->behaviorCheck) {
@@ -461,6 +476,17 @@ RunSummary Runner::run(const Catalog &catalog,
   if (!m_workdir.writeGitignore())
     return workdirFailureSummary(catalog, filter);
   RunSummary summary;
+  // A device that can't render is one run-level failure, not one per Case.
+  summary.deviceFailure = deviceFailure();
+  if (!summary.deviceFailure.empty()) {
+    if (!writeDeviceFailure(
+            m_workdir, {m_options.device, summary.deviceFailure}))
+      std::cerr << "warning: could not write "
+                << m_workdir.runRecordPath().string() << "\n";
+    return summary;
+  }
+  if (m_options.onlyCase.empty())
+    clearDeviceFailure(m_workdir);
   for (const TestDef *test : catalog.filter(filter)) {
     if (test->behaviorCheck) {
       runBehaviorTest(*test, candidateFeatures, summary);
