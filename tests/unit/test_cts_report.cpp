@@ -33,6 +33,8 @@ CaseResult makeCase(const std::string &category,
   r.caseId = caseId;
   r.device = {"helide", "default", "default"};
   r.verdict = verdict;
+  // A Case that ran was compared against its Ground truth.
+  r.groundTruthEvaluated = verdict != Verdict::Skipped;
   return r;
 }
 
@@ -275,8 +277,9 @@ TEST_CASE("extensionCoverage gives every extension one state",
       rows.end(),
       [](const auto &a, const auto &b) { return a.extension < b.extension; }));
 
+  // One Case passed, one went unscored: not plain "passed" (ADR-0010).
   const auto &passes = row(rows, "A_PASSES");
-  CHECK(passes.state == CoverageState::Passed);
+  CHECK(passes.state == CoverageState::PartlyScored);
   CHECK(passes.advertised);
   CHECK(passes.passed == 1);
   CHECK(passes.skipped == 1);
@@ -729,4 +732,191 @@ TEST_CASE("The report states why the device could not render", "[cts][report]")
               .find("Device could not render")
         == std::string::npos);
   }
+}
+
+// Self-checks in the results tree (schema v4, ADR-0010) //////////////////////
+
+namespace {
+
+Assertion failedEffect(const std::string &axis, const std::string &partner)
+{
+  Assertion a;
+  a.kind = kEffectAssertion;
+  a.axis = axis;
+  a.relatedCases = {partner};
+  a.channel = "color";
+  a.score = 0.0;
+  a.threshold = 0.01;
+  a.tau = 8;
+  a.passed = false;
+  a.detail = "changed 0.00 % of color pixels vs `" + partner
+      + "`; an effect needs >= 1.00 %";
+  a.partnerImage = "results/light/spot/" + partner + ".color.png";
+  a.maskImage = "results/light/spot/x.effect-0.mask.png";
+  return a;
+}
+
+} // namespace
+
+TEST_CASE("fromJson round-trips assertions and the Ground-truth flags",
+    "[cts][sidecar]")
+{
+  CaseResult r = makeCase("light", "spot", "x", Verdict::Failed);
+  r.usesGroundTruth = true;
+  r.groundTruthEvaluated = false;
+  r.groundTruthReason = "falloff shape has no analytic answer";
+  r.resultImages = {{Channel::Color, "results/light/spot/x.color.png"}};
+  r.assertions.push_back(failedEffect("intensity", "base"));
+  Assertion opted;
+  opted.kind = kEffectAssertion;
+  opted.axis = "power";
+  opted.evaluated = false;
+  opted.score = std::nan("");
+  opted.detail = "effect check opted out: why";
+  r.assertions.push_back(opted);
+  Assertion future; // a kind a later schema adds is kept as-is
+  future.kind = "exact";
+  future.passed = true;
+  r.assertions.push_back(future);
+
+  CaseResult back;
+  bool mismatch = true;
+  REQUIRE(fromJson(toJson(r), back, &mismatch));
+  CHECK_FALSE(mismatch);
+  CHECK(back.usesGroundTruth);
+  CHECK_FALSE(back.groundTruthEvaluated);
+  CHECK(back.groundTruthReason == "falloff shape has no analytic answer");
+  REQUIRE(back.resultImages.size() == 1);
+  CHECK(back.resultImages[0].first == Channel::Color);
+  REQUIRE(back.assertions.size() == 3);
+  const auto &e = back.assertions[0];
+  CHECK(e.kind == "effect");
+  CHECK(e.axis == "intensity");
+  CHECK(e.relatedCases == std::vector<std::string>{"base"});
+  CHECK(e.channel == "color");
+  CHECK(e.score == 0.0);
+  CHECK(e.threshold == Approx(0.01));
+  CHECK(e.tau == 8);
+  CHECK(e.evaluated);
+  CHECK_FALSE(e.passed);
+  CHECK(e.partnerImage == "results/light/spot/base.color.png");
+  CHECK(e.maskImage == "results/light/spot/x.effect-0.mask.png");
+  CHECK_FALSE(back.assertions[1].evaluated);
+  CHECK(std::isnan(back.assertions[1].score));
+  CHECK(back.assertions[2].kind == "exact");
+}
+
+TEST_CASE("a v3 sidecar reads as compared exactly when it has scores",
+    "[cts][sidecar]")
+{
+  CaseResult scored, unscored;
+  REQUIRE(
+      fromJson("{\"schemaVersion\":3,\"verdict\":\"passed\","
+               "\"channels\":[{\"channel\":\"color\",\"passed\":true}]}",
+          scored));
+  CHECK(scored.usesGroundTruth);
+  CHECK(scored.groundTruthEvaluated);
+  CHECK(scored.assertions.empty());
+  CHECK_FALSE(scored.passedWithoutGroundTruth());
+  REQUIRE(fromJson("{\"schemaVersion\":3,\"verdict\":\"skipped\"}", unscored));
+  CHECK_FALSE(unscored.groundTruthEvaluated);
+}
+
+TEST_CASE(
+    "failureKinds tells self-check failures from Ground truth", "[cts][report]")
+{
+  CaseResult effect = makeCase("light", "spot", "a", Verdict::Failed);
+  effect.groundTruthEvaluated = false;
+  effect.assertions = {failedEffect("intensity", "base")};
+  CHECK(failureKinds(effect) == std::vector<std::string>{"effect"});
+
+  CaseResult both = effect;
+  both.groundTruthEvaluated = true;
+  both.channels = {colorChannel(0.2, false)};
+  CHECK(failureKinds(both)
+      == std::vector<std::string>{"effect", kGroundTruthFailure});
+
+  CaseResult crashed = makeCase("light", "spot", "c", Verdict::Failed);
+  crashed.groundTruthEvaluated = false;
+  CHECK(failureKinds(crashed) == std::vector<std::string>{kOtherFailure});
+
+  CHECK(failureKinds(makeCase("light", "spot", "d", Verdict::Passed)).empty());
+}
+
+TEST_CASE("the text summary splits failures by kind and names the partner",
+    "[cts][report]")
+{
+  CaseResult effect = makeCase("light", "spot", "moved", Verdict::Failed);
+  effect.groundTruthEvaluated = false;
+  effect.assertions = {failedEffect("position", "base")};
+
+  CaseResult equivalence =
+      makeCase("geometry", "quad", "vec4", Verdict::Failed);
+  equivalence.groundTruthEvaluated = false;
+  Assertion eq;
+  eq.kind = kEquivalenceAssertion;
+  eq.axis = "tangent";
+  eq.relatedCases = {"unset"};
+  eq.detail = "changed 3.00 % of color pixels vs `unset`";
+  equivalence.assertions = {eq};
+
+  CaseResult truth = makeCase("geometry", "cone", "a", Verdict::Failed);
+  truth.channels = {colorChannel(0.3, false)};
+
+  CaseResult selfChecked = makeCase("light", "spot", "base", Verdict::Passed);
+  selfChecked.groundTruthEvaluated = false;
+
+  const auto results = keyed({effect, equivalence, truth, selfChecked});
+  const Summary s = summarize(results);
+  CHECK(s.passedWithoutGroundTruth == 1);
+  CHECK(s.failuresByKind.at("effect") == 1);
+  CHECK(s.failuresByKind.at("equivalence") == 1);
+  CHECK(s.failuresByKind.at(kGroundTruthFailure) == 1);
+
+  std::ostringstream os;
+  writeTextSummary(os, "run", results, false);
+  const std::string text = os.str();
+  CHECK(text.find("1 passed, Ground truth not evaluated") != std::string::npos);
+  CHECK(text.find("failures by kind: Ground truth 1, effect 1, equivalence 1")
+      != std::string::npos);
+  CHECK(text.find("effect failed (axis position): changed 0.00 % of color "
+                  "pixels vs `base`")
+      != std::string::npos);
+  CHECK(text.find("equivalence failed (axis tangent)") != std::string::npos);
+}
+
+TEST_CASE("extensionCoverage classifies by verdicts and assertions",
+    "[cts][report][coverage]")
+{
+  const std::vector<std::string> advertised = {"A_SELF", "A_MIXED", "A_ODD"};
+  auto self = coverageCase("self", "A_SELF", Verdict::Passed, advertised);
+  self.groundTruthEvaluated = false; // passed on self-checks only
+  // A skip that names no missing extension is a skip for want of something
+  // to evaluate, whatever its reason says.
+  auto odd = coverageCase("odd", "A_ODD", Verdict::Skipped, advertised);
+  odd.skipReason = "some other wording";
+  const auto results = keyed({
+      self,
+      coverageCase("mixed", "A_MIXED", Verdict::Passed, advertised),
+      coverageCase("mixed2", "A_MIXED", Verdict::Skipped, advertised),
+      odd,
+  });
+  const auto rows =
+      extensionCoverage(results, {}, {"A_SELF", "A_MIXED", "A_ODD"});
+  const auto &selfRow = row(rows, "A_SELF");
+  CHECK(selfRow.state == CoverageState::PassedWithoutGroundTruth);
+  CHECK(selfRow.passedWithoutGroundTruth == 1);
+  CHECK(coverageStateLabel(selfRow) == "passed, Ground truth not evaluated");
+  CHECK(row(rows, "A_MIXED").state == CoverageState::PartlyScored);
+  CHECK(row(rows, "A_ODD").state == CoverageState::NoGroundTruth);
+}
+
+TEST_CASE("generateHtml reads Sidecars with assertions", "[cts][html]")
+{
+  CaseResult effect = makeCase("light", "spot", "moved", Verdict::Failed);
+  effect.groundTruthEvaluated = false;
+  effect.assertions = {failedEffect("position", "base")};
+  const auto results = keyed({effect});
+  const std::string doc = generateHtml("/tmp/myrun", results, HtmlOptions{});
+  CHECK(doc.find("light/spot/moved") != std::string::npos);
 }

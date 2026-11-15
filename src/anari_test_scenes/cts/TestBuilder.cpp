@@ -76,6 +76,40 @@ TestBuilder &TestBuilder::simplified(bool on)
   return *this;
 }
 
+TestBuilder &TestBuilder::noEffectCheck(std::string axis, std::string reason)
+{
+  m_def.noEffectCheck[std::move(axis)] = std::move(reason);
+  return *this;
+}
+
+TestBuilder &TestBuilder::effectMargin(std::string axis, double minFraction)
+{
+  m_def.effectMargins[std::move(axis)] = minFraction;
+  return *this;
+}
+
+TestBuilder &TestBuilder::equivalenceTolerance(
+    std::string axis, double maxFraction, int tau)
+{
+  m_def.equivalenceTolerances[std::move(axis)] =
+      EquivalenceTolerance{maxFraction, tau};
+  return *this;
+}
+
+TestBuilder &TestBuilder::groundTruth(std::string reason)
+{
+  m_def.groundTruthUse = GroundTruthUse::Required;
+  m_def.groundTruthReason = std::move(reason);
+  return *this;
+}
+
+TestBuilder &TestBuilder::noGroundTruth()
+{
+  m_def.groundTruthUse = GroundTruthUse::None;
+  m_def.groundTruthReason.clear();
+  return *this;
+}
+
 TestBuilder &TestBuilder::requireFeatures(std::vector<std::string> features)
 {
   for (auto &f : features)

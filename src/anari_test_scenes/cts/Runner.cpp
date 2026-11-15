@@ -140,7 +140,11 @@ CaseResult baseResult(const TestDef &test,
   r.test = c.testName;
   r.description = test.description;
   r.caseId = c.id();
-  r.groundTruthKey = c.groundTruthKey();
+  // A fully self-checked Test has no Ground truth to name (ADR-0010).
+  r.usesGroundTruth = test.usesGroundTruth();
+  r.groundTruthReason = test.groundTruthReason;
+  if (r.usesGroundTruth)
+    r.groundTruthKey = c.groundTruthKey();
   r.device = device;
   r.requiredFeatures = test.requiredFeatures;
   r.coveredFeatures = test.coveredFeatures;
@@ -240,6 +244,12 @@ const std::string &Runner::probeOnce()
 bool Runner::selected(const Case &c) const
 {
   return m_options.onlyCase.empty() || c.qualifiedId() == m_options.onlyCase;
+}
+
+bool Runner::selected(
+    const Filter &filter, const TestDef &test, const Case &c) const
+{
+  return selected(c) && matches(filter, test, c);
 }
 
 void Runner::setCaseIsolation(std::shared_ptr<CaseIsolation> isolation)
@@ -353,14 +363,16 @@ void Runner::recordResult(const Case &c,
     summary.failed++;
     return;
   }
-  tally(result.verdict, summary);
+  tally(result, summary);
 }
 
-void Runner::tally(Verdict verdict, RunSummary &summary)
+void Runner::tally(const CaseResult &result, RunSummary &summary)
 {
-  switch (verdict) {
+  switch (result.verdict) {
   case Verdict::Passed:
     summary.passed++;
+    if (result.passedWithoutGroundTruth())
+      summary.passedWithoutGroundTruth++;
     break;
   case Verdict::Failed:
     summary.failed++;
@@ -423,44 +435,8 @@ RunSummary Runner::generate(const Catalog &catalog,
   summary.deviceFailure = probeOnce();
   if (!summary.deviceFailure.empty())
     return summary;
-  for (const TestDef *test : catalog.filter(filter)) {
-    // Behavioral tests verify themselves at run time and have no ground truth.
-    if (test->behaviorCheck) {
-      const int n = static_cast<int>(expand(*test).size());
-      summary.total += n;
-      summary.skipped += n;
-      continue;
-    }
-    for (const Case &c : expand(*test)) {
-      summary.total++;
-      if (!isSupported(*test, referenceFeatures)) {
-        summary.skipped++;
-        continue;
-      }
-      // A throwing build helper (or fatal) loses only this Case's ground
-      // truth; the rest of the generate run continues (ADR-0003).
-      try {
-        auto images = renderCase(*test, c);
-        if (images.size() != test->channels.size()) {
-          summary.failed++;
-          continue;
-        }
-        std::vector<ImageArtifact> artifacts;
-        artifacts.reserve(test->channels.size());
-        for (size_t i = 0; i < test->channels.size(); ++i) {
-          artifacts.push_back(
-              {m_workdir.groundTruthImagePath(c, test->channels[i]),
-                  std::move(images[i])});
-        }
-        if (m_artifacts.publishGroundTruth(artifacts))
-          summary.passed++;
-        else
-          summary.failed++;
-      } catch (...) {
-        summary.failed++;
-      }
-    }
-  }
+  for (const TestDef *test : catalog.filter(filter))
+    generateTest(*test, filter, referenceFeatures, summary);
   return summary;
 }
 
@@ -489,131 +465,332 @@ RunSummary Runner::run(const Catalog &catalog,
   if (m_options.onlyCase.empty())
     clearDeviceFailure(m_workdir);
   for (const TestDef *test : catalog.filter(filter)) {
-    if (test->behaviorCheck) {
-      runBehaviorTest(*test, candidateFeatures, summary);
-      continue;
-    }
-    for (const Case &c : expand(*test)) {
-      if (!selected(c))
-        continue;
-      summary.total++;
-
-      // Per-case crash isolation (ADR-0003): a throwing build helper or fatal
-      // becomes a failed sidecar for this Case and the run continues. Handles
-      // built mid-case are released by buildScene/renderCase as they unwind.
-      try {
-        if (!isSupported(*test, candidateFeatures)) {
-          writeFeatureSkip(*test, c, candidateFeatures, summary);
-          continue;
-        }
-
-        CaseResult result =
-            baseResult(*test, c, m_options.device, m_catalogCovered);
-
-        // Need ground truth for every channel before we can compare.
-        bool haveGroundTruth = true;
-        std::vector<Image> groundTruth;
-        for (Channel ch : test->channels) {
-          auto gt = loadPNG(m_workdir.groundTruthImagePath(c, ch).string());
-          if (!gt.valid()) {
-            haveGroundTruth = false;
-            break;
-          }
-          groundTruth.push_back(std::move(gt));
-        }
-        if (!haveGroundTruth) {
-          result.verdict = Verdict::Skipped;
-          result.skipReason = kNoGroundTruthReason;
-          recordResult(c, result, summary);
-          continue;
-        }
-
-        const auto start = std::chrono::steady_clock::now();
-        auto images = renderCase(*test, c);
-        const auto end = std::chrono::steady_clock::now();
-        result.durationMs =
-            std::chrono::duration<double, std::milli>(end - start).count();
-
-        if (images.size() != test->channels.size()) {
-          result.verdict = Verdict::Failed;
-          result.detail = "render produced no image";
-          recordResult(c, result, summary);
-          continue;
-        }
-
-        bool allPassed = true;
-        std::vector<ImageArtifact> artifacts;
-        artifacts.reserve(test->channels.size() * 3);
-        for (size_t i = 0; i < test->channels.size(); ++i) {
-          const Channel ch = test->channels[i];
-          artifacts.push_back({m_workdir.resultImagePath(c, ch), images[i]});
-
-          ChannelResult cr;
-          cr.channel = ch;
-          const double ssimThreshold =
-              test->thresholdFor(ch, "ssim", m_options.ssimThreshold);
-          const double psnrThreshold =
-              test->thresholdFor(ch, "psnr", m_options.psnrThreshold);
-          const double ssimScore = ssim(groundTruth[i], images[i]);
-          const double psnrScore = psnr(groundTruth[i], images[i]);
-          cr.metrics = {{"ssim", ssimScore}, {"psnr", psnrScore}};
-          cr.thresholds = {{"ssim", ssimThreshold}, {"psnr", psnrThreshold}};
-          cr.passed = metricPassed(ssimScore, ssimThreshold)
-              && metricPassed(psnrScore, psnrThreshold);
-          cr.resultImage =
-              m_workdir.relativeToRoot(m_workdir.resultImagePath(c, ch));
-          cr.groundTruthImage =
-              m_workdir.relativeToRoot(m_workdir.groundTruthImagePath(c, ch));
-
-          // Debug images alongside the result: the absolute per-pixel
-          // difference and a thresholded mask of it, to localize a mismatch.
-          const Image diffImg = makeDiffImage(groundTruth[i], images[i]);
-          if (diffImg.valid()) {
-            artifacts.push_back({m_workdir.diffImagePath(c, ch), diffImg});
-            artifacts.push_back({m_workdir.thresholdImagePath(c, ch),
-                makeThresholdImage(diffImg, kDiffThreshold8)});
-            cr.diffImage =
-                m_workdir.relativeToRoot(m_workdir.diffImagePath(c, ch));
-            cr.thresholdImage =
-                m_workdir.relativeToRoot(m_workdir.thresholdImagePath(c, ch));
-          }
-
-          allPassed = allPassed && cr.passed;
-          result.channels.push_back(std::move(cr));
-        }
-
-        // Record the effective render settings additively in the existing
-        // detail field (no schema bump). generate writes no sidecars
-        // (ADR-0005), so this note is run-only; it makes a mixed-capability
-        // diff (e.g. an accumulating candidate vs. a single-render ground
-        // truth) interpretable.
-        std::string note =
-            "accumulation=" + std::to_string(m_effectiveAccumulationFrames)
-            + ", denoise=" + (m_denoiseEnabled ? "on" : "off");
-        result.detail =
-            result.detail.empty() ? note : result.detail + "; " + note;
-
-        result.verdict = allPassed ? Verdict::Passed : Verdict::Failed;
-        recordResult(c, result, summary, artifacts);
-      } catch (const std::exception &e) {
-        writeCaseFailure(*test,
-            c,
-            std::string("exception during run: ") + e.what(),
-            summary);
-      } catch (...) {
-        writeCaseFailure(*test, c, "unknown exception during run", summary);
-      }
-    }
+    if (test->behaviorCheck)
+      runBehaviorTest(*test, filter, candidateFeatures, summary);
+    else
+      runRenderTest(*test, filter, candidateFeatures, summary);
   }
   return summary;
 }
 
+Runner::CaseOutcome Runner::runCase(
+    const TestDef &test, const Case &c, bool renderWithoutGroundTruth)
+{
+  CaseOutcome out;
+  CaseResult &result = out.result;
+  result = baseResult(test, c, m_options.device, m_catalogCovered);
+
+  // Per-case crash isolation (ADR-0003): a throwing build helper or fatal
+  // fails this Case and the run continues. Handles built mid-case are
+  // released by buildScene/renderCase as they unwind.
+  auto fail = [&](const std::string &detail) {
+    result.verdict = Verdict::Failed;
+    result.detail = detail;
+    result.channels.clear();
+    result.resultImages.clear();
+    result.groundTruthEvaluated = false;
+    out.artifacts.clear();
+    out.render = {};
+    out.render.state = CaseRender::State::Failed;
+    out.render.error = detail;
+  };
+
+  try {
+    // Ground truth for every channel, when the Test compares against it.
+    bool haveGroundTruth = test.usesGroundTruth();
+    std::vector<Image> groundTruth;
+    for (Channel ch : test.channels) {
+      if (!haveGroundTruth)
+        break;
+      auto gt = loadPNG(m_workdir.groundTruthImagePath(c, ch).string());
+      if (!gt.valid()) {
+        haveGroundTruth = false;
+        groundTruth.clear();
+        break;
+      }
+      groundTruth.push_back(std::move(gt));
+    }
+    if (!haveGroundTruth && test.usesGroundTruth()
+        && !renderWithoutGroundTruth) {
+      // Nothing would be evaluated: don't render.
+      result.verdict = Verdict::Skipped;
+      result.skipReason = kNoGroundTruthReason;
+      return out;
+    }
+
+    const auto start = std::chrono::steady_clock::now();
+    auto images = renderCase(test, c);
+    const auto end = std::chrono::steady_clock::now();
+    result.durationMs =
+        std::chrono::duration<double, std::milli>(end - start).count();
+
+    if (images.size() != test.channels.size()) {
+      fail("render produced no image");
+      return out;
+    }
+
+    bool allPassed = true;
+    out.artifacts.reserve(test.channels.size() * 3);
+    for (size_t i = 0; i < test.channels.size(); ++i) {
+      const Channel ch = test.channels[i];
+      out.artifacts.push_back({m_workdir.resultImagePath(c, ch), images[i]});
+      result.resultImages.emplace_back(
+          ch, m_workdir.relativeToRoot(m_workdir.resultImagePath(c, ch)));
+      if (!haveGroundTruth)
+        continue;
+
+      ChannelResult cr;
+      cr.channel = ch;
+      const double ssimThreshold =
+          test.thresholdFor(ch, "ssim", m_options.ssimThreshold);
+      const double psnrThreshold =
+          test.thresholdFor(ch, "psnr", m_options.psnrThreshold);
+      const double ssimScore = ssim(groundTruth[i], images[i]);
+      const double psnrScore = psnr(groundTruth[i], images[i]);
+      cr.metrics = {{"ssim", ssimScore}, {"psnr", psnrScore}};
+      cr.thresholds = {{"ssim", ssimThreshold}, {"psnr", psnrThreshold}};
+      cr.passed = metricPassed(ssimScore, ssimThreshold)
+          && metricPassed(psnrScore, psnrThreshold);
+      cr.resultImage =
+          m_workdir.relativeToRoot(m_workdir.resultImagePath(c, ch));
+      cr.groundTruthImage =
+          m_workdir.relativeToRoot(m_workdir.groundTruthImagePath(c, ch));
+
+      // Debug images alongside the result: the absolute per-pixel
+      // difference and a thresholded mask of it, to localize a mismatch.
+      const Image diffImg = makeDiffImage(groundTruth[i], images[i]);
+      if (diffImg.valid()) {
+        out.artifacts.push_back({m_workdir.diffImagePath(c, ch), diffImg});
+        out.artifacts.push_back({m_workdir.thresholdImagePath(c, ch),
+            makeThresholdImage(diffImg, kDiffThreshold8)});
+        cr.diffImage = m_workdir.relativeToRoot(m_workdir.diffImagePath(c, ch));
+        cr.thresholdImage =
+            m_workdir.relativeToRoot(m_workdir.thresholdImagePath(c, ch));
+      }
+
+      allPassed = allPassed && cr.passed;
+      result.channels.push_back(std::move(cr));
+    }
+    result.groundTruthEvaluated = haveGroundTruth;
+
+    // Record the effective render settings additively in the existing
+    // detail field (no schema bump). generate writes no sidecars
+    // (ADR-0005), so this note is run-only; it makes a mixed-capability
+    // diff (e.g. an accumulating candidate vs. a single-render ground
+    // truth) interpretable.
+    std::string note =
+        "accumulation=" + std::to_string(m_effectiveAccumulationFrames)
+        + ", denoise=" + (m_denoiseEnabled ? "on" : "off");
+    result.detail = result.detail.empty() ? note : result.detail + "; " + note;
+
+    // Provisional until the relational pass (settleVerdict).
+    result.verdict = allPassed ? Verdict::Passed : Verdict::Failed;
+    out.render.state = CaseRender::State::Rendered;
+    out.render.images = std::move(images);
+  } catch (const std::exception &e) {
+    fail(std::string("exception during run: ") + e.what());
+  } catch (...) {
+    fail("unknown exception during run");
+  }
+  return out;
+}
+
+void Runner::runRenderTest(const TestDef &test,
+    const Filter &filter,
+    const std::set<std::string> &candidateFeatures,
+    RunSummary &summary)
+{
+  const std::vector<Case> cases = expand(test);
+  std::vector<bool> chosen(cases.size(), false);
+  bool any = false;
+  for (size_t i = 0; i < cases.size(); ++i)
+    any = (chosen[i] = selected(filter, test, cases[i])) || any;
+  if (!any)
+    return;
+
+  if (!isSupported(test, candidateFeatures)) {
+    for (size_t i = 0; i < cases.size(); ++i) {
+      if (!chosen[i])
+        continue;
+      summary.total++;
+      writeFeatureSkip(test, cases[i], candidateFeatures, summary);
+    }
+    return;
+  }
+
+  // Phase 1, per Case: the selected Cases and the partners their relations
+  // need (support renders).
+  const bool relations = hasRelations(test);
+  const std::vector<bool> toRender =
+      relations ? renderSet(test, cases, chosen) : chosen;
+  std::vector<CaseOutcome> outcomes(cases.size());
+  std::vector<CaseRender> renders(cases.size());
+  for (size_t i = 0; i < cases.size(); ++i) {
+    if (!toRender[i])
+      continue;
+    outcomes[i] = runCase(test, cases[i], relations);
+    renders[i] = outcomes[i].render;
+  }
+
+  // Phase 2, per Test: the pure relational pass over the Candidate's images,
+  // merged into the selected Cases' Sidecars.
+  std::vector<bool> participated(cases.size(), false);
+  for (auto &rel : evaluateRelations(test, cases, renders, m_selfChecks)) {
+    if (rel.assertion.evaluated)
+      participated[rel.partnerIndex] = true;
+    if (!chosen[rel.caseIndex])
+      continue;
+    CaseOutcome &outcome = outcomes[rel.caseIndex];
+    const Case &c = cases[rel.caseIndex];
+    Assertion a = std::move(rel.assertion);
+    if (rel.channelIndex >= 0) {
+      const Channel ch = test.channels[size_t(rel.channelIndex)];
+      a.partnerImage = m_workdir.relativeToRoot(
+          m_workdir.resultImagePath(cases[rel.partnerIndex], ch));
+    }
+    if (rel.mask.valid()) {
+      const auto path = m_workdir.assertionMaskPath(
+          c, a.kind, outcome.result.assertions.size());
+      a.maskImage = m_workdir.relativeToRoot(path);
+      outcome.artifacts.push_back({path, std::move(rel.mask)});
+    }
+    outcome.result.assertions.push_back(std::move(a));
+  }
+
+  for (size_t i = 0; i < cases.size(); ++i) {
+    if (chosen[i]) {
+      summary.total++;
+      settleVerdict(outcomes[i].result, participated[i]);
+      recordResult(
+          cases[i], outcomes[i].result, summary, outcomes[i].artifacts);
+    } else if (toRender[i] && renders[i].state == CaseRender::State::Rendered) {
+      // A support render: its images are written so a report can show the
+      // partner; it is neither scored nor counted.
+      std::vector<ImageArtifact> images;
+      for (size_t k = 0; k < test.channels.size(); ++k)
+        images.push_back({m_workdir.resultImagePath(cases[i], test.channels[k]),
+            renders[i].images[k]});
+      if (!m_artifacts.publishImages(images))
+        std::cerr << "warning: could not write the support render of "
+                  << cases[i].qualifiedId() << "\n";
+    }
+  }
+}
+
+void Runner::generateTest(const TestDef &test,
+    const Filter &filter,
+    const std::set<std::string> &referenceFeatures,
+    RunSummary &summary)
+{
+  const std::vector<Case> cases = expand(test);
+  std::vector<bool> chosen(cases.size(), false);
+  int count = 0;
+  for (size_t i = 0; i < cases.size(); ++i)
+    count += (chosen[i] = matches(filter, test, cases[i])) ? 1 : 0;
+  summary.total += count;
+  // Behavioural and fully self-checked Tests have no Ground truth.
+  if (!test.usesGroundTruth() || !isSupported(test, referenceFeatures)) {
+    summary.skipped += count;
+    return;
+  }
+
+  // A Ground-truth file shared by Variants is written from the Case holding
+  // every Variant axis's first value, so it doesn't depend on which Variant
+  // rendered last (ADR-0010, decision 9).
+  const auto indices = caseValueIndices(test, cases);
+  auto writerOf = [&](size_t i) {
+    auto key = indices[i];
+    for (size_t a = 0; a < test.axes.size(); ++a)
+      if (test.axes[a].kind == AxisKind::Variant)
+        key[a] = 0;
+    for (size_t k = 0; k < cases.size(); ++k)
+      if (indices[k] == key)
+        return k;
+    return i;
+  };
+  // Render the selected Cases, the writers of their Ground truth, and the
+  // Cases their equivalences compare against.
+  std::vector<bool> toRender = chosen;
+  for (const auto &group : relationGroups(test, cases)) {
+    if (test.axes[group.axis].kind != AxisKind::Variant)
+      continue;
+    for (size_t k = 1; k < group.cases.size(); ++k)
+      if (chosen[group.cases[k]])
+        toRender[group.cases.front()] = true;
+  }
+  for (size_t i = 0; i < cases.size(); ++i)
+    if (chosen[i])
+      toRender[writerOf(i)] = true;
+
+  std::vector<CaseRender> renders(cases.size());
+  for (size_t i = 0; i < cases.size(); ++i) {
+    if (!toRender[i])
+      continue;
+    // A throwing build helper (or fatal) loses only this Case's Ground
+    // truth; the rest of the generate run continues (ADR-0003).
+    try {
+      auto images = renderCase(test, cases[i]);
+      if (images.size() == test.channels.size()) {
+        renders[i].state = CaseRender::State::Rendered;
+        renders[i].images = std::move(images);
+      } else {
+        renders[i].state = CaseRender::State::Failed;
+        renders[i].error = "render produced no image";
+      }
+    } catch (const std::exception &e) {
+      renders[i].state = CaseRender::State::Failed;
+      renders[i].error = e.what();
+    } catch (...) {
+      renders[i].state = CaseRender::State::Failed;
+      renders[i].error = "unknown exception";
+    }
+  }
+
+  // Write each Ground-truth file once, from its writer.
+  std::vector<int> written(cases.size(), -1); // -1 unknown, 0 failed, 1 ok
+  for (size_t i = 0; i < cases.size(); ++i) {
+    if (!chosen[i])
+      continue;
+    const size_t w = writerOf(i);
+    if (written[w] < 0) {
+      bool ok = renders[w].state == CaseRender::State::Rendered;
+      if (ok) {
+        std::vector<ImageArtifact> artifacts;
+        for (size_t k = 0; k < test.channels.size(); ++k)
+          artifacts.push_back(
+              {m_workdir.groundTruthImagePath(cases[w], test.channels[k]),
+                  renders[w].images[k]});
+        ok = m_artifacts.publishGroundTruth(artifacts);
+      }
+      written[w] = ok ? 1 : 0;
+    }
+    if (written[w] > 0)
+      summary.passed++;
+    else
+      summary.failed++;
+  }
+
+  // The Reference device's own Variants must agree.
+  for (const auto &rel :
+      evaluateRelations(test, cases, renders, m_selfChecks)) {
+    if (rel.assertion.kind != kEquivalenceAssertion || rel.assertion.passed
+        || !chosen[rel.caseIndex]
+        || renders[rel.partnerIndex].state != CaseRender::State::Rendered)
+      continue;
+    summary.variantDisagreements++;
+    std::cerr << "warning: the Reference device's Variants disagree: "
+              << cases[rel.caseIndex].qualifiedId() << " ("
+              << rel.assertion.axis << "): " << rel.assertion.detail << "\n";
+  }
+}
+
 void Runner::runBehaviorTest(const TestDef &test,
+    const Filter &filter,
     const std::set<std::string> &candidateFeatures,
     RunSummary &summary)
 {
   for (const Case &c : expand(test)) {
-    if (!selected(c))
+    if (!selected(filter, test, c))
       continue;
     summary.total++;
 
@@ -696,7 +873,7 @@ void Runner::runIsolatedCase(
   const bool haveResult = readSidecar(sidecar, written);
   if (ended.status == ProcessResult::Status::Exited && ended.exitCode == 0
       && haveResult) {
-    tally(written.verdict, summary);
+    tally(written, summary);
     return;
   }
 

@@ -41,7 +41,8 @@ struct Catalog
   // All tests, in registration order.
   std::vector<const TestDef *> list() const;
 
-  // Tests selected by the filter, in registration order.
+  // Tests selected by the filter (the Test's id or one of its Cases' matches),
+  // in registration order.
   std::vector<const TestDef *> filter(const Filter &f) const;
 
   size_t size() const

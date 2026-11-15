@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "Case.h"
 #include "TestDef.h"
 // std
 #include <string>
@@ -25,6 +26,11 @@ bool globMatch(
     const std::string &pattern, const std::string &text);
 
 bool matches(const Filter &f, const TestDef &test);
+
+// Whether the pattern matches one Case's "<category>/<test>/<case>" id, so a
+// run can select some Cases of a Test (the others may still be rendered as
+// support renders, ADR-0010). A Case of a matching Test is always selected.
+bool matches(const Filter &f, const TestDef &test, const Case &c);
 
 } // namespace cts
 } // namespace anari

@@ -56,6 +56,13 @@ std::filesystem::path Workdir::thresholdImagePath(
       / (c.id() + "." + channelName(channel) + ".threshold.png");
 }
 
+std::filesystem::path Workdir::assertionMaskPath(
+    const Case &c, const std::string &kind, size_t index) const
+{
+  return resultsDir() / c.category / c.testName
+      / (c.id() + "." + kind + "-" + std::to_string(index) + ".mask.png");
+}
+
 std::filesystem::path Workdir::groundTruthImagePath(
     const Case &c, Channel channel) const
 {

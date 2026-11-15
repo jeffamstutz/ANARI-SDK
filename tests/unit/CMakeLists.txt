@@ -119,6 +119,7 @@ add_executable(anariCatalogTests
   test_cts_deviceinfo.cpp
   test_cts_isolation.cpp
   test_cts_metrics.cpp
+  test_cts_relations.cpp
   test_cts_rendererparams.cpp
   test_cts_report.cpp
   test_cts_results.cpp

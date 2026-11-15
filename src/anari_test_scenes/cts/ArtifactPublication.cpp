@@ -202,6 +202,15 @@ bool referencedImagesReadable(const Workdir &workdir, const CaseResult &result)
         return false;
     }
   }
+  for (const auto &[channel, path] : result.resultImages) {
+    if (!path.empty() && !readableImage(resolveSidecarPath(workdir, path)))
+      return false;
+  }
+  for (const auto &assertion : result.assertions) {
+    if (!assertion.maskImage.empty()
+        && !readableImage(resolveSidecarPath(workdir, assertion.maskImage)))
+      return false;
+  }
   return true;
 }
 
@@ -222,6 +231,16 @@ bool resultArtifactsMatch(const Workdir &workdir,
             resolveSidecarPath(workdir, *path).lexically_normal());
     }
   }
+  for (const auto &[channel, path] : result.resultImages) {
+    if (!path.empty())
+      referencedResultPaths.insert(
+          resolveSidecarPath(workdir, path).lexically_normal());
+  }
+  for (const auto &assertion : result.assertions) {
+    if (!assertion.maskImage.empty())
+      referencedResultPaths.insert(
+          resolveSidecarPath(workdir, assertion.maskImage).lexically_normal());
+  }
   return artifactPaths == referencedResultPaths;
 }
 
@@ -235,6 +254,12 @@ ArtifactPublisher::ArtifactPublisher(
 {}
 
 bool ArtifactPublisher::publishGroundTruth(
+    const std::vector<ImageArtifact> &images) const
+{
+  return publishImages(images);
+}
+
+bool ArtifactPublisher::publishImages(
     const std::vector<ImageArtifact> &images) const
 {
   ImageTransaction transaction(*m_writer);

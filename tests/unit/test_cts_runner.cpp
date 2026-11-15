@@ -16,6 +16,7 @@
 #include "cts/GeometryBuilder.h"
 #include "cts/Isolation.h"
 #include "cts/LightBuilder.h"
+#include "cts/Report.h"
 #include "cts/Runner.h"
 #include "cts/SurfaceBuilder.h"
 #include "cts/TestBuilder.h"
@@ -486,12 +487,16 @@ TEST_CASE(
 
   Runner runner(d, Workdir(root), opts);
 
-  SECTION("run before generate skips for lack of ground truth")
+  SECTION("run before generate self-checks, or skips for lack of ground truth")
   {
     auto summary = runner.run(catalog, Filter{"geometry"}, features);
     CHECK(summary.total == 5); // 4 triangle + 1 sphere
-    CHECK(summary.skipped == 5);
-    CHECK(summary.passed == 0);
+    // The triangle Cases pass their effect and equivalence checks with the
+    // Ground truth not evaluated (ADR-0010); the sphere, one Case with no
+    // axis, has nothing to evaluate.
+    CHECK(summary.passed == 4);
+    CHECK(summary.passedWithoutGroundTruth == 4);
+    CHECK(summary.skipped == 1);
 
     Case sph;
     sph.category = "geometry";
@@ -728,6 +733,210 @@ TEST_CASE(
         == previousDepth);
     CHECK_FALSE(hasPublicationTemporary(root));
   }
+
+  std::filesystem::remove_all(root, ec);
+  anari::release(d, d);
+  anari::unloadLibrary(lib);
+}
+
+// Self-checks through the real runner (ADR-0010) /////////////////////////////
+
+namespace {
+
+// Counts the Ground-truth images an ArtifactWriter is asked to write.
+struct CountingArtifactWriter : public ArtifactWriter
+{
+  int groundTruthWrites{0};
+
+  bool writeImage(
+      const std::filesystem::path &path, const Image &image) override
+  {
+    if (path.generic_string().find("/ground_truth/") != std::string::npos)
+      ++groundTruthWrites;
+    return savePNG(path.string(), image);
+  }
+
+  bool writeSidecar(
+      const std::filesystem::path &path, const CaseResult &result) override
+  {
+    return anari::cts::writeSidecar(path, result);
+  }
+};
+
+Case caseOf(const std::string &category,
+    const std::string &test,
+    std::vector<CaseValue> values)
+{
+  Case c;
+  c.category = category;
+  c.testName = test;
+  c.values = std::move(values);
+  return c;
+}
+
+} // namespace
+
+TEST_CASE("Runner fails the effect of an axis the build ignores",
+    "[cts][runner][helide]")
+{
+  anari::Library lib = anari::loadLibrary("helide", statusFunc, nullptr);
+  if (!lib) {
+    WARN("helide library not available; skipping self-check test");
+    return;
+  }
+  anari::Device d = anari::newDevice(lib, "default");
+  REQUIRE(d != nullptr);
+  anari::commitParameters(d, d);
+
+  const auto root =
+      std::filesystem::temp_directory_path() / "cts_runner_selfcheck_test";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+
+  Catalog catalog;
+  // A test-only Test whose build ignores its Permutation axis: every Case
+  // renders the same image, so its effect checks must fail.
+  makeTest("demo", "ignores_axis")
+      .description("A Permutation axis the build never reads.")
+      .build(buildTriangleWorld)
+      .permute("ignored", {"a", "b", "c"})
+      .noGroundTruth()
+      .registerInto(catalog);
+  // A Variant axis the build does read: the Reference device disagrees with
+  // itself.
+  makeTest("demo", "bad_variant")
+      .build(buildTriangleWorld)
+      .variant("primitiveCount", {4, 9})
+      .registerInto(catalog);
+
+  RunOptions opts;
+  opts.width = 64;
+  opts.height = 64;
+  opts.device = {"helide", "default", "default"};
+  const std::set<std::string> features;
+  const Workdir wd(root);
+  const Case a = caseOf(
+      "demo", "ignores_axis", {{"ignored", Any("a"), AxisKind::Permutation}});
+  const Case b = caseOf(
+      "demo", "ignores_axis", {{"ignored", Any("b"), AxisKind::Permutation}});
+  const Case c = caseOf(
+      "demo", "ignores_axis", {{"ignored", Any("c"), AxisKind::Permutation}});
+
+  SECTION("a full run records the effect failures in the Sidecars")
+  {
+    Runner runner(d, wd, opts);
+    const auto summary = runner.run(catalog, Filter{"ignores_axis"}, features);
+    CHECK(summary.total == 3);
+    CHECK(summary.failed == 2); // b and c
+    CHECK(summary.passed == 1); // a, the earlier partner of every pair
+
+    CaseResult rb, rc, ra;
+    REQUIRE(readSidecar(wd.sidecarPath(a), ra));
+    REQUIRE(readSidecar(wd.sidecarPath(b), rb));
+    REQUIRE(readSidecar(wd.sidecarPath(c), rc));
+    CHECK(ra.verdict == Verdict::Passed);
+    CHECK(ra.assertions.empty());
+    CHECK_FALSE(ra.usesGroundTruth);
+    CHECK(ra.groundTruthKey.empty());
+
+    CHECK(rb.verdict == Verdict::Failed);
+    REQUIRE(rb.assertions.size() == 1);
+    CHECK(rb.assertions[0].kind == "effect");
+    CHECK(rb.assertions[0].axis == "ignored");
+    CHECK(rb.assertions[0].relatedCases == std::vector<std::string>{"a"});
+    CHECK(rb.assertions[0].score == 0.0);
+    CHECK_FALSE(rb.assertions[0].passed);
+    // The partner's image and the (empty) changed-pixel mask are on disk.
+    CHECK(std::filesystem::exists(root / rb.assertions[0].partnerImage));
+    CHECK(std::filesystem::exists(root / rb.assertions[0].maskImage));
+    CHECK(failureKinds(rb) == std::vector<std::string>{"effect"});
+
+    // c fails against both a and b: every pair is checked.
+    REQUIRE(rc.assertions.size() == 2);
+    CHECK(rc.verdict == Verdict::Failed);
+  }
+
+  SECTION("a filtered run renders partners as support renders, same verdict")
+  {
+    Runner full(d, wd, opts);
+    full.run(catalog, Filter{"ignores_axis"}, features);
+    CaseResult fullC;
+    REQUIRE(readSidecar(wd.sidecarPath(c), fullC));
+
+    std::filesystem::remove_all(root, ec);
+    Runner filtered(d, wd, opts);
+    const auto summary =
+        filtered.run(catalog, Filter{"demo/ignores_axis/c"}, features);
+    // Only c is selected and counted; a and b are rendered for it.
+    CHECK(summary.total == 1);
+    CHECK(summary.failed == 1);
+    CHECK_FALSE(std::filesystem::exists(wd.sidecarPath(a)));
+    CHECK_FALSE(std::filesystem::exists(wd.sidecarPath(b)));
+    CHECK(std::filesystem::exists(wd.resultImagePath(a, Channel::Color)));
+    CHECK(std::filesystem::exists(wd.resultImagePath(b, Channel::Color)));
+
+    CaseResult filteredC;
+    REQUIRE(readSidecar(wd.sidecarPath(c), filteredC));
+    CHECK(filteredC.verdict == fullC.verdict);
+    REQUIRE(filteredC.assertions.size() == fullC.assertions.size());
+    for (size_t i = 0; i < fullC.assertions.size(); ++i) {
+      CHECK(filteredC.assertions[i].passed == fullC.assertions[i].passed);
+      CHECK(filteredC.assertions[i].relatedCases
+          == fullC.assertions[i].relatedCases);
+    }
+  }
+
+  SECTION("generate skips a self-checked Test and reports bad Variants")
+  {
+    auto writer = std::make_shared<CountingArtifactWriter>();
+    Runner runner(d, wd, opts, writer);
+    const auto summary = runner.generate(catalog, Filter{"demo/"}, features);
+    CHECK(summary.total == 5);
+    CHECK(summary.skipped == 3); // ignores_axis has no Ground truth
+    CHECK(summary.passed == 2);
+    // One shared file, written once, from the first Variant value's Case.
+    CHECK(writer->groundTruthWrites == 1);
+    CHECK(summary.variantDisagreements == 1);
+    CHECK_FALSE(std::filesystem::exists(
+        root / "ground_truth" / "demo" / "ignores_axis"));
+  }
+
+  std::filesystem::remove_all(root, ec);
+  anari::release(d, d);
+  anari::unloadLibrary(lib);
+}
+
+TEST_CASE("generate writes a shared Ground truth from the first Variant only",
+    "[cts][runner][helide]")
+{
+  anari::Library lib = anari::loadLibrary("helide", statusFunc, nullptr);
+  if (!lib) {
+    WARN("helide library not available; skipping generate test");
+    return;
+  }
+  anari::Device d = anari::newDevice(lib, "default");
+  REQUIRE(d != nullptr);
+  anari::commitParameters(d, d);
+
+  const auto root =
+      std::filesystem::temp_directory_path() / "cts_runner_gt_writer_test";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+
+  auto catalog = makeCatalog();
+  RunOptions opts;
+  opts.width = 64;
+  opts.height = 64;
+  opts.device = {"helide", "default", "default"};
+  auto writer = std::make_shared<CountingArtifactWriter>();
+  Runner runner(d, Workdir(root), opts, writer);
+  // geometry/triangle: 2 primitiveCount x 2 primitiveMode Cases, 2 files.
+  const auto summary =
+      runner.generate(catalog, Filter{"geometry/triangle"}, {});
+  CHECK(summary.total == 4);
+  CHECK(summary.passed == 4);
+  CHECK(writer->groundTruthWrites == 2);
+  CHECK(summary.variantDisagreements == 0);
 
   std::filesystem::remove_all(root, ec);
   anari::release(d, d);

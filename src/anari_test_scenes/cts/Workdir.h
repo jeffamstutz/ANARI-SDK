@@ -35,6 +35,10 @@ struct Workdir
   // results/<category>/<test>/<caseId>.<channel>.threshold.png (debug image)
   std::filesystem::path thresholdImagePath(
       const Case &c, Channel channel) const;
+  // results/<category>/<test>/<caseId>.<kind>-<index>.mask.png: the changed
+  // pixels of the Case's index'th assertion (a failed self-check, ADR-0010).
+  std::filesystem::path assertionMaskPath(
+      const Case &c, const std::string &kind, size_t index) const;
   // ground_truth/<category>/<test>/<gtKey>.<channel>.png
   std::filesystem::path groundTruthImagePath(
       const Case &c, Channel channel) const;

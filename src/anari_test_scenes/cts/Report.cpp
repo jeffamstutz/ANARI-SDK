@@ -96,6 +96,27 @@ std::map<std::string, CaseResult> loadResults(
   return out;
 }
 
+std::vector<std::string> failureKinds(const CaseResult &result)
+{
+  std::vector<std::string> kinds;
+  if (result.verdict != Verdict::Failed)
+    return kinds;
+  auto add = [&](const std::string &kind) {
+    if (std::find(kinds.begin(), kinds.end(), kind) == kinds.end())
+      kinds.push_back(kind);
+  };
+  for (const auto &a : result.assertions)
+    if (a.evaluated && !a.passed)
+      add(a.kind.empty() ? kOtherFailure : a.kind);
+  if (result.groundTruthEvaluated)
+    for (const auto &ch : result.channels)
+      if (!ch.passed)
+        add(kGroundTruthFailure);
+  if (kinds.empty())
+    add(kOtherFailure);
+  return kinds;
+}
+
 Summary summarize(const std::map<std::string, CaseResult> &results)
 {
   Summary s;
@@ -106,11 +127,15 @@ Summary summarize(const std::map<std::string, CaseResult> &results)
     case Verdict::Passed:
       ++s.passed;
       ++cat.passed;
+      if (r.passedWithoutGroundTruth())
+        ++s.passedWithoutGroundTruth;
       break;
     case Verdict::Failed:
       ++s.failed;
       ++cat.failed;
       s.failures.push_back(key);
+      for (const auto &kind : failureKinds(r))
+        ++s.failuresByKind[kind];
       break;
     case Verdict::Skipped:
       ++s.skipped;
@@ -172,6 +197,10 @@ const char *coverageStateName(CoverageState state)
   switch (state) {
   case CoverageState::Passed:
     return "passed";
+  case CoverageState::PassedWithoutGroundTruth:
+    return "passed, Ground truth not evaluated";
+  case CoverageState::PartlyScored:
+    return "advertised, partly scored";
   case CoverageState::Failed:
     return "failed";
   case CoverageState::NotAdvertised:
@@ -248,19 +277,22 @@ std::vector<ExtensionCoverage> extensionCoverage(
   core.tested = true;
 
   // Tally one Case into a row, noting the rows with a Case skipped for want
-  // of Ground truth (other skips are for a missing extension).
+  // of something to evaluate (Ground truth): a skip that names no missing
+  // extension. The Sidecar's fields decide it, not the reason's wording.
   std::set<const ExtensionCoverage *> noGroundTruth;
   auto tally = [&](ExtensionCoverage &c, const CaseResult &r) {
     switch (r.verdict) {
     case Verdict::Passed:
       ++c.passed;
+      if (r.passedWithoutGroundTruth())
+        ++c.passedWithoutGroundTruth;
       break;
     case Verdict::Failed:
       ++c.failed;
       break;
     case Verdict::Skipped:
       ++c.skipped;
-      if (r.skipReason == kNoGroundTruthReason)
+      if (r.missingFeatures.empty())
         noGroundTruth.insert(&c);
       break;
     }
@@ -281,6 +313,10 @@ std::vector<ExtensionCoverage> extensionCoverage(
       c.state = CoverageState::NotAdvertised;
     else if (c.failed > 0)
       c.state = CoverageState::Failed;
+    else if (c.passed > 0 && c.skipped > 0)
+      c.state = CoverageState::PartlyScored;
+    else if (c.passed > 0 && c.passedWithoutGroundTruth > 0)
+      c.state = CoverageState::PassedWithoutGroundTruth;
     else if (c.passed > 0)
       c.state = CoverageState::Passed;
     else if (noGroundTruth.count(&c))
@@ -339,6 +375,18 @@ void writeTextSummary(std::ostream &out,
         << device->renderer << ")\n";
   out << "  " << s.total << " cases: " << s.passed << " passed, " << s.failed
       << " failed, " << s.skipped << " skipped\n";
+  if (s.passedWithoutGroundTruth > 0)
+    out << "  " << s.passedWithoutGroundTruth
+        << " passed, Ground truth not evaluated (self-checks only)\n";
+  if (!s.failuresByKind.empty()) {
+    out << "  failures by kind:";
+    bool first = true;
+    for (const auto &[kind, n] : s.failuresByKind) {
+      out << (first ? " " : ", ") << kind << " " << n;
+      first = false;
+    }
+    out << "\n";
+  }
   out << "  by category:\n";
   size_t width = 12;
   for (const auto &category : s.categories)
@@ -392,6 +440,15 @@ void writeTextSummary(std::ostream &out,
         includeAll ? std::string(" [") + verdictName(r.verdict) + "]" : "";
     out << "    " << key << verdict << "  "
         << (!scores.empty() ? scores : reason) << "\n";
+    // Each failed self-check names its kind, axis and partner.
+    for (const auto &a : r.assertions) {
+      if (!a.evaluated || a.passed)
+        continue;
+      out << "      " << a.kind << " failed";
+      if (!a.axis.empty())
+        out << " (axis " << a.axis << ")";
+      out << ": " << a.detail << "\n";
+    }
     if (!r.description.empty())
       out << "      Description: " << r.description << "\n";
   }

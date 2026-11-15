@@ -41,7 +41,10 @@ struct TestBuilder
   TestBuilder &timeout(std::chrono::milliseconds limit);
   TestBuilder &failOnDeviceErrors();
 
-  // Permutation axis: values produce different output (distinct ground truth).
+  // Permutation axis: values must produce different output. Each value gets
+  // its own Ground truth, and Cases differing only in this axis must render
+  // differently on the Candidate itself: an effect check, on by default
+  // (ADR-0010).
   TestBuilder &permute(std::string axis, std::vector<Any> values);
   template <typename T>
   TestBuilder &permute(std::string axis, std::initializer_list<T> values)
@@ -49,7 +52,10 @@ struct TestBuilder
     return permute(std::move(axis), toAnyVector(values));
   }
 
-  // Variant axis: values must produce identical output (shared ground truth).
+  // Variant axis: values must produce identical output. They share one Ground
+  // truth (written from the first value's Case), and every Case is compared
+  // with the first value's Case on the Candidate itself: an equivalence check
+  // (ADR-0010).
   TestBuilder &variant(std::string axis, std::vector<Any> values);
   template <typename T>
   TestBuilder &variant(std::string axis, std::initializer_list<T> values)
@@ -58,6 +64,25 @@ struct TestBuilder
   }
 
   TestBuilder &simplified(bool on = true);
+
+  // Self-checks (ADR-0010) ///////////////////////////////////////////////////
+
+  // Opt a Permutation axis out of its effect check, for an axis whose effect
+  // can't be judged by image difference. The reason is recorded in the
+  // Sidecar. An axis whose values must *not* change the image is a Variant.
+  TestBuilder &noEffectCheck(std::string axis, std::string reason);
+  // The minimum changed fraction an effect of this axis must reach.
+  TestBuilder &effectMargin(std::string axis, double minFraction);
+  // The maximum changed fraction (and per-pixel tolerance, in 8-bit levels)
+  // an equivalence of this Variant axis allows.
+  TestBuilder &equivalenceTolerance(
+      std::string axis, double maxFraction, int tau);
+  // The Test needs a Reference device comparison; say why (appearance with no
+  // analytic answer).
+  TestBuilder &groundTruth(std::string reason);
+  // The Test is fully self-checked: no Ground truth is generated or compared.
+  TestBuilder &noGroundTruth();
+
   TestBuilder &requireFeatures(std::vector<std::string> features);
   TestBuilder &requireFeature(std::string feature);
   // Name a primary extension: one the Test is evidence for (call once per

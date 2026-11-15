@@ -32,7 +32,7 @@ def make_sidecar(
     description="Checks triangle geometry rendering.",
 ):
     return {
-        "schemaVersion": 3,
+        "schemaVersion": 4,
         "category": category,
         "test": test,
         "description": description,
@@ -49,6 +49,10 @@ def make_sidecar(
         "catalogCoveredFeatures": ["ANARI_KHR_GEOMETRY_TRIANGLE"],
         "verdict": verdict,
         "durationMs": duration_ms,
+        "usesGroundTruth": True,
+        "groundTruthEvaluated": True,
+        "groundTruthReason": "",
+        "assertions": [],
         "channels": [
             {
                 "channel": "color",
@@ -148,9 +152,9 @@ class SidecarLoadingTests(unittest.TestCase):
             },
         )
         self.assertIn("skipping unreadable sidecar", errors.getvalue())
-        self.assertIn("has schemaVersion 1, expected 3", errors.getvalue())
+        self.assertIn("has schemaVersion 1, expected 4", errors.getvalue())
 
-    def test_schema_v3_reads_without_warning_and_v2_features_default_empty(self):
+    def test_schema_v4_reads_without_warning_and_v2_features_default_empty(self):
         with tempfile.TemporaryDirectory() as temp:
             workdir = Path(temp) / "candidate"
             write_sidecar(workdir, case="current")

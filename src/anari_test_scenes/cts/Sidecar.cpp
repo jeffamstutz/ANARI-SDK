@@ -74,6 +74,9 @@ std::string toJson(const CaseResult &result)
   j["skipReason"] = result.skipReason;
   j["detail"] = result.detail;
   j["durationMs"] = result.durationMs;
+  j["usesGroundTruth"] = result.usesGroundTruth;
+  j["groundTruthEvaluated"] = result.groundTruthEvaluated;
+  j["groundTruthReason"] = result.groundTruthReason;
 
   // Ordered array so axis declaration order survives the round-trip.
   j["axes"] = json::array();
@@ -98,6 +101,29 @@ std::string toJson(const CaseResult &result)
     for (const auto &[name, threshold] : ch.thresholds)
       c["thresholds"][name] = threshold;
     j["channels"].push_back(std::move(c));
+  }
+
+  j["resultImages"] = json::object();
+  for (const auto &[channel, path] : result.resultImages)
+    j["resultImages"][channelName(channel)] = path;
+
+  j["assertions"] = json::array();
+  for (const auto &a : result.assertions) {
+    json e;
+    e["kind"] = a.kind;
+    e["axis"] = a.axis;
+    e["cases"] = a.relatedCases;
+    e["channel"] = a.channel;
+    // A non-finite score (not computed) serializes as null.
+    e["score"] = a.score;
+    e["threshold"] = a.threshold;
+    e["tau"] = a.tau;
+    e["evaluated"] = a.evaluated;
+    e["passed"] = a.passed;
+    e["detail"] = a.detail;
+    e["partnerImage"] = a.partnerImage;
+    e["maskImage"] = a.maskImage;
+    j["assertions"].push_back(std::move(e));
   }
 
   return j.dump(2);
@@ -185,6 +211,40 @@ bool fromJson(const std::string &text, CaseResult &out, bool *schemaMismatch)
       readMetricMap(c.value("metrics", json::object()), ch.metrics);
       readMetricMap(c.value("thresholds", json::object()), ch.thresholds);
       out.channels.push_back(std::move(ch));
+    }
+  }
+
+  // Schema v4; older sidecars always compared against Ground truth, and did
+  // exactly when they have channel scores.
+  out.usesGroundTruth = j.value("usesGroundTruth", true);
+  out.groundTruthEvaluated =
+      j.value("groundTruthEvaluated", !out.channels.empty());
+  out.groundTruthReason = j.value("groundTruthReason", "");
+  if (const auto ri = j.find("resultImages");
+      ri != j.end() && ri->is_object()) {
+    for (const auto &[name, path] : ri->items())
+      if (path.is_string())
+        out.resultImages.emplace_back(
+            channelFromName(name), path.get<std::string>());
+  }
+  if (const auto as = j.find("assertions"); as != j.end() && as->is_array()) {
+    for (const auto &e : *as) {
+      if (!e.is_object())
+        continue;
+      Assertion a;
+      a.kind = e.value("kind", "");
+      a.axis = e.value("axis", "");
+      a.relatedCases = readStrings(e, "cases");
+      a.channel = e.value("channel", "");
+      a.score = numberOrNan(e.value("score", json()));
+      a.threshold = numberOrNan(e.value("threshold", json()));
+      a.tau = e.value("tau", 0);
+      a.evaluated = e.value("evaluated", true);
+      a.passed = e.value("passed", false);
+      a.detail = e.value("detail", "");
+      a.partnerImage = e.value("partnerImage", "");
+      a.maskImage = e.value("maskImage", "");
+      out.assertions.push_back(std::move(a));
     }
   }
 

@@ -60,6 +60,26 @@ using BehaviorFn = std::function<BehaviorResult(anari::Device,
     uint32_t width,
     uint32_t height)>;
 
+// Whether a Test compares its Cases against Ground truth (ADR-0010).
+enum class GroundTruthUse
+{
+  // Undeclared: compared against Ground truth (the behaviour until ticket 04
+  // flips the default to self-checked only).
+  Default,
+  // `.groundTruth(reason)`: needs a Reference device comparison, and why.
+  Required,
+  // `.noGroundTruth()`: fully self-checked; `generate` skips it.
+  None,
+};
+
+// Per-axis overrides of the self-check tolerances (ADR-0010). They change the
+// numbers, never the metric (changed fraction).
+struct EquivalenceTolerance
+{
+  double maxFraction{0.0};
+  int tau{0}; // per-pixel tolerance, in 8-bit levels
+};
+
 // A single registered definition in the Catalog: a human-readable description,
 // world-build function, axes, required features, thresholds, and bounds
 // tolerance. A Test expands into one or more Cases.
@@ -100,6 +120,25 @@ struct TestDef
   // product: a baseline of every axis's first value, plus one Case per
   // additional value of each axis.
   bool simplified{false};
+
+  // Self-checks (ADR-0010). A Permutation axis implies an effect check unless
+  // it is opted out here (axis -> reason); a Variant axis implies an
+  // equivalence check.
+  std::map<std::string, std::string> noEffectCheck;
+  // Per-axis minimum changed fraction for an effect (overrides the default).
+  std::map<std::string, double> effectMargins;
+  // Per-axis equivalence tolerance (overrides the default).
+  std::map<std::string, EquivalenceTolerance> equivalenceTolerances;
+  // Whether the Test's Cases are compared against Ground truth, and why.
+  GroundTruthUse groundTruthUse{GroundTruthUse::Default};
+  std::string groundTruthReason;
+
+  // Whether the runner compares this Test's Cases against Ground truth (a
+  // behaviour Test never does).
+  bool usesGroundTruth() const
+  {
+    return !behaviorCheck && groundTruthUse != GroundTruthUse::None;
+  }
 
   std::string id() const
   {
