@@ -5,8 +5,10 @@
 
 #include "AnariObject.h"
 #include "ArtifactPublication.h"
+#include "CameraProjection.h"
 #include "Catalog.h"
 #include "DeviceErrorLog.h"
+#include "ExactCheck.h"
 #include "Image.h"
 #include "Isolation.h"
 #include "Relations.h"
@@ -127,6 +129,9 @@ struct Runner
     UniqueAnariObject<anari::Renderer> renderer;
     anari::scenes::Bounds bounds{};
     FrameSize size; // the Case's frame size
+    // What the camera does to a world point, for exact checks: recorded for
+    // the runner's camera, or by the Test's camera hook (may be empty).
+    std::optional<CameraProjection> projection;
 
     // A renderable scene needs all three objects; a build hook (or default
     // camera/renderer) returning null leaves it invalid.
@@ -170,12 +175,28 @@ struct Runner
   // builds on scope exit.
   SceneObjects buildScene(const TestDef &test, const Case &c, FrameSize size);
 
+  // A Case's rendered channels (with the raw depth and ID values, for its
+  // exact checks; kept in the per-Case phase only) and its camera's
+  // projection. `channels` is empty if the scene could not be built.
+  struct RenderedChannels
+  {
+    std::vector<ChannelValues> channels;
+    std::optional<CameraProjection> camera;
+  };
+
   // Render a Case's channels at `size`.
+  RenderedChannels renderChannels(
+      const TestDef &test, const Case &c, FrameSize size);
+  // ... their comparison images only.
   std::vector<Image> renderImages(
       const TestDef &test, const Case &c, FrameSize size);
 
   // The Case's frame size: its Test's hook applied to the run's size.
   CaseFrameSize frameSizeOf(const TestDef &test, const Case &c) const;
+  // The Case's frame size, recorded in `result`; or empty, with `result`
+  // skipped for the reason, when it isn't whole pixels at the run's size.
+  std::optional<FrameSize> sizeOrSkip(
+      const TestDef &test, const Case &c, CaseResult &result) const;
 
   // Resolve the requested accumulation/denoise options against one device's
   // advertised feature set. Accumulation is gated off when

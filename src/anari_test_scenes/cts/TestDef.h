@@ -108,6 +108,19 @@ struct DerivedExpectation
   DerivedFn fn;
 };
 
+class ExactCheck; // ExactCheck.h
+
+// An exact check (ADR-0010): a free-form per-Case function over the Case's
+// raw channel values, reporting through the ExactCheck's helpers.
+using ExactFn = std::function<void(ExactCheck &)>;
+
+// `.expectExact(label, fn)`: run on every rendered Case of the Test.
+struct ExactCheckDef
+{
+  std::string label;
+  ExactFn fn;
+};
+
 // Whether a Test compares its Cases against Ground truth (ADR-0010).
 enum class GroundTruthUse
 {
@@ -182,6 +195,8 @@ struct TestDef
   // Axis values whose image is derived from their siblings'; such a value
   // takes no part in its axis's effect pairs.
   std::vector<DerivedExpectation> derivedExpectations;
+  // Per-Case assertions over raw channel values, in declaration order.
+  std::vector<ExactCheckDef> exactChecks;
   // Whether the Test's Cases are compared against Ground truth, and why.
   GroundTruthUse groundTruthUse{GroundTruthUse::Default};
   std::string groundTruthReason;

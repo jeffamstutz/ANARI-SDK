@@ -47,7 +47,7 @@ inline constexpr const char *kGroundTruthFailure = "Ground truth";
 inline constexpr const char *kOtherFailure = "other";
 
 // Why a Case failed, once per kind: the kind of each failed evaluated
-// assertion (effect, equivalence, or a kind a later schema adds),
+// assertion (effect, equivalence, exact, or a kind a later schema adds),
 // kGroundTruthFailure when its Ground-truth comparison failed, and
 // kOtherFailure when it failed for neither. Empty unless it failed.
 std::vector<std::string> failureKinds(const CaseResult &result);

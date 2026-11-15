@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -51,6 +52,11 @@ namespace cts {
 // `frameSize`, the Case's own frame size (0x0 when unrecorded), and per
 // assertion `expectation` (what a derived expectation's image is),
 // `expectedImage` and `expectedMaskImage`.
+//
+// Additive to v4, read with defaults (ADR-0010, exact checks): assertions of
+// kind `exact`, carrying `label` and either `pixels` (offending and checked
+// counts, the first offender) or `measurement` (value, bound, limit). No
+// earlier sidecar holds an `exact` entry, so their absence can't be misread.
 constexpr int kSidecarSchemaVersion = 4;
 
 // The skipReason of a Case skipped because it has no Ground truth. The report
@@ -101,10 +107,40 @@ struct ChannelResult
   std::string thresholdImage;
 };
 
-// The kinds of Assertion this schema version writes. Later tickets add
-// "exact" and "convergence"; a reader keeps any kind as a string.
+// The kinds of Assertion this schema version writes. A later ticket adds
+// "convergence"; a reader keeps any kind as a string.
 inline constexpr const char *kEffectAssertion = "effect";
 inline constexpr const char *kEquivalenceAssertion = "equivalence";
+inline constexpr const char *kExactAssertion = "exact";
+
+// Where an exact check's pixel finding first failed: the pixel (Image
+// convention, row 0 at the bottom) with the value it held and, in words or
+// as a number, the value it should have held.
+struct FirstOffender
+{
+  uint32_t x{0};
+  uint32_t y{0};
+  std::string got;
+  std::string expected;
+};
+
+// An exact check's pixel finding: how many of the pixels it looked at
+// offend, and the first that did.
+struct PixelCounts
+{
+  uint64_t offending{0};
+  uint64_t checked{0};
+  std::optional<FirstOffender> first;
+};
+
+// An exact check's scalar measurement: a named number (the assertion's
+// `expectation`) with its bound.
+struct Measurement
+{
+  double value{0.0};
+  double bound{0.0};
+  std::string limit; // ">=" or "<="
+};
 
 // One self-check attributed to a Case (ADR-0010): for an effect, the relation
 // between this Case and a partner Case of the same Test that differs from it
@@ -113,7 +149,12 @@ inline constexpr const char *kEquivalenceAssertion = "equivalence";
 struct Assertion
 {
   std::string kind; // kEffectAssertion, kEquivalenceAssertion, ...
-  std::string axis;
+  std::string axis; // empty for an exact check
+  // An exact check's label (`.expectExact(label, fn)`); its `expectation`
+  // names the finding, and `pixels` or `measurement` holds what it measured.
+  std::string label;
+  std::optional<PixelCounts> pixels;
+  std::optional<Measurement> measurement;
   // The partner Case ids (Case::id(), same Test): an effect's partner, or
   // the siblings an equivalence's expected image was derived from.
   std::vector<std::string> relatedCases;

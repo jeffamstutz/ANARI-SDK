@@ -94,6 +94,16 @@ struct TestBuilder
       std::string value,
       std::string description,
       DerivedFn fn);
+  // An exact check (ADR-0010): `fn` runs on every rendered Case with the
+  // Case's axis values, frame size, raw channel values (colour, float depth,
+  // uint32_t IDs) and camera projection, and reports through the
+  // ExactCheck's helpers (ExactCheck.h). Any number per Test; the label names
+  // it in the Sidecar and the report. Throws std::invalid_argument for an
+  // empty or repeated label, or on a behaviour Test.
+  //   .expectExact("ID at each centroid", [](ExactCheck &x) {
+  //     x.matches("triangle 0", x.ids(Channel::PrimitiveId), ...);
+  //   })
+  TestBuilder &expectExact(std::string label, ExactFn fn);
   // The Test needs a Reference device comparison; say why (appearance with no
   // analytic answer).
   TestBuilder &groundTruth(std::string reason);

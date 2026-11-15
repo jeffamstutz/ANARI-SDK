@@ -250,3 +250,98 @@ The new Sidecar fields (`frameSize`, and per assertion `expectation`,
 `expectedImage`, `expectedMaskImage`) are additive to schema v4 and read with
 defaults (ADR-0003): no version bump.
 
+
+## Exact checks (ticket 17)
+
+Some answers are analytic: which primitive ID a pixel holds, the depth of a
+known surface, "pixels outside this region are background". They were
+compared against the Reference device's image, and couldn't be stated at all
+for an extension it lacks. The readback discarded the raw values (depth was
+scaled and quantised, IDs turned into colours), and `behaviorCheck` replaces
+rendering for the whole Test and returns only a bool and a string.
+
+20. **An exact check is a free-form per-Case function over raw channel
+    values.** `.expectExact("label", fn)`, any number per Test, runs on every
+    rendered Case in the per-Case phase (decision 11). `fn` receives an
+    `ExactCheck` (`ExactCheck.h`): the Case's axis values, its frame size,
+    and typed read-only views of each declared Channel: `ids(channel)`
+    (`uint32_t`), `depth()` (`float`), `rgba(channel)` (the 8-bit comparison
+    image, for colour and the rest). Reading a Channel the Test doesn't
+    declare fails the check.
+    *Rejected:* a closed set of declared predicate forms: tickets 09-13 need
+    shapes nobody can enumerate now (silhouette covers a union, shear
+    direction, penumbra width, edge contrast).
+
+21. **The runner keeps raw values** (`FrameReadbackResult::depth` / `ids`)
+    alongside the 8-bit image inside the per-Case phase only. They are not
+    written to the results tree and don't cross a process boundary.
+
+22. **Checks report through helpers, not a bare bool.** `allPixels(name,
+    view, expected, pred, where)`, `matches(name, view, expected(x, y),
+    tolerance, where)` and `backgroundOutside(name, view, subject,
+    background, isBackground)`. Each records a finding: the number of
+    offending pixels of those checked, the first offender (scanned from row
+    0, the bottom, left to right) with its coordinates and got and expected
+    values, and a mask (white offending, black held, mid grey not checked)
+    written to the results tree on failure. A finding with nothing checked
+    fails. The check passes when every finding does; a check that records no
+    finding, or throws, fails with that reason (findings recorded before the
+    throw are kept).
+
+23. **Scalar measurements use the same result shape:** `measure(name, value,
+    Limit::AtLeast | AtMost, bound)` records a named number with its bound
+    ("edge contrast 0.31, required >= 0.6"). This is where magnitude is
+    checked; changed fraction can't tell a large change from a small one.
+
+24. **`project(worldPoint)`** maps a world-space point to continuous pixel
+    coordinates (Image convention, row 0 at the bottom) through the Case's
+    camera (`CameraProjection.h`: perspective or orthographic, with its
+    image region). The runner records the projection of the camera it
+    frames: the spec's default `fovy` (pi/3) and the Case's aspect. A Test's
+    own `.camera` hook records its camera with
+    `BuildContext::setCameraProjection()`; without that, `project()` fails
+    the check, saying so. `fovy`, `height` and `aspect` describe the whole
+    sensor and `imageRegion` the part of it the frame shows.
+
+25. **New pixel assertions use `.expectExact`, not `.behavior`.**
+    `behaviorCheck` stays for behaviour that isn't a property of one rendered
+    image; existing behaviour Tests are not converted, and a Test can't have
+    both (the builder throws).
+
+26. **An evaluation seam for Test authors.** `evaluateSelfChecks(test,
+    cases, inputs)` evaluates a Test's exact checks and its relations
+    (effect, equivalence, derived expectations) against supplied channel
+    data, with no device; `evaluateExactChecks` is its per-Case half, which
+    the runner calls. The unit tests' generators (`idChannel`,
+    `depthChannel` in `tests/unit/cts_test_images.h`) produce raw buffers
+    through the runner's own decoder. A ticket author builds a correct image
+    and a wrong one in code and shows the check accepts the first and
+    rejects the second. For Tests no SDK device can run (tickets 09-11), a
+    synthetic positive and negative per check is the accepted validation; it
+    validates the check, not the scene, and each such ticket's answer must
+    say so.
+
+A finding is an `exact` assertion in the Sidecar: `label` (the check's),
+`expectation` (the finding's name), `channel`, `pixels` (`offending`,
+`checked`, `firstOffender` with `x`, `y`, `got`, `expected`) or
+`measurement` (`value`, `bound`, `limit`), and `maskImage`. For a pixel
+finding `score` is the offending fraction and `threshold` 0; for a
+measurement they are the value and the bound. These fields are additive to
+schema v4, read with defaults: no earlier Sidecar holds an `exact` entry. A
+Test whose Ground truth is missing still renders when it has exact checks,
+as it does for relations (decision 8). The text report counts `exact` among
+the failure kinds and names a failed finding's check and mask.
+
+`frame/frame_primitiveID_channel` is the proof: eight triangles framed by
+the runner's camera; the ID at each triangle's projected centroid must be the
+triangle's index, and pixels outside every triangle (grown by 1.5 pixels, so
+edge pixels aren't judged) must hold no triangle's index. The 1.2 draft's
+section 5.1 says only that the channel holds the "primitiveId attribute of
+the first hit" and gives no value for a pixel without a hit, so the
+background is checked for not claiming a triangle rather than for a specific
+value; halcyon and helide both write `0xffffffff` there. The Test declares
+`.noGroundTruth()`. On 2026-11-15 at 256x256 it passed on halcyon and helide
+on a workdir where `generate` never ran (8 of 8 centroids, 0 of 50 929
+background pixels offending). The evaluation seam's unit test runs the same
+check on a rasterized correct buffer (passes) and on wrong ones: two
+triangles' IDs swapped, a background of 0, the image upside down (all fail).

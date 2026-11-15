@@ -128,6 +128,24 @@ std::string toJson(const CaseResult &result)
     e["maskImage"] = a.maskImage;
     e["expectedImage"] = a.expectedImage;
     e["expectedMaskImage"] = a.expectedMaskImage;
+    if (!a.label.empty())
+      e["label"] = a.label;
+    if (a.pixels) {
+      json p;
+      p["offending"] = a.pixels->offending;
+      p["checked"] = a.pixels->checked;
+      if (a.pixels->first) {
+        const auto &f = *a.pixels->first;
+        p["firstOffender"] = {
+            {"x", f.x}, {"y", f.y}, {"got", f.got}, {"expected", f.expected}};
+      }
+      e["pixels"] = std::move(p);
+    }
+    if (a.measurement) {
+      e["measurement"] = {{"value", a.measurement->value},
+          {"bound", a.measurement->bound},
+          {"limit", a.measurement->limit}};
+    }
     j["assertions"].push_back(std::move(e));
   }
 
@@ -256,6 +274,30 @@ bool fromJson(const std::string &text, CaseResult &out, bool *schemaMismatch)
       a.maskImage = e.value("maskImage", "");
       a.expectedImage = e.value("expectedImage", "");
       a.expectedMaskImage = e.value("expectedMaskImage", "");
+      a.label = e.value("label", "");
+      if (const auto p = e.find("pixels"); p != e.end() && p->is_object()) {
+        PixelCounts counts;
+        counts.offending = p->value("offending", uint64_t{0});
+        counts.checked = p->value("checked", uint64_t{0});
+        if (const auto f = p->find("firstOffender");
+            f != p->end() && f->is_object()) {
+          FirstOffender first;
+          first.x = f->value("x", 0u);
+          first.y = f->value("y", 0u);
+          first.got = f->value("got", "");
+          first.expected = f->value("expected", "");
+          counts.first = std::move(first);
+        }
+        a.pixels = std::move(counts);
+      }
+      if (const auto m = e.find("measurement");
+          m != e.end() && m->is_object()) {
+        Measurement measurement;
+        measurement.value = numberOrNan(m->value("value", json()));
+        measurement.bound = numberOrNan(m->value("bound", json()));
+        measurement.limit = m->value("limit", "");
+        a.measurement = std::move(measurement);
+      }
       out.assertions.push_back(std::move(a));
     }
   }

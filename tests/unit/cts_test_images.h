@@ -6,10 +6,14 @@
 
 #pragma once
 
+#include "cts/ExactCheck.h"
+#include "cts/FrameReadback.h"
 #include "cts/Image.h"
 // std
 #include <cstddef>
 #include <cstdint>
+#include <stdexcept>
+#include <vector>
 
 namespace cts_test {
 
@@ -101,6 +105,58 @@ inline Image disc(
     }
   }
   return im;
+}
+
+// Raw channel buffers for exact checks, generated in code and decoded by the
+// runner's own readback (decodeFrameChannel), so the 8-bit image beside the
+// raw values is the one a render would produce.
+
+// A Channel decoded from a mapped buffer of `type`.
+template <typename T>
+anari::cts::ChannelValues decodedChannel(anari::cts::Channel channel,
+    ANARIDataType type,
+    const std::vector<T> &buffer,
+    uint32_t w,
+    uint32_t h,
+    float depthScale = 1.f)
+{
+  const anari::cts::MappedFrameDescriptor mapped{buffer.data(), w, h, type};
+  auto decoded =
+      anari::cts::decodeFrameChannel(channel, mapped, w, h, depthScale);
+  if (!decoded)
+    throw std::runtime_error(decoded.detail);
+  anari::cts::ChannelValues out;
+  out.channel = channel;
+  out.image = std::move(decoded.image);
+  out.depth = std::move(decoded.depth);
+  out.ids = std::move(decoded.ids);
+  return out;
+}
+
+// A `uint32_t` ID channel whose pixel (x, y) holds `id(x, y)`.
+template <typename Fn>
+anari::cts::ChannelValues idChannel(
+    uint32_t w, uint32_t h, Fn id, anari::cts::Channel channel =
+        anari::cts::Channel::PrimitiveId)
+{
+  std::vector<uint32_t> buffer(static_cast<size_t>(w) * h);
+  for (uint32_t y = 0; y < h; ++y)
+    for (uint32_t x = 0; x < w; ++x)
+      buffer[static_cast<size_t>(y) * w + x] = static_cast<uint32_t>(id(x, y));
+  return decodedChannel(channel, ANARI_UINT32, buffer, w, h);
+}
+
+// A float depth channel whose pixel (x, y) holds `depth(x, y)`.
+template <typename Fn>
+anari::cts::ChannelValues depthChannel(
+    uint32_t w, uint32_t h, Fn depth, float depthScale = 10.f)
+{
+  std::vector<float> buffer(static_cast<size_t>(w) * h);
+  for (uint32_t y = 0; y < h; ++y)
+    for (uint32_t x = 0; x < w; ++x)
+      buffer[static_cast<size_t>(y) * w + x] = static_cast<float>(depth(x, y));
+  return decodedChannel(
+      anari::cts::Channel::Depth, ANARI_FLOAT32, buffer, w, h, depthScale);
 }
 
 } // namespace cts_test

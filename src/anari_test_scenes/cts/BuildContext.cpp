@@ -58,5 +58,15 @@ void BuildContext::set(const std::string &name, const Any &value)
     m_params.setParamDirect(name, value.raw());
 }
 
+void BuildContext::setCameraProjection(const CameraProjection &projection)
+{
+  m_projection = projection;
+}
+
+const std::optional<CameraProjection> &BuildContext::cameraProjection() const
+{
+  return m_projection;
+}
+
 } // namespace cts
 } // namespace anari

@@ -71,7 +71,7 @@ A self-check recorded in a Case's Sidecar (its `assertions`): an Effect or an
 Equivalence relating it to partner Cases of the same Test that differ from it
 only in one axis (an Effect's partner, or the siblings a Derived expectation
 read), with the score (changed fraction), the bound, pass/fail and a
-detail. A failed pair is attributed to the later Case in the axis's value
+detail; or one finding of an Exact check on the Case alone. A failed pair is attributed to the later Case in the axis's value
 order. A Case's verdict is the conjunction of its Ground-truth comparison and
 its evaluated Assertions (ADR-0010).
 _Avoid_: check (too vague), relation (the pair, not the record)
@@ -87,6 +87,20 @@ What a Derived expectation (and so a Variant axis) asserts: a Case renders
 like the image derived from its siblings (for a Variant, the Case holding the
 axis's first value), i.e. their changed fraction is at most a maximum on every
 Channel.
+
+**Exact check**:
+A per-Case assertion over the Case's raw channel values, for answers that are
+analytic: the ID at a pixel, the depth of a known surface, "pixels outside
+this region are background". `.expectExact(label, fn)`: a free-form function
+given the Case's axis values, frame size, typed channel views (colour, float
+depth, `uint32_t` IDs) and `project()` (world point to pixel through the
+Case's camera), reporting through helpers (`allPixels`, `matches`,
+`backgroundOutside`, `measure`). Each helper records a finding (offending
+and checked pixel counts, the first offender with got and expected values,
+a mask; or a named number with its bound), recorded as an `exact` Assertion
+(ADR-0010).
+_Avoid_: pixel test, predicate check, behaviour check (that replaces
+rendering; an Exact check judges the rendered Case)
 
 **Timed behaviour test**:
 A Test whose check (not an image) decides pass/fail, and which declares a
