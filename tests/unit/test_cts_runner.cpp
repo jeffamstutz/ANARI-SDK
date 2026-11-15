@@ -24,6 +24,7 @@
 // helium
 #include "helium/BaseFrame.h"
 // std
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -1537,7 +1538,7 @@ TEST_CASE("Runner runs a timed behavior Case in-process without isolation",
   anari::unloadLibrary(lib);
 }
 
-TEST_CASE("The built-in synchronization Tests pass on helide",
+TEST_CASE("The built-in single-threaded synchronization Tests pass on helide",
     "[cts][runner][helide]")
 {
   DeviceErrorLog errors;
@@ -1568,8 +1569,22 @@ TEST_CASE("The built-in synchronization Tests pass on helide",
   std::error_code ec;
   std::filesystem::remove_all(root, ec);
 
+  // Only the single-threaded rules: the concurrent ones (those that require
+  // KHR_DEVICE_SYNCHRONIZATION) are stress tests, run only isolated, one
+  // child process per Case (unit_test::cts::isolated_run), so a flake or a
+  // crash there costs one Case rather than this binary.
+  Catalog builtin;
+  registerBuiltinTests(builtin);
   Catalog cat;
-  registerBuiltinTests(cat);
+  for (const auto *test : builtin.filter(Filter{"synchronization/"})) {
+    if (std::count(test->requiredFeatures.begin(),
+            test->requiredFeatures.end(),
+            "ANARI_KHR_DEVICE_SYNCHRONIZATION")
+        == 0)
+      cat.add(*test);
+  }
+  REQUIRE(cat.size() == 2);
+
   RunOptions opts;
   opts.width = 32;
   opts.height = 32;
@@ -1577,8 +1592,8 @@ TEST_CASE("The built-in synchronization Tests pass on helide",
   // In-process (no isolation): the ctest TIMEOUT catches a hang.
   Runner runner(d, Workdir(root), opts);
   const auto s = runner.run(cat, Filter{"synchronization/"}, features);
-  CHECK(s.total == 4);
-  CHECK(s.passed == 4);
+  CHECK(s.total == 2);
+  CHECK(s.passed == 2);
 
   for (const auto *test : cat.filter(Filter{"synchronization/"})) {
     for (const auto &c : expand(*test)) {

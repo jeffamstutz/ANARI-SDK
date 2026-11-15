@@ -52,7 +52,10 @@ change.
 When no isolation is set up, the runner runs a timed Test in-process like any
 behaviour test, without enforcing the timeout. That is the case in the child
 (so it doesn't start a grandchild) and in the unit tests, which drive the
-runner directly and rely on the ctest `TIMEOUT` instead.
+runner directly and rely on the ctest `TIMEOUT` instead. The in-process unit
+test runs only rules 1 and 2; the concurrent rules (3 and 4 below) are stress
+tests, so they run only isolated (`unit_test::cts::isolated_run`), where a
+flake or a crash costs one Case rather than the whole unit-test binary.
 
 ## Considered Options
 
@@ -129,8 +132,8 @@ Implemented (category `synchronization`):
    `KHR_DEVICE_SYNCHRONIZATION`) — while one thread renders a frame 40 times,
    four threads each create a world, write its vertices through a mapped managed
    array, commit it, query its `bounds` with `ANARI_WAIT` and release it, over
-   and over. Every frame equals the frame rendered before the threads started
-   (exactly), each thread's world has its own triangle's bounds, and no ERROR is
+   and over. Every frame is equivalent to the frame rendered before the threads
+   started, each thread's world has its own triangle's bounds, and no ERROR is
    reported. Spec: section 3.1, "This lowers the scope of required
    synchronization to individual ANARI objects allowing different threads to
    operate concurrently on different objects within the same device." The same
@@ -138,41 +141,50 @@ Implemented (category `synchronization`):
    other ANARI calls", so the check keeps each `anariRenderFrame` call apart
    from the other threads' calls (a gate the render goes through ahead of new
    calls); the renders themselves, `anariFrameReady(ANARI_WAIT)` and mapping the
-   frame overlap them freely. helide passes; halcyon (2026-11-15) crashes in
-   most runs, finalizing one thread's geometry during another thread's commit
-   flush.
+   frame overlap them freely. helide and helide_gpu pass; halcyon (2026-11-15)
+   crashes in most runs, finalizing one thread's geometry during another
+   thread's commit flush.
 4. `map_during_render_never_tears` (requires and covers
    `KHR_DEVICE_SYNCHRONIZATION`) — 16 triangles whose vertex positions are a
    shared array; after each of 40 renders is issued, an app thread maps the
    array, rewrites it (the triangles as laid out, or moved, alternately; half
-   the triangles, a 0.5 ms pause, then the rest) and unmaps it. Every frame
-   equals one of the two layouts rendered alone, never a mix; after the writing
-   stops, the next frame shows the last layout written (and the two layouts must
-   render differently, or the check fails as vacuous). Spec: `anariMapArray`,
-   "Applications are only permitted to write to the memory visible to ANARIArray
-   objects if all array objects involved are mapped. Mapping a shared array
-   object indicates that the device should not execute any rendering operations
-   (or internal state updates, such as building acceleration structures) of any
-   parent objects". Rule 1 and candidate 5 treat *when* a render runs relative
-   to a mapping as the recommendation the "should" makes it; this rule asserts
-   only what the frame shows. The app is permitted to write while the array is
-   mapped, so a frame mixing two writes shows a scene the app never presented;
-   reading the permission to write as allowing that would make it meaningless.
-   That reading is this rule's, not the spec's words, and a spec decision
-   otherwise would drop the rule. The map, the writes and the unmap go through
-   the gate as one group, so the array is never mapped while an
-   `anariRenderFrame` call waits for the gate. One rewrite per render, not back
-   to back: an array kept mapped nearly all the time starves renders that wait
-   for the unmap, which helide and halcyon both do. The check is a stress test,
-   not a forced state: whether a rewrite overlaps a render's execution depends
-   on timing (the pause between halves widens the window), so a device that
-   ignores mappings fails it with high but not certain probability, and the
-   detail can't say how many rewrites overlapped. Rules 3 and 4 compare frames
-   exactly, so they assume the runner's renderer is deterministic for one scene;
-   a renderer that adds noise per render would fail them falsely. The array is
-   the vertex positions rather than colors (halcyon's stress test uses a color
-   array) because helide doesn't re-render after an unmap of a vertex attribute
-   array it doesn't observe, which is a separate bug.
+   the triangles, a 0.5 ms pause, then the rest) and unmaps it. Every frame is
+   equivalent to one of the two layouts rendered alone, never a mix; after the
+   writing stops, the next frame shows the last layout written. The check fails
+   as vacuous unless the two layouts, and a torn frame (half the triangles
+   moved) rendered alone, differ from each other by at least the effect
+   tolerance. Spec: `anariMapArray`, "Applications are only permitted to write
+   to the memory visible to ANARIArray objects if all array objects involved are
+   mapped. Mapping a shared array object indicates that the device should not
+   execute any rendering operations (or internal state updates, such as building
+   acceleration structures) of any parent objects". Rule 1 and candidate 5 treat
+   *when* a render runs relative to a mapping as the recommendation the "should"
+   makes it; this rule asserts only what the frame shows. The app is permitted
+   to write while the array is mapped, so a frame mixing two writes shows a
+   scene the app never presented; reading the permission to write as allowing
+   that would make it meaningless. That reading is this rule's, not the spec's
+   words, and a spec decision otherwise would drop the rule. The map, the writes
+   and the unmap go through the gate as one group, so the array is never mapped
+   while an `anariRenderFrame` call waits for the gate. One rewrite per render,
+   not back to back: an array kept mapped nearly all the time starves renders
+   that wait for the unmap, which helide and halcyon both do. The check is a
+   stress test, not a forced state: whether a rewrite overlaps a render's
+   execution depends on timing (the pause between halves widens the window), so
+   a device that ignores mappings fails it with high but not certain
+   probability, and the detail can't say how many rewrites overlapped. Rules 3
+   and 4 compare frames with ADR-0010's metric and default tolerances (changed
+   fraction at τ = 8: equivalent within 0.2 %, different from 1 %), not exactly,
+   so the extension isn't judged on whether the renderer is deterministic. A
+   renderer still noisy beyond the equivalence tolerance fails them, as it fails
+   any equivalence; avoiding that is the operator's job (ADR-0010). A torn frame
+   stays far outside the equivalence tolerance: rendered alone on helide and
+   halcyon (2026-11-15) it changes about 15 % of pixels from either layout at
+   256×256 and 14 % at 32×32, and the detail notes the fractions measured on the
+   device under test. helide_gpu (2026-11-15) fails this rule in every run, with
+   up to 33 of 40 frames torn. The array is the vertex positions rather than
+   colors (halcyon's stress test uses a color array) because helide doesn't
+   re-render after an unmap of a vertex attribute array it doesn't observe,
+   which is a separate bug.
 
 Candidates, from `KHR_DEVICE_SYNCHRONIZATION` and halcyon's
 `tests/test_synchronization.cpp`, each to check against the spec text before it
