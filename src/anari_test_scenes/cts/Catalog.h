@@ -19,6 +19,11 @@ namespace cts {
 bool isSupported(
     const TestDef &test, const std::set<std::string> &deviceFeatures);
 
+// The Test's required features absent from deviceFeatures, in declaration
+// order. Empty exactly when isSupported().
+std::vector<std::string> missingFeatures(
+    const TestDef &test, const std::set<std::string> &deviceFeatures);
+
 // The in-C++ registry of all Tests. `cts list` enumerates it; `cts run`
 // expands and executes a filtered slice of it. Distinct from the pre-existing
 // scene registry (registerScene) used by example viewers.
@@ -49,6 +54,9 @@ struct Catalog
   // list(), and filter() remain valid as more tests are registered.
   std::deque<TestDef> m_tests;
 };
+
+// Every extension some Test in the catalog names as primary (covers()).
+std::set<std::string> coveredExtensions(const Catalog &catalog);
 
 // The process-wide catalog that authored tests register into.
 Catalog &globalCatalog();

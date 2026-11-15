@@ -22,8 +22,6 @@ namespace {
 using anari::math::float3;
 using anari::math::float4;
 
-const std::string kMatte = "ANARI_KHR_MATERIAL_MATTE";
-
 template <typename Spec>
 void applyCommonAxes(BuildContext &ctx, Spec &spec)
 {
@@ -376,7 +374,8 @@ void registerShape(Catalog &catalog,
   else
     basic.permute("primitiveMode", {"soup", "indexed"});
   basic.channels(kColorDepth)
-      .requireFeatures({feature, kMatte})
+      .covers(feature)
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 }
 
@@ -414,7 +413,8 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("color", {"primitive.color", "vertex.color"})
       .channels(kColorOnly)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_TRIANGLE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_TRIANGLE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "triangle_normal_tangent")
@@ -425,7 +425,8 @@ void registerGeometryTests(Catalog &catalog)
       .variant("tangent", {"unset", "vec3", "vec4"})
       .simplified()
       .channels(kColorOnly)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_TRIANGLE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_TRIANGLE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "triangle_random_attributes")
@@ -438,7 +439,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_TRIANGLE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_TRIANGLE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "triangle_unused_vertices")
@@ -451,7 +453,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_TRIANGLE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_TRIANGLE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   // ---- quad -----------------------------------------------------------------
@@ -475,7 +478,8 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("color", {"primitive.color", "vertex.color"})
       .channels(kColorOnly)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_QUAD", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_QUAD")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "quad_frame_color_types")
@@ -485,7 +489,8 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("frame_color_type", kFrameColorTypes)
       .channels(kColorOnly)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_QUAD", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_QUAD")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "quad_normal_tangent")
@@ -495,7 +500,8 @@ void registerGeometryTests(Catalog &catalog)
       .variant("tangent", {"unset", "vec3", "vec4"})
       .simplified()
       .channels(kColorOnly)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_QUAD", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_QUAD")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "quad_unused_vertices")
@@ -507,7 +513,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_QUAD", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_QUAD")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   // ---- sphere ---------------------------------------------------------------
@@ -520,7 +527,8 @@ void registerGeometryTests(Catalog &catalog)
       .permute("primitiveCount", {1, 16})
       .variant("primitiveMode", {"soup", "indexed"})
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_SPHERE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_SPHERE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "sphere_colors")
@@ -531,7 +539,8 @@ void registerGeometryTests(Catalog &catalog)
       .permute("color", {"primitive.color", "vertex.color"})
       .permute("primitiveMode", {"soup", "indexed"})
       .channels(kColorOnly)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_SPHERE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_SPHERE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "sphere_frame_color_types")
@@ -542,7 +551,8 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("frame_color_type", kFrameColorTypes)
       .channels(kColorOnly)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_SPHERE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_SPHERE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "sphere_global_radii")
@@ -553,7 +563,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_SPHERE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_SPHERE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "sphere_unused_vertices")
@@ -565,7 +576,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_SPHERE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_SPHERE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   // ---- cone -----------------------------------------------------------------
@@ -583,7 +595,8 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("color", {"primitive.color", "vertex.color"})
       .channels(kColorOnly)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CONE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_CONE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "cone_frame_color_types")
@@ -593,7 +606,8 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("frame_color_type", kFrameColorTypes)
       .channels(kColorOnly)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CONE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_CONE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "cone_global_caps")
@@ -603,7 +617,8 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("globalCaps", {"none", "first", "second", "both"})
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CONE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_CONE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "cone_vertex_caps")
@@ -613,7 +628,8 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("vertexCaps", V{Any(true), Any(false)})
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CONE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_CONE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "cone_unused_vertices")
@@ -625,7 +641,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CONE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_CONE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   // ---- cylinder -------------------------------------------------------------
@@ -643,7 +660,8 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("color", {"primitive.color", "vertex.color"})
       .channels(kColorOnly)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CYLINDER", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_CYLINDER")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "cylinder_frame_color_types")
@@ -654,7 +672,8 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("frame_color_type", kFrameColorTypes)
       .channels(kColorOnly)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CYLINDER", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_CYLINDER")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "cylinder_global_caps")
@@ -664,7 +683,8 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("globalCaps", {"none", "first", "second", "both"})
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CYLINDER", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_CYLINDER")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "cylinder_global_radii")
@@ -675,7 +695,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CYLINDER", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_CYLINDER")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "cylinder_vertex_caps")
@@ -685,7 +706,8 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("vertexCaps", V{Any(true), Any(false)})
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CYLINDER", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_CYLINDER")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "cylinder_unused_vertices")
@@ -698,7 +720,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CYLINDER", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_CYLINDER")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   // ---- intersection edge cases ----------------------------------------------
@@ -730,7 +753,9 @@ void registerGeometryTests(Catalog &catalog)
             0.001f);
       })
       .channels(kDepthOnly)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_SPHERE", kMatte, kPerspective})
+      .covers("ANARI_KHR_GEOMETRY_SPHERE")
+      .requireFeatures(kSupportMatte)
+      .requireFeature(kPerspective)
       .registerInto(catalog);
 
   // Eye offset just outside the cylinder radius, view direction parallel to
@@ -764,7 +789,9 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("caps", {"none", "first", "second", "both"})
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CYLINDER", kMatte, kPerspective})
+      .covers("ANARI_KHR_GEOMETRY_CYLINDER")
+      .requireFeatures(kSupportMatte)
+      .requireFeature(kPerspective)
       .registerInto(catalog);
 
   // Camera inside the tube on its axis, looking at the p0 end: rays originate
@@ -791,7 +818,9 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("caps", {"none", "first", "second", "both"})
       .channels(kDepthOnly)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CYLINDER", kMatte, kPerspective})
+      .covers("ANARI_KHR_GEOMETRY_CYLINDER")
+      .requireFeatures(kSupportMatte)
+      .requireFeature(kPerspective)
       .registerInto(catalog);
 
   // View direction parallel to the cone axis from the base side, eye slightly
@@ -822,7 +851,9 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("caps", {"none", "first", "second", "both"})
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CONE", kMatte, kPerspective})
+      .covers("ANARI_KHR_GEOMETRY_CONE")
+      .requireFeatures(kSupportMatte)
+      .requireFeature(kPerspective)
       .registerInto(catalog);
 
   // Camera on the cone axis beyond the apex, looking at the tip: rays near
@@ -851,7 +882,9 @@ void registerGeometryTests(Catalog &catalog)
             0.01f);
       })
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CONE", kMatte, kPerspective})
+      .covers("ANARI_KHR_GEOMETRY_CONE")
+      .requireFeatures(kSupportMatte)
+      .requireFeature(kPerspective)
       .registerInto(catalog);
 
   // Camera aimed at a sphere's limb so its silhouette runs across the frame: a
@@ -872,7 +905,9 @@ void registerGeometryTests(Catalog &catalog)
             ctx.device(), eye, math::normalize(at - eye), 0.5f, 0.01f);
       })
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_SPHERE", kMatte, kPerspective})
+      .covers("ANARI_KHR_GEOMETRY_SPHERE")
+      .requireFeatures(kSupportMatte)
+      .requireFeature(kPerspective)
       .registerInto(catalog);
 
   // ---- curve ----------------------------------------------------------------
@@ -890,7 +925,8 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("color", {"primitive.color", "vertex.color"})
       .channels(kColorOnly)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CURVE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_CURVE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "curve_frame_color_types")
@@ -901,7 +937,8 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("frame_color_type", kFrameColorTypes)
       .channels(kColorOnly)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CURVE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_CURVE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "curve_global_radii")
@@ -912,7 +949,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CURVE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_CURVE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   makeTest("geometry", "curve_unused_vertices")
@@ -924,7 +962,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_GEOMETRY_CURVE", kMatte})
+      .covers("ANARI_KHR_GEOMETRY_CURVE")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
   // ---- isosurface -----------------------------------------------------------
@@ -933,9 +972,9 @@ void registerGeometryTests(Catalog &catalog)
           "Checks isosurface extraction from a structured regular field.")
       .build([](BuildContext &ctx) { return isosurfaceWorld(ctx); })
       .channels(kColorDepth)
-      .requireFeatures({"ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR",
-          "ANARI_KHR_GEOMETRY_ISOSURFACE",
-          kMatte})
+      .covers("ANARI_KHR_GEOMETRY_ISOSURFACE")
+      .requireFeature("ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR")
+      .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 }
 

@@ -80,7 +80,14 @@ struct TestDef
   // check runs: the check only makes calls the spec allows (ADR-0009).
   bool failOnDeviceErrors{false};
   std::vector<Axis> axes;
+  // Every extension the Test needs; the skip gate (isSupported).
   std::vector<std::string> requiredFeatures;
+  // The primary extensions: those the Test is evidence for, a subset of
+  // requiredFeatures. The rest of requiredFeatures are support extensions it
+  // merely needs to build a scene (a triangle to light, a matte material to
+  // sample into). The report attributes a Case's verdict to its primary
+  // extensions only. Empty for a Test of core behaviour.
+  std::vector<std::string> coveredFeatures;
   std::map<std::string, double>
       thresholds; // metric name -> threshold (all channels)
   // Per-channel metric thresholds, overriding `thresholds` for that channel

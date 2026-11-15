@@ -3,11 +3,13 @@
 
 #pragma once
 
+#include "Report.h"
 #include "Sidecar.h"
 // std
 #include <filesystem>
 #include <map>
 #include <string>
+#include <vector>
 
 // The HTML report: a single self-contained, interactive document rendered from
 // a run's results tree. Every Case's metadata is always present so the client
@@ -31,6 +33,10 @@ struct HtmlOptions
   // Empty keeps them workdir-relative (only correct for a document placed in
   // the workdir root).
   std::filesystem::path htmlPath;
+  // The per-extension matrix (extensionCoverage() in Report.h), shown first on
+  // the page; each row with Cases filters the Case list to them. Empty omits
+  // the matrix.
+  std::vector<ExtensionCoverage> coverage;
 };
 
 // Render the full HTML document for a run's results tree.

@@ -25,7 +25,14 @@ namespace cts {
 // two-device diff can label runs by device rather than by workdir name.
 // `description` is additive optional catalog metadata; readers treat its
 // absence in older v2 workdirs as an empty description.
-constexpr int kSidecarSchemaVersion = 2;
+//
+// v3 adds the extensions behind a Case, so a report can say what a device is
+// missing per extension: `requiredFeatures` (all the Test needs),
+// `coveredFeatures` (the primary ones it is evidence for) and `missingFeatures`
+// (the required ones the device lacks; non-empty exactly when the Case was
+// skipped for them), plus `device.extensions`, the extensions the device
+// advertised for the run. All read as empty from older sidecars.
+constexpr int kSidecarSchemaVersion = 3;
 
 // A Case's pass/fail outcome.
 enum class Verdict
@@ -49,6 +56,9 @@ struct DeviceSpec
   std::string library;
   std::string device{"default"};
   std::string renderer{"default"};
+  // The extensions the device advertised for the run (schema v3), sorted.
+  // Empty when unrecorded (older sidecars). Not part of the identity.
+  std::vector<std::string> extensions;
 };
 
 // One channel's comparison against ground truth.
@@ -77,6 +87,11 @@ struct CaseResult
   std::string groundTruthKey;
   DeviceSpec device; // which device produced this result (schema v2)
   std::vector<std::pair<std::string, std::string>> axisValues; // name -> value
+  // The Test's extensions (schema v3): all it requires, the primary ones it
+  // covers, and the required ones the device lacks.
+  std::vector<std::string> requiredFeatures;
+  std::vector<std::string> coveredFeatures;
+  std::vector<std::string> missingFeatures;
   Verdict verdict{Verdict::Skipped};
   std::string skipReason; // empty unless skipped
   std::string detail; // human-readable note (e.g. a behavioral check's outcome)

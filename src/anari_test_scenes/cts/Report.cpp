@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "Report.h"
+// anari
+#include "anari/frontend/anari_extension_utility.h"
 // std
 #include <algorithm>
 #include <cmath>
@@ -153,6 +155,120 @@ std::string deviceLabel(const std::map<std::string, CaseResult> &results,
   return device->library + " (" + device->device + "/" + device->renderer + ")";
 }
 
+std::vector<std::string> canonicalKhrExtensions()
+{
+  std::vector<std::string> out;
+  for (auto name = anariGetExtensionNames(); *name; ++name) {
+    const std::string n = *name;
+    if (n.rfind("ANARI_KHR_", 0) == 0)
+      out.push_back(n);
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+const char *coverageStateName(CoverageState state)
+{
+  switch (state) {
+  case CoverageState::Passed:
+    return "passed";
+  case CoverageState::Failed:
+    return "failed";
+  case CoverageState::NotAdvertised:
+    return "not advertised";
+  case CoverageState::NoGroundTruth:
+    return "advertised, no Ground truth";
+  case CoverageState::MissingSupport:
+    return "advertised, missing support";
+  case CoverageState::NotRun:
+    return "advertised, not run";
+  case CoverageState::AdvertisedNoTest:
+    return "advertised, no Test";
+  case CoverageState::NotAdvertisedNoTest:
+    return "not advertised, no Test";
+  }
+  return "not advertised, no Test";
+}
+
+std::set<std::string> runExtensions(
+    const std::map<std::string, CaseResult> &results, bool *recorded)
+{
+  std::set<std::string> out;
+  bool any = false;
+  for (const auto &[key, r] : results) {
+    any = any || !r.device.extensions.empty();
+    out.insert(r.device.extensions.begin(), r.device.extensions.end());
+  }
+  if (recorded)
+    *recorded = any;
+  return out;
+}
+
+std::vector<ExtensionCoverage> extensionCoverage(
+    const std::map<std::string, CaseResult> &results,
+    const std::vector<std::string> &extensions,
+    const std::set<std::string> &tested)
+{
+  std::map<std::string, ExtensionCoverage> rows;
+  auto row = [&](const std::string &ext) -> ExtensionCoverage & {
+    auto &r = rows[ext];
+    r.extension = ext;
+    return r;
+  };
+  for (const auto &ext : extensions)
+    row(ext);
+  for (const auto &ext : tested)
+    row(ext).tested = true;
+
+  // Skips for want of Ground truth, per extension; the others skipped for a
+  // missing (support or primary) extension.
+  std::set<std::string> noGroundTruth;
+  for (const auto &[key, r] : results) {
+    for (const auto &ext : r.coveredFeatures) {
+      auto &c = row(ext);
+      switch (r.verdict) {
+      case Verdict::Passed:
+        ++c.passed;
+        break;
+      case Verdict::Failed:
+        ++c.failed;
+        break;
+      case Verdict::Skipped:
+        ++c.skipped;
+        if (r.missingFeatures.empty())
+          noGroundTruth.insert(ext);
+        break;
+      }
+    }
+  }
+
+  const auto advertised = runExtensions(results);
+  std::vector<ExtensionCoverage> out;
+  out.reserve(rows.size());
+  for (auto &[ext, c] : rows) {
+    const int cases = c.passed + c.failed + c.skipped;
+    c.tested = c.tested || cases > 0;
+    c.advertised = advertised.count(ext) || c.passed + c.failed > 0;
+    if (!c.tested)
+      c.state = c.advertised ? CoverageState::AdvertisedNoTest
+                             : CoverageState::NotAdvertisedNoTest;
+    else if (!c.advertised)
+      c.state = CoverageState::NotAdvertised;
+    else if (c.failed > 0)
+      c.state = CoverageState::Failed;
+    else if (c.passed > 0)
+      c.state = CoverageState::Passed;
+    else if (noGroundTruth.count(ext))
+      c.state = CoverageState::NoGroundTruth;
+    else if (c.skipped > 0)
+      c.state = CoverageState::MissingSupport;
+    else
+      c.state = CoverageState::NotRun;
+    out.push_back(std::move(c));
+  }
+  return out;
+}
+
 std::vector<std::string> reportCaseKeys(
     const std::map<std::string, CaseResult> &results, bool includeAll)
 {
@@ -168,7 +284,8 @@ std::vector<std::string> reportCaseKeys(
 void writeTextSummary(std::ostream &out,
     const std::string &workdir,
     const std::map<std::string, CaseResult> &results,
-    bool includeAll)
+    bool includeAll,
+    const std::vector<ExtensionCoverage> &coverage)
 {
   const Summary s = summarize(results);
   out << "CTS report: " << workdir << "\n";
@@ -185,6 +302,29 @@ void writeTextSummary(std::ostream &out,
     out << "    " << std::left << std::setw(static_cast<int>(width)) << cat
         << std::right << std::setw(4) << c.passed << " passed  " << std::setw(4)
         << c.failed << " failed  " << std::setw(4) << c.skipped << " skipped\n";
+
+  if (!coverage.empty()) {
+    bool recorded = false;
+    runExtensions(results, &recorded);
+    size_t extWidth = 12;
+    for (const auto &c : coverage)
+      extWidth = std::max(extWidth, c.extension.size() + 1);
+    out << "  by extension (Cases for which it is primary):\n";
+    if (!recorded && !results.empty())
+      out << "    note: the run did not record the device's extensions "
+             "(sidecars older than schema v"
+          << kSidecarSchemaVersion
+          << "); \"advertised\" is inferred from the Cases that ran\n";
+    out << "    " << std::left << std::setw(static_cast<int>(extWidth))
+        << "extension" << std::right << "advertised  passed  failed  skipped"
+        << "  state\n";
+    for (const auto &c : coverage)
+      out << "    " << std::left << std::setw(static_cast<int>(extWidth))
+          << c.extension << std::right << std::setw(10)
+          << (c.advertised ? "yes" : "no") << std::setw(8) << c.passed
+          << std::setw(8) << c.failed << std::setw(9) << c.skipped << "  "
+          << coverageStateName(c.state) << "\n";
+  }
 
   const auto keys = reportCaseKeys(results, includeAll);
   if (keys.empty())

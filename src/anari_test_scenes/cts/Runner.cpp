@@ -138,6 +138,8 @@ CaseResult baseResult(
   r.caseId = c.id();
   r.groundTruthKey = c.groundTruthKey();
   r.device = device;
+  r.requiredFeatures = test.requiredFeatures;
+  r.coveredFeatures = test.coveredFeatures;
   for (const auto &cv : c.values)
     r.axisValues.emplace_back(cv.axisName, anyToString(cv.value));
   return r;
@@ -237,6 +239,9 @@ void Runner::resolveCapabilities(const std::set<std::string> &features)
       ? m_options.accumulationFrames
       : 1;
   m_denoiseEnabled = m_options.denoise;
+  // Every sidecar records what the device advertised (schema v3), so the
+  // report can tell "not advertised" from "advertised, but failed".
+  m_options.device.extensions.assign(features.begin(), features.end());
   resolveRendererParamTypes();
 }
 
@@ -309,12 +314,17 @@ Runner::SceneObjects Runner::buildScene(const TestDef &test, const Case &c)
   return scene;
 }
 
-void Runner::writeFeatureSkip(
-    const TestDef &test, const Case &c, RunSummary &summary)
+void Runner::writeFeatureSkip(const TestDef &test,
+    const Case &c,
+    const std::set<std::string> &features,
+    RunSummary &summary)
 {
   CaseResult result = baseResult(test, c, m_options.device);
   result.verdict = Verdict::Skipped;
-  result.skipReason = "device is missing a required feature";
+  result.missingFeatures = missingFeatures(test, features);
+  result.skipReason = "device is missing a required feature:";
+  for (size_t i = 0; i < result.missingFeatures.size(); ++i)
+    result.skipReason += (i ? ", " : " ") + result.missingFeatures[i];
   recordResult(c, result, summary);
 }
 
@@ -458,7 +468,7 @@ RunSummary Runner::run(const Catalog &catalog,
       // built mid-case are released by buildScene/renderCase as they unwind.
       try {
         if (!isSupported(*test, candidateFeatures)) {
-          writeFeatureSkip(*test, c, summary);
+          writeFeatureSkip(*test, c, candidateFeatures, summary);
           continue;
         }
 
@@ -572,7 +582,7 @@ void Runner::runBehaviorTest(const TestDef &test,
     summary.total++;
 
     if (!isSupported(test, candidateFeatures)) {
-      writeFeatureSkip(test, c, summary);
+      writeFeatureSkip(test, c, candidateFeatures, summary);
       continue;
     }
 

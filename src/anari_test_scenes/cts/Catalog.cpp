@@ -16,6 +16,17 @@ bool isSupported(
   return true;
 }
 
+std::vector<std::string> missingFeatures(
+    const TestDef &test, const std::set<std::string> &deviceFeatures)
+{
+  std::vector<std::string> out;
+  for (const auto &f : test.requiredFeatures) {
+    if (deviceFeatures.find(f) == deviceFeatures.end())
+      out.push_back(f);
+  }
+  return out;
+}
+
 const TestDef &Catalog::add(TestDef test)
 {
   m_tests.push_back(std::move(test));
@@ -51,6 +62,14 @@ std::vector<const TestDef *> Catalog::filter(const Filter &f) const
     if (matches(f, t))
       out.push_back(&t);
   }
+  return out;
+}
+
+std::set<std::string> coveredExtensions(const Catalog &catalog)
+{
+  std::set<std::string> out;
+  for (const auto &t : catalog.tests())
+    out.insert(t.coveredFeatures.begin(), t.coveredFeatures.end());
   return out;
 }
 

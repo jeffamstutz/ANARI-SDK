@@ -148,7 +148,7 @@ TEST_CASE("sidecar JSON carries the contract fields", "[cts][sidecar]")
   const std::string text = toJson(r);
 
   // Spot-check the contract surface without depending on key ordering.
-  CHECK(text.find("\"schemaVersion\": 2") != std::string::npos);
+  CHECK(text.find("\"schemaVersion\": 3") != std::string::npos);
   CHECK(text.find("\"verdict\": \"passed\"") != std::string::npos);
   CHECK(text.find("\"description\": \"Checks sphere geometry rendering.\"")
       != std::string::npos);

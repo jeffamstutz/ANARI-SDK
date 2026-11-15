@@ -181,7 +181,8 @@ void registerMaterialTests(Catalog &catalog)
               constant("opaque"),
               constant("blend")})
       .permute("alphaCutoff", V{unsetBinding(), constant(0.1f)})
-      .requireFeature(kMatte)
+      .covers(kMatte)
+      .requireFeature("ANARI_KHR_GEOMETRY_TRIANGLE")
       .registerInto(catalog);
 
   makeTest("material", "matte_color")
@@ -204,7 +205,8 @@ void registerMaterialTests(Catalog &catalog)
               constant(float3(0.98f, 0.5f, 0.44f)),
               attribute("attribute0"),
               sampler(0)})
-      .requireFeature(kMatte)
+      .covers(kMatte)
+      .requireFeature("ANARI_KHR_GEOMETRY_TRIANGLE")
       .registerInto(catalog);
 
   makeTest("material", "matte_opacity")
@@ -229,7 +231,8 @@ void registerMaterialTests(Catalog &catalog)
               constant(0.5f),
               attribute("attribute2"),
               sampler(0)})
-      .requireFeature(kMatte)
+      .covers(kMatte)
+      .requireFeature("ANARI_KHR_GEOMETRY_TRIANGLE")
       .registerInto(catalog);
 
   // ---- physicallyBased ------------------------------------------------------
@@ -258,7 +261,8 @@ void registerMaterialTests(Catalog &catalog)
               constant("blend"),
               constant("mask")})
       .permute("alphaCutoff", V{unsetBinding(), constant(0.1f)})
-      .requireFeature(kPbr)
+      .covers(kPbr)
+      .requireFeature("ANARI_KHR_GEOMETRY_TRIANGLE")
       .registerInto(catalog);
 
   makeTest("material", "pbr_base_color")
@@ -281,7 +285,8 @@ void registerMaterialTests(Catalog &catalog)
               constant(float3(0.98f, 0.5f, 0.44f)),
               attribute("attribute0"),
               sampler(0)})
-      .requireFeature(kPbr)
+      .covers(kPbr)
+      .requireFeature("ANARI_KHR_GEOMETRY_TRIANGLE")
       .registerInto(catalog);
 
   makeTest("material", "pbr_clearcoat")
@@ -313,7 +318,8 @@ void registerMaterialTests(Catalog &catalog)
               attribute("attribute0"),
               sampler(0)})
       .permute("clearcoatNormal", V{unsetBinding(), sampler(1)})
-      .requireFeature(kPbr)
+      .covers(kPbr)
+      .requireFeature("ANARI_KHR_GEOMETRY_TRIANGLE")
       .registerInto(catalog);
 
   makeTest("material", "pbr_emissive")
@@ -336,7 +342,8 @@ void registerMaterialTests(Catalog &catalog)
               constant(float3(1.f, 0.f, 0.f)),
               attribute("attribute0"),
               sampler(0)})
-      .requireFeature(kPbr)
+      .covers(kPbr)
+      .requireFeature("ANARI_KHR_GEOMETRY_TRIANGLE")
       .registerInto(catalog);
 
   makeTest("material", "pbr_ior")
@@ -356,7 +363,8 @@ void registerMaterialTests(Catalog &catalog)
             });
       })
       .permute("ior", V{unsetBinding(), constant(2.42f)})
-      .requireFeature(kPbr)
+      .covers(kPbr)
+      .requireFeature("ANARI_KHR_GEOMETRY_TRIANGLE")
       .registerInto(catalog);
 
   makeTest("material", "pbr_iridescence")
@@ -388,7 +396,8 @@ void registerMaterialTests(Catalog &catalog)
               unsetBinding(),
               attribute("attribute0"),
               sampler(0)})
-      .requireFeature(kPbr)
+      .covers(kPbr)
+      .requireFeature("ANARI_KHR_GEOMETRY_TRIANGLE")
       .registerInto(catalog);
 
   makeTest("material", "pbr_metallic_roughness")
@@ -419,7 +428,8 @@ void registerMaterialTests(Catalog &catalog)
               attribute("attribute0"),
               sampler(0)})
       .permute("normal", V{unsetBinding(), sampler(1)})
-      .requireFeature(kPbr)
+      .covers(kPbr)
+      .requireFeature("ANARI_KHR_GEOMETRY_TRIANGLE")
       .registerInto(catalog);
 
   makeTest("material", "pbr_opacity")
@@ -444,7 +454,8 @@ void registerMaterialTests(Catalog &catalog)
               constant(0.5f),
               attribute("attribute2"),
               sampler(0)})
-      .requireFeature(kPbr)
+      .covers(kPbr)
+      .requireFeature("ANARI_KHR_GEOMETRY_TRIANGLE")
       .registerInto(catalog);
 
   makeTest("material", "pbr_sheen")
@@ -474,7 +485,8 @@ void registerMaterialTests(Catalog &catalog)
               unsetBinding(),
               attribute("attribute0"),
               sampler(1)})
-      .requireFeature(kPbr)
+      .covers(kPbr)
+      .requireFeature("ANARI_KHR_GEOMETRY_TRIANGLE")
       .registerInto(catalog);
 
   makeTest("material", "pbr_specular")
@@ -504,7 +516,8 @@ void registerMaterialTests(Catalog &catalog)
               unsetBinding(),
               attribute("attribute0"),
               sampler(0)})
-      .requireFeature(kPbr)
+      .covers(kPbr)
+      .requireFeature("ANARI_KHR_GEOMETRY_TRIANGLE")
       .registerInto(catalog);
 
   makeTest("material", "pbr_thickness")
@@ -533,7 +546,8 @@ void registerMaterialTests(Catalog &catalog)
       .permute("attenuationDistance", V{constant(0.5f), unsetBinding()})
       .permute("attenuationColor",
           V{constant(float3(0.98f, 0.5f, 0.44f)), unsetBinding()})
-      .requireFeature(kPbr)
+      .covers(kPbr)
+      .requireFeature("ANARI_KHR_GEOMETRY_TRIANGLE")
       .registerInto(catalog);
 
   makeTest("material", "pbr_transmission")
@@ -556,7 +570,8 @@ void registerMaterialTests(Catalog &catalog)
               constant(0.5f),
               attribute("attribute0"),
               sampler(0)})
-      .requireFeature(kPbr)
+      .covers(kPbr)
+      .requireFeature("ANARI_KHR_GEOMETRY_TRIANGLE")
       .registerInto(catalog);
 }
 

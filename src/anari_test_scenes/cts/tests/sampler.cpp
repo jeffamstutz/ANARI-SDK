@@ -26,8 +26,6 @@ using anari::math::mat4;
 using anari::math::uint3;
 using V = std::vector<Any>;
 
-const char *kMatte = "ANARI_KHR_MATERIAL_MATTE";
-
 // The transform/offset constants the JSON scenes reused (column-major: each
 // argument is a matrix column; the last column is the translation).
 const mat4 kInTransform = mat4(float4(-0.5f, -1.f, 0.f, 0.f),
@@ -178,7 +176,8 @@ void registerSamplerTests(Catalog &catalog)
       .permute("outTransform", outXform)
       .permute("inOffset", offset)
       .permute("outOffset", offset)
-      .requireFeatures({"ANARI_KHR_SAMPLER_IMAGE1D", kMatte})
+      .covers("ANARI_KHR_SAMPLER_IMAGE1D")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- image2D --------------------------------------------------------------
@@ -216,7 +215,8 @@ void registerSamplerTests(Catalog &catalog)
       .permute("outTransform", outXform)
       .permute("inOffset", offset)
       .permute("outOffset", offset)
-      .requireFeatures({"ANARI_KHR_SAMPLER_IMAGE2D", kMatte})
+      .covers("ANARI_KHR_SAMPLER_IMAGE2D")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- image3D --------------------------------------------------------------
@@ -258,7 +258,8 @@ void registerSamplerTests(Catalog &catalog)
       .permute("outTransform", outXform)
       .permute("inOffset", offset)
       .permute("outOffset", offset)
-      .requireFeatures({"ANARI_KHR_SAMPLER_IMAGE3D", kMatte})
+      .covers("ANARI_KHR_SAMPLER_IMAGE3D")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- primitive ------------------------------------------------------------
@@ -289,7 +290,8 @@ void registerSamplerTests(Catalog &catalog)
       })
       .permute("inOffset", V{none(), Any(kPrimitiveOffset)})
       .permute("arrayDim", {"1", "2", "3", "4"})
-      .requireFeatures({"ANARI_KHR_SAMPLER_PRIMITIVE", kMatte})
+      .covers("ANARI_KHR_SAMPLER_PRIMITIVE")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
   // ---- transform ------------------------------------------------------------
@@ -307,7 +309,8 @@ void registerSamplerTests(Catalog &catalog)
       })
       .permute("outTransform", outXform)
       .permute("outOffset", offset)
-      .requireFeatures({"ANARI_KHR_SAMPLER_TRANSFORM", kMatte})
+      .covers("ANARI_KHR_SAMPLER_TRANSFORM")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 }
 

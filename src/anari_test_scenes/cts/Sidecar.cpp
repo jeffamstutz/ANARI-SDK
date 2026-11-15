@@ -64,7 +64,11 @@ std::string toJson(const CaseResult &result)
   // by this identity instead of by workdir name.
   j["device"] = {{"library", result.device.library},
       {"device", result.device.device},
-      {"renderer", result.device.renderer}};
+      {"renderer", result.device.renderer},
+      {"extensions", result.device.extensions}};
+  j["requiredFeatures"] = result.requiredFeatures;
+  j["coveredFeatures"] = result.coveredFeatures;
+  j["missingFeatures"] = result.missingFeatures;
   j["verdict"] = verdictName(result.verdict);
   j["skipReason"] = result.skipReason;
   j["detail"] = result.detail;
@@ -110,6 +114,20 @@ double numberOrNan(const json &j)
                        : std::numeric_limits<double>::quiet_NaN();
 }
 
+// An array of strings, or empty when absent or malformed; non-string
+// elements are dropped.
+std::vector<std::string> readStrings(const json &obj, const char *key)
+{
+  std::vector<std::string> out;
+  const auto it = obj.find(key);
+  if (it == obj.end() || !it->is_array())
+    return out;
+  for (const auto &e : *it)
+    if (e.is_string())
+      out.push_back(e.get<std::string>());
+  return out;
+}
+
 void readMetricMap(const json &obj, std::map<std::string, double> &out)
 {
   if (!obj.is_object())
@@ -139,7 +157,11 @@ bool fromJson(const std::string &text, CaseResult &out, bool *schemaMismatch)
     out.device.library = d->value("library", "");
     out.device.device = d->value("device", "default");
     out.device.renderer = d->value("renderer", "default");
+    out.device.extensions = readStrings(*d, "extensions");
   }
+  out.requiredFeatures = readStrings(j, "requiredFeatures");
+  out.coveredFeatures = readStrings(j, "coveredFeatures");
+  out.missingFeatures = readStrings(j, "missingFeatures");
   out.verdict = verdictFromName(j.value("verdict", "skipped"));
   out.skipReason = j.value("skipReason", "");
   out.detail = j.value("detail", "");

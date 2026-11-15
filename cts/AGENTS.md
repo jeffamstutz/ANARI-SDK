@@ -92,7 +92,10 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   ADR-0009), axes, required features, thresholds (test-wide + per-channel),
   channels.
 - `TestBuilder.{h,cpp}` — the `makeTest(...)` fluent builder. Note the verb is
-  `requireFeatures()`, not the C++20 keyword `requires`.
+  `requireFeatures()`, not the C++20 keyword `requires`. `covers(ext)` names a
+  primary extension (the Test is evidence for it; also required);
+  `requireFeatures()` alone declares support extensions. The shared support
+  sets are in `cts/tests/Categories.h`.
 - `Axis.h` / `Case.{h,cpp}` / `Expansion.{h,cpp}` — axes expand into Cases
   (cartesian, or one-factor-at-a-time when `simplified`); variants share a
   ground-truth key, permutations get distinct ones.
@@ -125,7 +128,9 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   per-channel diff/threshold images). `Sidecar` both writes (`toJson`/
   `writeSidecar`) and reads (`fromJson`/`readSidecar`) the contract.
 - `Report.{h,cpp}` — reads the results tree (`loadResults`), aggregates it
-  (`summarize`, `runDevice`), and emits the text summary. `kReportMetrics` is
+  (`summarize`, `runDevice`, and per extension `extensionCoverage` over the
+  canonical KHR list from `code_gen/api/` and the Catalog's covered
+  extensions), and emits the text summary. `kReportMetrics` is
   the single list of reported metrics. Pure; unit-tested.
 - `HtmlReport.{h,cpp}` — renders the self-contained interactive HTML report
   (inline CSS/JS, optional base64 `--embed`); pure `htmlEscape`/`base64Encode`
@@ -161,7 +166,9 @@ tree exactly as the C++ `report` does. Text and HTML live in C++.
 **New Test:** add a `makeTest(...)....registerInto(catalog)` to the relevant
 `cts/tests/<category>.cpp`. Author the world in `build()` with ANARI C++ calls
 plus the focused `*Builder.h` helpers; add a short `description()` of the
-primary check, then declare axes, required features, and channels.
+primary check, then declare axes, the primary extension(s) with `covers()`,
+the support extensions the scene can't do without with `requireFeatures()`
+(a missing one must skip the Test, not fail it), and channels.
 
 **New synchronization rule** (or any check a device fails by hanging): a
 behaviour Test in `cts/tests/synchronization.cpp` with `.timeout(...)` and
@@ -185,5 +192,7 @@ order for two independent readers of the one contract.
 it when a change is either breaking *or* semantically significant to consumers —
 i.e. a field they should know to rely on — and update both readers in lockstep.
 v2 did the latter: it added the `device` object that labels a run (plus the
-optional per-channel `diffImage`/`thresholdImage` debug paths), so the readers
-target v2 and warn on older sidecars, prompting a regenerate.
+optional per-channel `diffImage`/`thresholdImage` debug paths). v3 added the
+extensions behind a Case (`requiredFeatures`, `coveredFeatures`,
+`missingFeatures`, `device.extensions`) for the per-extension report, so the
+readers target v3 and warn on older sidecars, prompting a regenerate.

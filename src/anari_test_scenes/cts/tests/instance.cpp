@@ -66,8 +66,8 @@ void registerInstanceTests(Catalog &catalog)
         return world;
       })
       .channels({Channel::Color, Channel::Depth})
-      .requireFeatures(
-          {"ANARI_KHR_GEOMETRY_TRIANGLE", "ANARI_KHR_INSTANCE_TRANSFORM"})
+      .covers("ANARI_KHR_INSTANCE_TRANSFORM")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 }
 

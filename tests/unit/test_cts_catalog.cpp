@@ -14,6 +14,7 @@
 // anari
 #include "anari/frontend/anari_extension_utility.h"
 // std
+#include <algorithm>
 #include <set>
 #include <string>
 
@@ -310,6 +311,75 @@ TEST_CASE("built-in Tests require only canonical extensions",
   }
 }
 
+TEST_CASE("built-in Tests cover only canonical extensions they require",
+    "[cts][catalog][features]")
+{
+  std::set<std::string> canonicalNames;
+  for (auto name = anariGetExtensionNames(); *name; ++name)
+    canonicalNames.insert(*name);
+
+  Catalog catalog;
+  registerBuiltinTests(catalog);
+  for (const auto &test : catalog.tests()) {
+    for (const auto &feature : test.coveredFeatures) {
+      DYNAMIC_SECTION(test.id() << " covers " << feature)
+      {
+        CHECK(canonicalNames.count(feature) == 1);
+        CHECK(std::count(test.requiredFeatures.begin(),
+                  test.requiredFeatures.end(),
+                  feature)
+            == 1);
+      }
+    }
+  }
+}
+
+// A Test that builds a lit matte triangle scene must require what it builds,
+// so a device without one of those skips the Test instead of failing it.
+TEST_CASE("built-in Tests require the support extensions their scenes use",
+    "[cts][catalog][features]")
+{
+  Catalog catalog;
+  registerBuiltinTests(catalog);
+  const auto needs = [](const TestDef &t, const char *feature) {
+    return std::count(
+               t.requiredFeatures.begin(), t.requiredFeatures.end(), feature)
+        == 1;
+  };
+  for (const auto &test : catalog.tests()) {
+    if (test.category != "light")
+      continue;
+    DYNAMIC_SECTION(test.id())
+    {
+      CHECK(test.coveredFeatures.size() == 1);
+      CHECK(needs(test, "ANARI_KHR_GEOMETRY_TRIANGLE"));
+      CHECK(needs(test, "ANARI_KHR_MATERIAL_MATTE"));
+    }
+  }
+
+  const auto *instance = [&]() -> const TestDef * {
+    for (const auto &t : catalog.tests())
+      if (t.id() == "instance/instance")
+        return &t;
+    return nullptr;
+  }();
+  REQUIRE(instance);
+  CHECK(instance->coveredFeatures
+      == std::vector<std::string>{"ANARI_KHR_INSTANCE_TRANSFORM"});
+  CHECK(needs(*instance, "ANARI_KHR_MATERIAL_MATTE"));
+}
+
+TEST_CASE("the built-in catalog covers the extensions it tests",
+    "[cts][catalog][features]")
+{
+  Catalog catalog;
+  registerBuiltinTests(catalog);
+  const auto covered = coveredExtensions(catalog);
+  CHECK(covered.count("ANARI_KHR_LIGHT_POINT") == 1);
+  CHECK(covered.count("ANARI_KHR_GEOMETRY_TRIANGLE") == 1);
+  CHECK(covered.count("ANARI_KHR_CAMERA_STEREO") == 0); // no Test yet
+}
+
 TEST_CASE("every built-in Test has a human-readable description",
     "[cts][catalog][description]")
 {
@@ -345,7 +415,39 @@ TEST_CASE("isSupported requires every feature to be present", "[cts][features]")
   }
 }
 
+TEST_CASE("missingFeatures names the absent required features in order",
+    "[cts][features]")
+{
+  auto t = makeTest("light", "point")
+               .covers("ANARI_KHR_LIGHT_POINT")
+               .requireFeatures(
+                   {"ANARI_KHR_GEOMETRY_TRIANGLE", "ANARI_KHR_MATERIAL_MATTE"})
+               .take();
+  CHECK(missingFeatures(t, {"ANARI_KHR_MATERIAL_MATTE"})
+      == std::vector<std::string>{
+          "ANARI_KHR_LIGHT_POINT", "ANARI_KHR_GEOMETRY_TRIANGLE"});
+  CHECK(missingFeatures(t,
+      {"ANARI_KHR_LIGHT_POINT",
+          "ANARI_KHR_GEOMETRY_TRIANGLE",
+          "ANARI_KHR_MATERIAL_MATTE"})
+          .empty());
+}
+
 // Builder /////////////////////////////////////////////////////////////////////
+
+TEST_CASE("covers names a primary extension and requires it", "[cts][builder]")
+{
+  auto t = makeTest("light", "point")
+               .covers("ANARI_KHR_LIGHT_POINT")
+               .requireFeatures({"ANARI_KHR_GEOMETRY_TRIANGLE",
+                   "ANARI_KHR_LIGHT_POINT"}) // already required: not repeated
+               .covers("ANARI_KHR_LIGHT_POINT") // not repeated either
+               .take();
+  CHECK(t.coveredFeatures == std::vector<std::string>{"ANARI_KHR_LIGHT_POINT"});
+  CHECK(t.requiredFeatures
+      == std::vector<std::string>{
+          "ANARI_KHR_LIGHT_POINT", "ANARI_KHR_GEOMETRY_TRIANGLE"});
+}
 
 TEST_CASE(
     "makeTest builds a TestDef with the configured fields", "[cts][builder]")

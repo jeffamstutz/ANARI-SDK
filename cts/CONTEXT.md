@@ -15,6 +15,17 @@ description, world-build function, axes, required features, thresholds, and
 bounds tolerance. A Test expands into one or more Cases.
 _Avoid_: scene, test scene (for this concept)
 
+**Primary extension**:
+An extension a Test is evidence for (`covers(...)`): its Cases count toward
+that extension in the Report's per-extension matrix. Always also required.
+_Avoid_: tested feature
+
+**Support extension**:
+An extension a Test needs only to build its scene (the triangle and matte
+material its surface is made of), required but not covered. A Test requires an
+extension only when it can't work without it; an incidental light is not
+required.
+
 **Axis**:
 A named parameter dimension a Test is expanded over. Every Axis is either a
 Permutation or a Variant.
@@ -64,8 +75,9 @@ id) that can be compared independently.
 **Sidecar**:
 The machine-readable JSON file the C++ runner writes next to a Case's images:
 which axis values it ran, its per-channel metric scores and pass/fail verdict,
-any skip reason, timing, image paths, and the producing device's identity. One
-per Case.
+any skip reason, timing, image paths, the producing device's identity and the
+extensions it advertised, and the Test's required, primary and missing
+extensions. One per Case.
 _Avoid_: manifest, results file
 
 **Results tree**:
@@ -78,7 +90,11 @@ _Avoid_: manifest
 **Report**:
 The human-facing summary of one run, produced by `anariCts report` from the
 Results tree: a text summary (default) or an interactive HTML report (`--html`).
-A PDF is an optional extra still produced by `ctsReport.py`.
+Both include a per-extension matrix: for every canonical KHR extension, whether
+the device advertised it, the passed/failed/skipped Cases it is primary for, and
+a state (`passed`, `failed`, `not advertised`, `advertised, no Ground truth`,
+...; `no Test` when the Catalog has no Test covering it). A PDF is an optional
+extra still produced by `ctsReport.py`.
 _Avoid_: manifest
 
 ### Tooling

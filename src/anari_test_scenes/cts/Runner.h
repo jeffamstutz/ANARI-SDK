@@ -134,9 +134,12 @@ struct Runner
   // parsed is skipped with a warning.
   void applyRendererParams(anari::Renderer renderer);
 
-  // Write a "missing required feature" skip sidecar for a Case and tally it.
-  void writeFeatureSkip(
-      const TestDef &test, const Case &c, RunSummary &summary);
+  // Write a "missing required feature" skip sidecar for a Case, naming the
+  // required features absent from `features`, and tally it.
+  void writeFeatureSkip(const TestDef &test,
+      const Case &c,
+      const std::set<std::string> &features,
+      RunSummary &summary);
 
   // Publish a Case's complete result and tally its verdict. A publication
   // failure always tallies as failed, regardless of the intended verdict.

@@ -555,7 +555,14 @@ TEST_CASE(
     CHECK(bogusText.find(
               "\"description\": \"Checks feature-gated Test reporting.\"")
         != std::string::npos);
-    CHECK(bogusText.find("feature") != std::string::npos);
+    CaseResult bogusResult;
+    REQUIRE(readSidecar(wd.sidecarPath(bogus), bogusResult));
+    CHECK(bogusResult.missingFeatures
+        == std::vector<std::string>{"ANARI_KHR_BOGUS_FEATURE"});
+    CHECK(bogusResult.requiredFeatures
+        == std::vector<std::string>{"ANARI_KHR_BOGUS_FEATURE"});
+    CHECK(bogusResult.skipReason.find("ANARI_KHR_BOGUS_FEATURE")
+        != std::string::npos);
   }
 
   SECTION("a result directory creation failure fails the Case")

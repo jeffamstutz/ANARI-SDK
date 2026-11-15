@@ -87,8 +87,8 @@ void registerVolumeTests(Catalog &catalog)
       .permute("opacity", {"array", "scalar"})
       .permute("unitDistance", V{none(), Any(0.1f)})
       .channels({Channel::Color, Channel::Depth})
-      .requireFeatures({"ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR",
-          "ANARI_KHR_VOLUME_TRANSFER_FUNCTION1D"})
+      .covers("ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR")
+      .covers("ANARI_KHR_VOLUME_TRANSFER_FUNCTION1D")
       .registerInto(catalog);
 }
 
