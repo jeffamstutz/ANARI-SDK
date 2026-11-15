@@ -29,18 +29,18 @@ ANARIDataType channelDefaultFormat(Channel channel);
 
 // Map an output-format axis string to its ANARIDataType, or ANARI_UNKNOWN for
 // an unrecognized string so the caller can fall back to the channel default.
-ANARIDataType colorFormatFromString(
-    const std::string &s);
-ANARIDataType albedoFormatFromString(
-    const std::string &s);
-ANARIDataType normalFormatFromString(
-    const std::string &s);
+ANARIDataType colorFormatFromString(const std::string &s);
+ANARIDataType albedoFormatFromString(const std::string &s);
+ANARIDataType normalFormatFromString(const std::string &s);
 
 // The output format a Case requests for a channel: its output-format axis value
 // (frame_color_type / frame_albedo_type / frame_normal_type) when present and
 // recognized, else the channel's fixed default.
-ANARIDataType caseChannelFormat(
-    const Case &c, Channel channel);
+ANARIDataType caseChannelFormat(const Case &c, Channel channel);
+
+// Whether an axis is an output-format axis (`frame_<channel>_type`): it
+// selects a buffer format, so its values legitimately render alike.
+bool isFrameTypeAxis(const std::string &axisName);
 
 } // namespace cts
 } // namespace anari

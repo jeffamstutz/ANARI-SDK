@@ -5,6 +5,7 @@
 
 #include "Case.h"
 #include "Channel.h"
+#include "FrameFormats.h"
 #include "Image.h"
 #include "TestDef.h"
 #include "Workdir.h"
@@ -27,10 +28,6 @@
 namespace anari {
 namespace cts {
 
-// Whether an axis only selects a frame output format (`frame_<channel>_type`):
-// its values legitimately render alike, so it is never a pairing axis.
-bool isFrameTypeAxis(const std::string &axisName);
-
 // Two Cases (indices into the Test's Cases) whose Ground truth must differ:
 // they differ only in one value of the Permutation axis `axis`, `first`
 // holding the earlier value in the axis's value order.
@@ -44,9 +41,8 @@ struct DiscriminationPair
 // Every pair of Cases of a Test that differ in exactly one Permutation axis
 // value: all pairs within each group of relationGroups() (cartesian: one group
 // per combination of the other axes; simplified: the baseline and the axis's
-// other Cases). Variant axes, `frame_<channel>_type` axes and axes opted out of
-// the effect check (`.noEffectCheck`, whose reason already says why the image
-// can't show it) are not pairing axes. Pairs that compare the same two
+// other Cases). Variant axes and `frame_<channel>_type` axes are not pairing
+// axes. Pairs that compare the same two
 // Ground-truth files (Cases differing also in a Variant value) are listed once.
 std::vector<DiscriminationPair> discriminationPairs(
     const TestDef &test, const std::vector<Case> &cases);

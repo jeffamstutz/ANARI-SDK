@@ -119,9 +119,10 @@ commands:
   check-properties <device>  report which tests the device can run vs. will skip
   report <workdir>           summarize a run's results tree (text + optional HTML)
   check-discrimination [options]
-                             score each pair of Cases differing in one Permutation
-                             value's Ground truth against each other; fail on a
-                             pair that passes as the other and isn't allow-listed
+                             score the Ground truth of each pair of Cases differing
+                             in one Permutation value against each other; fail
+                             on a pair that passes as the other and isn't
+                             allow-listed
 
 options:
   --filter <pattern>   select a slice of the catalog (substring or glob over <category>/<test>,
