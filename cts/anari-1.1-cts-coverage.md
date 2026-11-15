@@ -24,10 +24,6 @@ Spec premise: section 2.4 says extensions are observable ANARI API behavior, usu
 | synchronization | 2 | 2 |
 | volume | 1 | 10 |
 
-The asset-scanning tests that once existed outside these categories have since been
-removed from the CTS; they declared no ANARI extension requirements, so they never
-counted as extension coverage.
-
 ## Extensions Currently Tested
 
 The CTS currently gates tests on 36 ANARI 1.1 extension names. A unit test

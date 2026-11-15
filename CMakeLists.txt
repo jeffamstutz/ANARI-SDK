@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.11)
 
-# Honor normal/cache variables (e.g. -DUSE_DRACO=ON) set before option().
+# Let a parent project set() an option as a normal variable before option().
 if (POLICY CMP0077)
   cmake_policy(SET CMP0077 NEW)
 endif ()
