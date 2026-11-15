@@ -53,8 +53,8 @@ When no isolation is set up, the runner runs a timed Test in-process like any
 behaviour test, without enforcing the timeout. That is the case in the child
 (so it doesn't start a grandchild) and in the unit tests, which drive the
 runner directly and rely on the ctest `TIMEOUT` instead. The in-process unit
-test runs only rules 1 and 2; the concurrent rules (3 and 4 below) are stress
-tests, so they run only isolated (`unit_test::cts::isolated_run`), where a
+test runs only rules 1 and 2; the concurrent rules (3 and 4 below) depend on
+timing, so they run only isolated (`unit_test::cts::isolated_run`), where a
 flake or a crash costs one Case rather than the whole unit-test binary.
 
 ## Considered Options
