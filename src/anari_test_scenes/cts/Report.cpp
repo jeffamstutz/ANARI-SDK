@@ -187,7 +187,7 @@ const char *coverageStateName(CoverageState state)
   case CoverageState::NotAdvertisedNoTest:
     return "not advertised, no Test";
   }
-  return "not advertised, no Test";
+  return "unknown";
 }
 
 std::set<std::string> runExtensions(
@@ -220,8 +220,8 @@ std::vector<ExtensionCoverage> extensionCoverage(
   for (const auto &ext : tested)
     row(ext).tested = true;
 
-  // Skips for want of Ground truth, per extension; the others skipped for a
-  // missing (support or primary) extension.
+  // The extensions with a Case skipped for want of Ground truth; other skips
+  // are for a missing extension.
   std::set<std::string> noGroundTruth;
   for (const auto &[key, r] : results) {
     for (const auto &ext : r.coveredFeatures) {
@@ -235,7 +235,7 @@ std::vector<ExtensionCoverage> extensionCoverage(
         break;
       case Verdict::Skipped:
         ++c.skipped;
-        if (r.missingFeatures.empty())
+        if (r.skipReason == kNoGroundTruthReason)
           noGroundTruth.insert(ext);
         break;
       }

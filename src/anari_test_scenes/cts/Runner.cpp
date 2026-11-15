@@ -487,7 +487,7 @@ RunSummary Runner::run(const Catalog &catalog,
         }
         if (!haveGroundTruth) {
           result.verdict = Verdict::Skipped;
-          result.skipReason = "no ground truth (run generate first)";
+          result.skipReason = kNoGroundTruthReason;
           recordResult(c, result, summary);
           continue;
         }
