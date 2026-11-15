@@ -321,11 +321,20 @@ void writeTextSummary(std::ostream &out,
     const std::string &workdir,
     const std::map<std::string, CaseResult> &results,
     bool includeAll,
-    const std::vector<ExtensionCoverage> &coverage)
+    const std::vector<ExtensionCoverage> &coverage,
+    const DeviceFailure *deviceFailure)
 {
   const Summary s = summarize(results);
   out << "CTS report: " << workdir << "\n";
-  if (const auto device = runDevice(results, out))
+  if (deviceFailure) {
+    const auto &device = deviceFailure->device;
+    out << "  device could not render: " << deviceFailure->reason << "\n";
+    out << "  device: " << device.library << " (" << device.device << "/"
+        << device.renderer << ")\n";
+    if (results.empty())
+      return;
+    out << "  the Case results below are from an earlier run\n";
+  } else if (const auto device = runDevice(results, out))
     out << "  device: " << device->library << " (" << device->device << "/"
         << device->renderer << ")\n";
   out << "  " << s.total << " cases: " << s.passed << " passed, " << s.failed

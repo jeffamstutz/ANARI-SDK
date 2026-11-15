@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "DeviceFailure.h"
 #include "Sidecar.h"
 // std
 #include <filesystem>
@@ -140,12 +141,16 @@ std::vector<std::string> reportCaseKeys(
     const std::map<std::string, CaseResult> &results, bool includeAll);
 
 // Write the text summary (counts, per-category table, the per-extension
-// table when `coverage` is non-empty, itemized cases).
+// table when `coverage` is non-empty, itemized cases). With `deviceFailure`
+// (the run stopped because the device could not render, readDeviceFailure()),
+// it leads with why; any Case results then come from an earlier run, and with
+// none, the summary ends there.
 void writeTextSummary(std::ostream &out,
     const std::string &workdir,
     const std::map<std::string, CaseResult> &results,
     bool includeAll,
-    const std::vector<ExtensionCoverage> &coverage = {});
+    const std::vector<ExtensionCoverage> &coverage = {},
+    const DeviceFailure *deviceFailure = nullptr);
 
 } // namespace cts
 } // namespace anari

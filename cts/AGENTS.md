@@ -68,6 +68,14 @@ element types/description/source extension. It is distinct from
 `--filter` is a substring or glob (`*`,`?`) matched case-insensitively over a
 test's `<category>/<test>` id. `run` and `report` exit non-zero on any failure.
 
+Before the first Case, `run` and `generate` render a small probe frame (an
+empty world). A device that can't render it (say, helide_gpu without SDL3 on
+the loader path) stops the command with exit code 2 and one error naming the
+device's own ERROR messages, instead of failing every Case. `run` then writes
+`results/run.json` (not a Sidecar: it has no `verdict`), and `report` leads
+with "device could not render: <reason>" and exits non-zero. A run whose device
+renders the probe removes that record.
+
 ## Architecture
 
 ```
@@ -111,7 +119,10 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   `ProcessCaseIsolation`: `anariCts run` re-running itself with
   `--isolated-case` for each Case of a timed Test (ADR-0009).
 - `DeviceErrorLog.{h,cpp}` — the ERROR messages a device reported, recorded
-  by the status callback, for `failOnDeviceErrors`.
+  by the status callback, for `failOnDeviceErrors` and the probe frame.
+- `DeviceFailure.{h,cpp}` — `probeDevice()`, the probe frame the Runner
+  renders before the first Case, and the run-level record
+  (`results/run.json`) of a device that could not render it.
 - `FrameReadback.{h,cpp}` — validates mapped frame descriptors and converts
   supported per-Channel formats behind the shared map/unmap boundary.
 - `FrameFormats.{h,cpp}` — resolves a Case's per-Channel output `ANARIDataType`

@@ -18,6 +18,7 @@
 // std
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -56,6 +57,9 @@ struct RunSummary
   int passed{0}; // generated, or passed comparison
   int failed{0};
   int skipped{0};
+  // Why the device could not render the probe frame (DeviceFailure.h); empty
+  // when it could. When set, no Case ran and the counts are zero.
+  std::string deviceFailure;
 };
 
 // Build, render, and score Cases against ground truth, writing images and
@@ -76,14 +80,20 @@ struct Runner
   void setCaseIsolation(std::shared_ptr<CaseIsolation> isolation);
 
   // Render every selected Case and save its channels under ground_truth/.
-  // Does not score or write sidecars (ADR-0005).
+  // Does not score or write sidecars (ADR-0005). Stops before the first Case,
+  // with RunSummary::deviceFailure set, if the device can't render the probe
+  // frame.
   RunSummary generate(const Catalog &catalog,
       const Filter &filter,
       const std::set<std::string> &referenceFeatures);
 
   // Render every selected Case, compare each channel against ground truth, and
   // write result images plus a sidecar. Cases whose required features are
-  // absent, or that have no ground truth yet, are recorded as skipped.
+  // absent, or that have no ground truth yet, are recorded as skipped. If the
+  // device can't render the probe frame, stops before the first Case with
+  // RunSummary::deviceFailure set and records that in the results tree
+  // instead (results/run.json); a run whose device renders it removes that
+  // record.
   RunSummary run(const Catalog &catalog,
       const Filter &filter,
       const std::set<std::string> &candidateFeatures);
@@ -167,6 +177,11 @@ struct Runner
   // timed out, crashed or wrote none.
   void runIsolatedCase(const TestDef &test, const Case &c, RunSummary &summary);
 
+  // Probe the device once per Runner (probeDevice()) and return why it can't
+  // render, or empty. There is nothing to probe without a device, and an
+  // isolated Case (RunOptions::onlyCase) runs after its parent probed.
+  const std::string &deviceFailure();
+
   // Whether run() runs Case 'c' (RunOptions::onlyCase).
   bool selected(const Case &c) const;
 
@@ -187,6 +202,8 @@ struct Runner
   // Declared parameter types for the selected renderer subtype (name -> type),
   // resolved once from device introspection to type the CLI overrides.
   std::map<std::string, ANARIDataType> m_rendererParamTypes;
+  // deviceFailure(), once probed.
+  std::optional<std::string> m_deviceFailure;
 };
 
 } // namespace cts

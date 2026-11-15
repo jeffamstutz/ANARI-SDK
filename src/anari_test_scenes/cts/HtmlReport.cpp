@@ -224,6 +224,13 @@ header {
 .no-images { color: var(--muted3); font-size: 12px; font-style: italic;
   padding: 20px; text-align: center; border: 1px dashed #ccd3da; border-radius: 9px;
   background: #fff; grid-column: 1 / -1; }
+/* a run stopped because the device could not render */
+.devfail { margin-top: 26px; padding: 14px 16px; border: 1px solid var(--fail);
+  border-left-width: 4px; border-radius: 9px; background: #fff; }
+.devfail .lbl { font-size: 11px; color: var(--fail); text-transform: uppercase;
+  letter-spacing: .07em; margin-bottom: 6px; font-weight: 600; }
+.devfail .reason { font-size: 13px; overflow-wrap: anywhere; }
+.devfail .note { font-size: 12px; color: var(--muted2); margin-top: 6px; }
 /* per-extension matrix */
 .coverage { margin-top: 26px; }
 .coverage .lbl { font-size: 11px; color: var(--muted2); text-transform: uppercase;
@@ -1009,8 +1016,9 @@ std::string generateHtml(const std::filesystem::path &workdir,
     wallMs += r.durationMs;
 
   std::ostringstream warnings;
-  const std::string label =
-      deviceLabel(results, workdir.filename().string(), warnings);
+  const std::string label = opts.deviceFailure
+      ? opts.deviceFailure->device.library
+      : deviceLabel(results, workdir.filename().string(), warnings);
   const std::string runName = workdir.filename().string();
   const std::string title = "ANARI CTS — " + runName;
 
@@ -1031,6 +1039,17 @@ std::string generateHtml(const std::filesystem::path &workdir,
         "style=\"font-size:13px;color:var(--dark);text-transform:none;"
         "letter-spacing:0;\">"
      << htmlEscape(runName) << "</span></div></header>";
+
+  // A device that could not render leads, ahead of anything else.
+  if (opts.deviceFailure) {
+    os << "<section class=\"devfail\"><div class=\"lbl\">Device could not "
+          "render</div><div class=\"reason kmono\">"
+       << htmlEscape(opts.deviceFailure->reason) << "</div>";
+    if (!results.empty())
+      os << "<div class=\"note\">The Case results below are from an earlier "
+            "run.</div>";
+    os << "</section>";
+  }
 
   // The per-extension matrix leads: what the device implements, gets wrong,
   // and lacks.

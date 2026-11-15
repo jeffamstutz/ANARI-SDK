@@ -8,6 +8,7 @@
 #include "cts/BuiltinTests.h"
 #include "cts/Catalog.h"
 #include "cts/DeviceErrorLog.h"
+#include "cts/DeviceFailure.h"
 #include "cts/Expansion.h"
 #include "cts/HtmlReport.h"
 #include "cts/Isolation.h"
@@ -300,6 +301,18 @@ anari::Device loadDevice(const std::string &name, anari::Library &lib)
   return d;
 }
 
+// Report a device that could not render the probe frame (Runner): the run
+// stopped before its first Case.
+int deviceFailed(const std::string &command,
+    const std::string &deviceName,
+    const std::string &reason)
+{
+  std::cerr << "error: " << command << ": device '" << deviceName
+            << "' could not render a probe frame, so no Case ran: " << reason
+            << "\n";
+  return 2;
+}
+
 Catalog buildCatalog()
 {
   Catalog catalog;
@@ -465,6 +478,11 @@ int cmdGenerate(const Options &o)
   Runner runner(d, Workdir(o.workdir), ro);
 
   auto s = runner.generate(catalog, Filter{o.filter}, features);
+  if (!s.deviceFailure.empty()) {
+    anari::release(d, d);
+    anari::unloadLibrary(lib);
+    return deviceFailed("generate", deviceName, s.deviceFailure);
+  }
   std::cout << "generate (" << deviceName << "): " << s.passed << " generated, "
             << s.skipped << " skipped, " << s.failed << " failed (of "
             << s.total << ")\n";
@@ -533,6 +551,10 @@ int cmdRun(const Options &o)
       if (line.empty())
         continue;
       auto part = runner.run(catalog, Filter{line}, features);
+      if (!part.deviceFailure.empty()) {
+        s.deviceFailure = part.deviceFailure;
+        break;
+      }
       s.total += part.total;
       s.passed += part.passed;
       s.failed += part.failed;
@@ -540,6 +562,12 @@ int cmdRun(const Options &o)
     }
   } else {
     s = runner.run(catalog, Filter{o.filter}, features);
+  }
+
+  if (!s.deviceFailure.empty()) {
+    anari::release(d, d);
+    anari::unloadLibrary(lib);
+    return deviceFailed("run", o.device, s.deviceFailure);
   }
 
   std::cout << "run (" << o.device << "): " << s.passed << " passed, "
@@ -558,11 +586,21 @@ int cmdReport(const Options &o)
   const std::string workdir =
       o.positionals.empty() ? o.workdir : o.positionals.front();
   auto results = loadResults(workdir, std::cerr);
+  // A run that stopped because its device could not render left a record.
+  const auto deviceFailure = readDeviceFailure(Workdir(workdir));
   // Which extensions have a Test is what the run recorded of its Catalog, so
   // an extension the CTS doesn't test reads as such even in a filtered run.
-  const auto coverage = extensionCoverage(
-      results, canonicalKhrExtensions(), runCoveredExtensions(results));
-  writeTextSummary(std::cout, workdir, results, o.includeAll, coverage);
+  // A run that stopped with no Case results has no matrix to show.
+  const auto coverage = deviceFailure && results.empty()
+      ? std::vector<ExtensionCoverage>{}
+      : extensionCoverage(
+            results, canonicalKhrExtensions(), runCoveredExtensions(results));
+  writeTextSummary(std::cout,
+      workdir,
+      results,
+      o.includeAll,
+      coverage,
+      deviceFailure ? &*deviceFailure : nullptr);
 
   if (!o.htmlOut.empty()) {
     HtmlOptions html;
@@ -570,6 +608,7 @@ int cmdReport(const Options &o)
     html.embed = o.embed;
     html.htmlPath = o.htmlOut;
     html.coverage = coverage;
+    html.deviceFailure = deviceFailure;
     const std::string doc = generateHtml(workdir, results, html);
     std::ofstream out(o.htmlOut, std::ios::binary);
     if (!out || !(out << doc)) {
@@ -579,7 +618,7 @@ int cmdReport(const Options &o)
     std::cout << "wrote " << o.htmlOut << "\n";
   }
 
-  return summarize(results).failed > 0 ? 1 : 0;
+  return deviceFailure || summarize(results).failed > 0 ? 1 : 0;
 }
 
 } // namespace
