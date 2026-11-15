@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "FrameAccumulation.h"
+#include "Metrics.h"
 // std
 #include <cstdio>
-#include <cstdlib>
-#include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace anari {
@@ -14,46 +14,143 @@ namespace cts {
 
 namespace {
 
-std::string levels(double v)
+std::string formatNumber(double v, const char *format)
 {
   char buf[32];
-  std::snprintf(buf, sizeof(buf), "%.2f", v);
+  std::snprintf(buf, sizeof(buf), format, v);
   return buf;
 }
 
-std::string fraction(float v)
+// A mean difference in 8-bit levels.
+std::string formatLevels(double v)
 {
-  char buf[32];
-  std::snprintf(buf, sizeof(buf), "%.3g", v);
-  return buf;
+  return formatNumber(v, "%.2f");
 }
 
-std::string join(const std::vector<std::string> &parts)
+// A refinementProgress value or a ratio.
+std::string formatFraction(double v)
 {
-  std::string s;
-  for (const auto &p : parts)
-    s += (s.empty() ? "" : "; ") + p;
-  return s;
+  return formatNumber(v, "%.3g");
 }
 
-} // namespace
-
-double meanAbsoluteDifference(const Image &a, const Image &b)
-{
-  if (a.width != b.width || a.height != b.height || !a.valid() || !b.valid())
-    return std::numeric_limits<double>::infinity();
-  double sum = 0.0;
-  for (size_t i = 0; i < a.rgba.size(); i += 4)
-    for (size_t c = 0; c < 3; ++c)
-      sum += std::abs(int(a.rgba[i + c]) - int(b.rgba[i + c]));
-  return sum / (double(a.pixelCount()) * 3.0);
-}
-
-BehaviorResult checkFrameAccumulation(AccumulationTarget &target)
+// What the phases found: failures decide the verdict, notes describe a pass.
+struct Findings
 {
   std::vector<std::string> failures;
   std::vector<std::string> notes;
 
+  BehaviorResult result() const
+  {
+    const auto &parts = failures.empty() ? notes : failures;
+    std::string s;
+    for (const auto &p : parts)
+      s += (s.empty() ? "" : "; ") + p;
+    return {failures.empty(), s};
+  }
+};
+
+// The checkpoint is clearly closer to the many-frame result than the first
+// render is, unless the first render is already converged.
+void judgeConvergence(const Image &first,
+    const Image &checkpoint,
+    const Image &accumulated,
+    Findings &out)
+{
+  const auto N = std::to_string(kAccumulationRenders);
+  const double dFirst = meanAbsoluteDifference(first, accumulated);
+  const double dCheckpoint = meanAbsoluteDifference(checkpoint, accumulated);
+  if (dFirst <= kConvergedLevels) {
+    out.notes.push_back("converged in one render (mean difference "
+        + formatLevels(dFirst) + " levels to the " + N + "-render image)");
+    return;
+  }
+  const std::string measured = "mean difference to the " + N
+      + "-render image: " + formatLevels(dFirst) + " levels after 1 render, "
+      + formatLevels(dCheckpoint) + " after "
+      + std::to_string(kAccumulationCheckpoint);
+  if (dCheckpoint <= kConvergenceRatio * dFirst)
+    out.notes.push_back(measured);
+  else
+    out.failures.push_back("the image does not approach the " + N
+        + "-render result as frames accumulate (" + measured
+        + "; expected at most " + formatFraction(kConvergenceRatio) + "x)");
+}
+
+// After a committed world change, the next render is nearer a fresh frame's
+// render of the changed world than the image accumulated before the change.
+void judgeRestart(const Image &accumulated,
+    const Image &afterChange,
+    const Image &fresh,
+    Findings &out)
+{
+  const double dChange = meanAbsoluteDifference(accumulated, fresh);
+  const double dToFresh = meanAbsoluteDifference(afterChange, fresh);
+  const double dToOld = meanAbsoluteDifference(afterChange, accumulated);
+  if (!(dChange >= kVisibleChangeLevels)) {
+    out.failures.push_back(
+        "the world change is not visible in a fresh frame (mean difference "
+        + formatLevels(dChange) + " levels), so a restart can't be told");
+  } else if (dToFresh < dToOld) {
+    out.notes.push_back("restarted after a world change (mean difference "
+        + formatLevels(dToFresh) + " levels to a fresh frame, "
+        + formatLevels(dToOld) + " to the image before the change)");
+  } else {
+    out.failures.push_back(
+        "accumulation did not restart after a world change: the next render "
+        "is "
+        + formatLevels(dToOld) + " levels from the image before the change and "
+        + formatLevels(dToFresh) + " from a fresh frame of the changed world");
+  }
+}
+
+// refinementProgress, where reported: in [0, 1], not decreasing across the
+// renders without changes, and lower after the change if it rose before it.
+void judgeProgress(const std::vector<std::optional<float>> &beforeChange,
+    std::optional<float> afterChange,
+    Findings &out)
+{
+  std::vector<float> reported;
+  for (const auto &p : beforeChange)
+    if (p)
+      reported.push_back(*p);
+  if (reported.empty() && !afterChange) {
+    out.notes.push_back("refinementProgress not reported");
+    return;
+  }
+
+  auto inRange = [](float p) { return p >= 0.f && p <= 1.f; };
+  bool allInRange = !afterChange || inRange(*afterChange);
+  bool decreased = false;
+  for (size_t i = 0; i < reported.size(); ++i) {
+    allInRange &= inRange(reported[i]);
+    decreased |= i > 0 && reported[i] < reported[i - 1];
+  }
+  if (!allInRange)
+    out.failures.push_back("refinementProgress outside [0, 1]");
+  if (decreased)
+    out.failures.push_back(
+        "refinementProgress decreased across renders without changes");
+  if (reported.empty())
+    return;
+
+  const float first = reported.front();
+  const float last = reported.back();
+  if (afterChange && last > first && !(*afterChange < last))
+    out.failures.push_back(
+        "refinementProgress did not drop after a world change ("
+        + formatFraction(last) + " before, " + formatFraction(*afterChange)
+        + " after)");
+  out.notes.push_back("refinementProgress " + formatFraction(first) + " -> "
+      + formatFraction(last) + ", "
+      + (afterChange ? formatFraction(*afterChange)
+                     : std::string("not reported"))
+      + " after the change");
+}
+
+} // namespace
+
+BehaviorResult checkFrameAccumulation(AccumulationTarget &target)
+{
   // Renders without changes, keeping the first and checkpoint images and the
   // progress after each render.
   std::vector<std::optional<float>> progress;
@@ -68,121 +165,28 @@ BehaviorResult checkFrameAccumulation(AccumulationTarget &target)
   }
   const auto accumulated = target.color();
 
-  if (!first)
-    return {false, "first render's color readback failed: " + first.detail};
-  if (!checkpoint)
-    return {false,
-        "color readback failed after " + std::to_string(kAccumulationCheckpoint)
-            + " renders: " + checkpoint.detail};
-  if (!accumulated)
-    return {false,
-        "color readback failed after " + std::to_string(kAccumulationRenders)
-            + " renders: " + accumulated.detail};
-
-  // Convergence: the checkpoint is clearly closer to the many-frame result
-  // than the first render is.
-  const auto N = std::to_string(kAccumulationRenders);
-  const double dFirst = meanAbsoluteDifference(first.image, accumulated.image);
-  const double dCheckpoint =
-      meanAbsoluteDifference(checkpoint.image, accumulated.image);
-  if (dFirst <= kConvergedLevels) {
-    notes.push_back("converged in one render (mean difference " + levels(dFirst)
-        + " levels to the " + N + "-render image)");
-  } else {
-    const std::string measured = "mean difference to the " + N
-        + "-render image: " + levels(dFirst) + " levels after 1 render, "
-        + levels(dCheckpoint) + " after "
-        + std::to_string(kAccumulationCheckpoint);
-    if (dCheckpoint <= kConvergenceRatio * dFirst)
-      notes.push_back(measured);
-    else
-      failures.push_back("the image does not approach the " + N
-          + "-render result as frames accumulate (" + measured
-          + "; expected at most " + levels(kConvergenceRatio) + "x)");
-  }
-
-  // Restart: after a committed world change, the first render is nearer a
-  // fresh frame's render of the changed world than the image accumulated
-  // before the change.
   target.changeWorld();
   target.render();
   const auto afterChangeProgress = target.refinementProgress();
   const auto afterChange = target.color();
   const auto fresh = target.renderFresh();
-  if (!afterChange)
-    return {false,
-        "color readback failed after the world change: " + afterChange.detail};
-  if (!fresh)
-    return {false, "fresh frame's color readback failed: " + fresh.detail};
 
-  const double dChange = meanAbsoluteDifference(accumulated.image, fresh.image);
-  const double dToFresh =
-      meanAbsoluteDifference(afterChange.image, fresh.image);
-  const double dToOld =
-      meanAbsoluteDifference(afterChange.image, accumulated.image);
-  if (dChange < kVisibleChangeLevels) {
-    failures.push_back(
-        "the world change is not visible in a fresh frame (mean "
-        "difference "
-        + levels(dChange) + " levels), so a restart can't be told");
-  } else if (dToFresh < dToOld) {
-    notes.push_back("restarted after a world change (mean difference "
-        + levels(dToFresh) + " levels to a fresh frame, " + levels(dToOld)
-        + " to the image before the change)");
-  } else {
-    failures.push_back(
-        "accumulation did not restart after a world change: "
-        "the next render is "
-        + levels(dToOld) + " levels from the image before the change and "
-        + levels(dToFresh) + " from a fresh frame of the changed world");
-  }
+  const std::pair<const FrameReadbackResult *, std::string> readbacks[] = {
+      {&first, "the first render"},
+      {&checkpoint, std::to_string(kAccumulationCheckpoint) + " renders"},
+      {&accumulated, std::to_string(kAccumulationRenders) + " renders"},
+      {&afterChange, "the world change"},
+      {&fresh, "a fresh frame's render"},
+  };
+  for (const auto &[r, when] : readbacks)
+    if (!*r)
+      return {false, "color readback failed after " + when + ": " + r->detail};
 
-  // refinementProgress, where reported.
-  bool reported = afterChangeProgress.has_value();
-  std::optional<float> previous, firstReported, lastReported;
-  bool inRange = true, decreased = false;
-  auto checkRange = [&](float p) { inRange &= p >= 0.f && p <= 1.f; };
-  for (const auto &p : progress) {
-    if (!p)
-      continue;
-    reported = true;
-    checkRange(*p);
-    if (previous && *p < *previous)
-      decreased = true;
-    previous = p;
-    if (!firstReported)
-      firstReported = p;
-    lastReported = p;
-  }
-  if (afterChangeProgress)
-    checkRange(*afterChangeProgress);
-
-  if (!reported) {
-    notes.push_back("refinementProgress not reported");
-  } else {
-    if (!inRange)
-      failures.push_back("refinementProgress outside [0, 1]");
-    if (decreased)
-      failures.push_back(
-          "refinementProgress decreased across renders without changes");
-    if (firstReported && lastReported && afterChangeProgress
-        && *lastReported > *firstReported
-        && !(*afterChangeProgress < *lastReported))
-      failures.push_back(
-          "refinementProgress did not drop after a world change ("
-          + fraction(*lastReported) + " before, "
-          + fraction(*afterChangeProgress) + " after)");
-    if (inRange && !decreased && firstReported && lastReported)
-      notes.push_back("refinementProgress " + fraction(*firstReported) + " -> "
-          + fraction(*lastReported) + ", "
-          + (afterChangeProgress ? fraction(*afterChangeProgress)
-                                 : std::string("not reported"))
-          + " after the change");
-  }
-
-  if (!failures.empty())
-    return {false, join(failures)};
-  return {true, join(notes)};
+  Findings findings;
+  judgeConvergence(first.image, checkpoint.image, accumulated.image, findings);
+  judgeRestart(accumulated.image, afterChange.image, fresh.image, findings);
+  judgeProgress(progress, afterChangeProgress, findings);
+  return findings.result();
 }
 
 } // namespace cts

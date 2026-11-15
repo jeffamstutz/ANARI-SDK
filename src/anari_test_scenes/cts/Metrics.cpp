@@ -5,6 +5,7 @@
 // std
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <vector>
 
@@ -153,6 +154,17 @@ double changedFraction(const Image &a, const Image &b, int tau)
   for (size_t i = 0; i < n; ++i)
     changed += pixelChanged(a, b, i, tau) ? 1 : 0;
   return static_cast<double>(changed) / static_cast<double>(n);
+}
+
+double meanAbsoluteDifference(const Image &a, const Image &b)
+{
+  if (!comparable(a, b))
+    return std::numeric_limits<double>::quiet_NaN();
+  double sum = 0.0;
+  for (size_t i = 0; i < a.rgba.size(); i += 4)
+    for (size_t c = 0; c < 3; ++c)
+      sum += std::abs(int(a.rgba[i + c]) - int(b.rgba[i + c]));
+  return sum / (static_cast<double>(a.pixelCount()) * 3.0);
 }
 
 Image changedMask(const Image &a, const Image &b, int tau)

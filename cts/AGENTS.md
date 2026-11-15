@@ -146,6 +146,10 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   that could not render the probe frame; files only, so `report` reads it.
 - `FrameReadback.{h,cpp}` — validates mapped frame descriptors and converts
   supported per-Channel formats behind the shared map/unmap boundary.
+- `FrameAccumulation.{h,cpp}` — the `KHR_FRAME_ACCUMULATION` behaviour check
+  behind `frame/progressive_rendering`: convergence towards a many-render
+  image, restart after a world change, and `refinementProgress` where reported.
+  It drives an `AccumulationTarget`, so stub frames unit-test it.
 - `FrameFormats.{h,cpp}` — resolves a Case's per-Channel output `ANARIDataType`
   from its `frame_<channel>_type` axis (color/albedo/normal); pure + unit-tested.
 - `RendererParams.{h,cpp}` — pure parsing of CLI `--renderer-param NAME=VALUE`
@@ -154,7 +158,8 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   on every Case's renderer before the Test's own `rendererConfig`, so it stays
   device-agnostic and a renderer Test still wins on conflict.
 - `Metrics.{h,cpp}` / `Image.{h,cpp}` — SSIM/PSNR, `changedFraction` (and its
-  mask) for the self-checks, and PNG I/O (stb).
+  mask) for the self-checks, `meanAbsoluteDifference` for the accumulation
+  check, and PNG I/O (stb).
 - `Discrimination.{h,cpp}` — `check-discrimination`: the pairs of Cases that
   differ in one Permutation value (`discriminationPairs`, pure), scoring their
   Ground truth against each other with the Test's thresholds, and matching the
@@ -198,7 +203,8 @@ light, camera, frame, renderer, instance, volume, synchronization) each define a
 catalog.
 
 **Unit tests:** `tests/unit/test_cts_*.cpp` (catalog/expansion/filter/builder,
-metrics, relations, discrimination, results/sidecar/workdir, report/html, runner, isolation).
+metrics, relations, discrimination, frame accumulation, results/sidecar/workdir,
+report/html, runner, isolation).
 Pure tests are tagged `[cts]`; device-backed ones add `[helide]` and self-skip if
 no device loads. Images for pure tests are generated in code
 (`tests/unit/cts_test_images.h`: solid, gradient, rectangle, disc); never add

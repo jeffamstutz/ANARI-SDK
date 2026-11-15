@@ -185,3 +185,12 @@ TEST_CASE("changedMask marks exactly the changed pixels", "[cts][metrics]")
   CHECK(white == 10);
   CHECK_FALSE(changedMask(bg, solid(4, 4, 0, 0, 0, 255), 8).valid());
 }
+
+TEST_CASE("meanAbsoluteDifference averages RGB levels", "[cts][metrics]")
+{
+  const Image a = solid(4, 4, 10, 20, 30, 255);
+  const Image b = solid(4, 4, 13, 20, 24, 0); // alpha ignored
+  CHECK(meanAbsoluteDifference(a, a) == 0.0);
+  CHECK(meanAbsoluteDifference(a, b) == Approx(3.0));
+  CHECK(std::isnan(meanAbsoluteDifference(a, solid(2, 2, 0, 0, 0, 255))));
+}

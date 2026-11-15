@@ -61,18 +61,17 @@ inline constexpr int kAccumulationCheckpoint = 4;
 // this fraction of the first render's.
 inline constexpr double kConvergenceRatio = 0.8;
 // A first render within this mean difference (8-bit levels) of the many-frame
-// result is already converged; there is nothing to refine.
-inline constexpr double kConvergedLevels = 0.05;
+// result is already converged; there is nothing to refine. Above zero so a
+// device that is deterministic in intent but varies by a level here and there
+// (threaded float reductions, GPU atomics) isn't asked to converge noise it
+// doesn't have.
+inline constexpr double kConvergedLevels = 0.25;
 // The world change must move the image by at least this mean difference.
 inline constexpr double kVisibleChangeLevels = 1.0;
 
 // Renders the target kAccumulationRenders times, changes the world, renders
 // once more, and judges the results as described above.
 BehaviorResult checkFrameAccumulation(AccumulationTarget &target);
-
-// The mean absolute difference of two images' RGB channels, in 8-bit levels.
-// Images of different sizes are infinitely far apart.
-double meanAbsoluteDifference(const Image &a, const Image &b);
 
 } // namespace cts
 } // namespace anari
