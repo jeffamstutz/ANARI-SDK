@@ -5,6 +5,7 @@
 #include "../GeometryLayout.h"
 #include "../LightBuilder.h"
 #include "../SamplerBuilder.h"
+#include "../ScreenQuad.h"
 #include "../SurfaceBuilder.h"
 #include "../TestBuilder.h"
 #include "../WorldBuilder.h"
@@ -153,37 +154,108 @@ void bind(BuildContext &ctx,
   applyParameterBinding(d, mat, param, ctx.binding(param), s);
 }
 
+// ---- alphaCutoff ------------------------------------------------------------
+//
+// The screen quad (ScreenQuad.h) whose opacity, bound to attribute0, ramps
+// from 0 at its left edge to 1 at its right: opacity = (x + h) / (1 + 2 h)
+// at screen x, h the quad's overhang. With alphaCutoff c the spec makes the
+// quad opaque where opacity >= c and transparent elsewhere; unset, partial
+// opacity blends.
+//
+// Axis "alphaCutoff": "unset", cutoffs "0", "0.25" and "0.75", and two
+// references, "opaqueSurface" (opacity 1) and "noSurface" (no quad).
+
+float opacityAt(float x)
+{
+  return (x + kScreenQuadOverhang) / (1.f + 2.f * kScreenQuadOverhang);
+}
+
+// The screen x where the ramp reaches opacity `c`.
+float cutoffEdge(float c)
+{
+  return c * (1.f + 2.f * kScreenQuadOverhang) - kScreenQuadOverhang;
+}
+
+anari::World alphaCutoffWorld(BuildContext &ctx, const char *subtype)
+{
+  auto d = ctx.device();
+  const std::string value = ctx.getString("alphaCutoff", "unset");
+  if (value == "noSurface")
+    return makeScreenQuadWorld(d, nullptr);
+
+  auto geom =
+      makeScreenQuad(d, {{"attribute0", 1, [](float2 s) {
+                            return float4(opacityAt(s.x), 0.f, 0.f, 0.f);
+                          }}});
+  auto mat = anari::newObject<anari::Material>(d, subtype);
+  const float3 color(0.9f, 0.3f, 0.2f);
+  if (std::string(subtype) == "matte") {
+    anari::setParameter(d, mat, "color", color);
+  } else {
+    anari::setParameter(d, mat, "baseColor", color);
+    anari::setParameter(d, mat, "metallic", 0.f);
+  }
+  if (value != "opaqueSurface") {
+    anari::setParameter(d, mat, "opacity", "attribute0");
+    if (value != "unset")
+      anari::setParameter(d, mat, "alphaCutoff", std::stof(value));
+  }
+  anari::commitParameters(d, mat);
+  auto surface = makeSurface(d, geom, mat);
+  auto world = makeScreenQuadWorld(d, surface);
+  anari::release(d, geom);
+  anari::release(d, mat);
+  anari::release(d, surface);
+  return world;
+}
+
+void registerAlphaCutoffTest(Catalog &catalog,
+    const std::string &name,
+    const char *subtype,
+    const char *extension)
+{
+  auto test = makeTest("material", name);
+  test.description(std::string("Checks that ") + subtype
+          + " alphaCutoff makes opacity binary (opaque at or above it,"
+            " transparent below) and that, unset, partial opacity blends.")
+      .build([subtype](BuildContext &ctx) {
+        return alphaCutoffWorld(ctx, subtype);
+      })
+      .camera([](BuildContext &ctx, const scenes::Bounds &) {
+        return makeScreenQuadCamera(ctx.device());
+      })
+      .permute("alphaCutoff",
+          {"unset", "opaqueSurface", "noSurface", "0", "0.25", "0.75"})
+      .expectDerived("alphaCutoff",
+          "0",
+          "opaqueSurface: every opacity is at least 0",
+          [](const Siblings &s) -> ExpectedImage {
+            return s.at("opaqueSurface");
+          });
+  for (const char *c : {"0.25", "0.75"}) {
+    const float edge = cutoffEdge(std::stof(c));
+    test.expectDerived("alphaCutoff",
+        c,
+        std::string("opaqueSurface where opacity >= ") + c
+            + ", noSurface elsewhere",
+        [edge](const Siblings &s) {
+          return regionComposite(s.at("opaqueSurface"),
+              s.at("noSurface"),
+              [edge](float x, float) { return x >= edge; });
+        });
+  }
+  test.noGroundTruth()
+      .covers(extension)
+      .requireFeatures(kSupportTriangle)
+      .registerInto(catalog);
+}
+
 } // namespace
 
 void registerMaterialTests(Catalog &catalog)
 {
   // ---- matte ----------------------------------------------------------------
-  makeTest("material", "matte_alpha_mode")
-      .description("Checks matte alpha modes and alpha cutoff handling.")
-      .build([](BuildContext &ctx) {
-        return materialWorld(ctx,
-            "matte",
-            16,
-            {},
-            [](BuildContext &ctx,
-                anari::Device d,
-                anari::Material mat,
-                const std::vector<anari::Sampler> &s) {
-              anari::setParameter(d, mat, "color", float3(1.f, 0.f, 0.f));
-              anari::setParameter(d, mat, "opacity", "attribute2");
-              bind(ctx, d, mat, "alphaMode", s);
-              bind(ctx, d, mat, "alphaCutoff", s);
-            });
-      })
-      .permute("alphaMode",
-          V{constant("mask"),
-              unsetBinding(),
-              constant("opaque"),
-              constant("blend")})
-      .permute("alphaCutoff", V{unsetBinding(), constant(0.1f)})
-      .covers(kMatte)
-      .requireFeatures(kSupportTriangle)
-      .registerInto(catalog);
+  registerAlphaCutoffTest(catalog, "matte_alpha_cutoff", "matte", kMatte);
 
   makeTest("material", "matte_color")
       .description(
@@ -222,7 +294,6 @@ void registerMaterialTests(Catalog &catalog)
                 anari::Material mat,
                 const std::vector<anari::Sampler> &s) {
               anari::setParameter(d, mat, "color", float3(1.f, 0.f, 0.f));
-              anari::setParameter(d, mat, "alphaMode", "blend");
               bind(ctx, d, mat, "opacity", s);
             });
       })
@@ -236,34 +307,7 @@ void registerMaterialTests(Catalog &catalog)
       .registerInto(catalog);
 
   // ---- physicallyBased ------------------------------------------------------
-  makeTest("material", "pbr_alpha_mode")
-      .description(
-          "Checks physically based alpha modes and alpha cutoff handling.")
-      .build([](BuildContext &ctx) {
-        return materialWorld(ctx,
-            "physicallyBased",
-            16,
-            {},
-            [](BuildContext &ctx,
-                anari::Device d,
-                anari::Material mat,
-                const std::vector<anari::Sampler> &s) {
-              anari::setParameter(
-                  d, mat, "baseColor", float3(0.98f, 0.5f, 0.44f));
-              anari::setParameter(d, mat, "opacity", "attribute2");
-              bind(ctx, d, mat, "alphaMode", s);
-              bind(ctx, d, mat, "alphaCutoff", s);
-            });
-      })
-      .permute("alphaMode",
-          V{unsetBinding(),
-              constant("opaque"),
-              constant("blend"),
-              constant("mask")})
-      .permute("alphaCutoff", V{unsetBinding(), constant(0.1f)})
-      .covers(kPbr)
-      .requireFeatures(kSupportTriangle)
-      .registerInto(catalog);
+  registerAlphaCutoffTest(catalog, "pbr_alpha_cutoff", "physicallyBased", kPbr);
 
   makeTest("material", "pbr_base_color")
       .description(
@@ -445,7 +489,6 @@ void registerMaterialTests(Catalog &catalog)
                 anari::Material mat,
                 const std::vector<anari::Sampler> &s) {
               anari::setParameter(d, mat, "baseColor", float3(1.f, 0.f, 0.f));
-              anari::setParameter(d, mat, "alphaMode", "blend");
               bind(ctx, d, mat, "opacity", s);
             });
       })
