@@ -9,6 +9,7 @@
 #include "../WorldBuilder.h"
 #include "Categories.h"
 // std
+#include <string>
 #include <vector>
 
 namespace anari {
@@ -66,6 +67,48 @@ constexpr float kRegionHi = 0.75f;
 void cp(BuildContext &ctx, anari::Device d, anari::Camera c, const char *param)
 {
   applyParameterValue(d, c, param, ctx.value(param).raw());
+}
+
+// The default-aspect Tests' frame: twice as wide as tall, so an aspect left
+// unset (the frame's, since ANARI 1.2) is 2, not the square run's 1.
+CaseFrameSize wideFrame(FrameSize run)
+{
+  if (run.width < 2 || run.width % 2 != 0)
+    return CaseFrameSize::skip("the run's width " + std::to_string(run.width)
+        + " is not even, so half of it isn't whole pixels");
+  return FrameSize{run.width, run.width / 2};
+}
+
+// A camera of `subtype` viewing the subject, with `aspect` from the Case.
+anari::Camera aspectCamera(BuildContext &ctx, const char *subtype)
+{
+  auto d = ctx.device();
+  auto c = anari::newObject<anari::Camera>(d, subtype);
+  anari::setParameter(d, c, "position", float3(0.5f, 0.5f, -1.f));
+  cp(ctx, d, c, "aspect");
+  anari::commitParameters(d, c);
+  return c;
+}
+
+void registerDefaultAspectTest(Catalog &catalog,
+    const std::string &name,
+    const char *subtype,
+    const char *extension)
+{
+  makeTest("camera", name)
+      .description(std::string("Checks that an unset ") + subtype
+          + " aspect is the frame's width over height (ANARI 1.2).")
+      .build(cameraSubjectWorld)
+      .camera([subtype](BuildContext &ctx, const scenes::Bounds &) {
+        return aspectCamera(ctx, subtype);
+      })
+      .frameSize([](BuildContext &, FrameSize run) { return wideFrame(run); })
+      // The first value is the reference: aspect set to the frame's 2:1.
+      .variant("aspect", V{Any(2.f), none()})
+      .noGroundTruth()
+      .covers(extension)
+      .requireFeatures(kSubjectSurface)
+      .registerInto(catalog);
 }
 
 } // namespace
@@ -183,6 +226,15 @@ void registerCameraTests(Catalog &catalog)
       .covers("ANARI_KHR_CAMERA_OMNIDIRECTIONAL")
       .requireFeatures(kSubjectSurface)
       .registerInto(catalog);
+  // ---- default aspect (ANARI 1.2: the frame's) ------------------------------
+  registerDefaultAspectTest(catalog,
+      "perspective_default_aspect",
+      "perspective",
+      "ANARI_KHR_CAMERA_PERSPECTIVE");
+  registerDefaultAspectTest(catalog,
+      "orthographic_default_aspect",
+      "orthographic",
+      "ANARI_KHR_CAMERA_ORTHOGRAPHIC");
 }
 
 } // namespace cts

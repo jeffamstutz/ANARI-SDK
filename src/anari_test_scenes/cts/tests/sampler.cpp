@@ -4,6 +4,7 @@
 #include "../BuildContext.h"
 #include "../LightBuilder.h"
 #include "../SamplerBuilder.h"
+#include "../ScreenQuad.h"
 #include "../SurfaceBuilder.h"
 #include "../TestBuilder.h"
 #include "../WorldBuilder.h"
@@ -11,6 +12,7 @@
 #include "generators/ColorPalette.h"
 // std
 #include <functional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -131,6 +133,163 @@ void setPrimitiveArray(anari::Device d, anari::Sampler s)
   a[kPrimitiveOffset + 1] = T(0.5f);
   anari::setAndReleaseParameter(
       d, s, "array", anari::newArray1D(d, a.data(), a.size()));
+}
+
+// ---- clamp-to-border (KHR_SAMPLER_IMAGExD_CLAMP_TO_BORDER) ------------------
+//
+// The image sampler of `dims` dimensions on the screen quad (ScreenQuad.h),
+// its texture coordinate running outside [0, 1] in known screen regions:
+// coordinate 1 runs with screen x and coordinate 2 with screen y, each over
+// [-0.5, 1.5] across the frame (outside [0, 1] in the outer quarters);
+// coordinate 3 runs with screen y over [0.25, 1.75] (above 1 in the top
+// half). Every Case filters `nearest`, so the border's edge is sharp.
+//
+// Axis "wrap": "clampToEdge" (every wrap mode), "borderColorSurface" (the
+// quad in the border colour, no sampler), "clampToBorder<N>" (wrap mode N
+// clampToBorder with kBorderColor, the rest clampToEdge), and two with wrap
+// mode 1 clampToBorder: "zeroBorderColor" (borderColor (0, 0, 0, 0)
+// explicitly) and "defaultBorderColor" (borderColor unset), which must
+// render alike. The default is compared with the explicit (0, 0, 0, 0)
+// rather than with a picture of it because its alpha 0, through the
+// material's opacity, makes the border transparent: that is the opacity
+// Tests' subject, not this one's.
+
+const float4 kBorderColor(0.9f, 0.15f, 0.6f, 1.f);
+
+std::string wrapParam(int dims, int dim)
+{
+  return dims == 1 ? "wrapMode" : "wrapMode" + std::to_string(dim);
+}
+
+std::string borderValue(int dim)
+{
+  return "clampToBorder" + std::to_string(dim);
+}
+
+// Whether screen point (x, y) samples coordinate `dim` outside [0, 1].
+bool outsideImage(int dim, float x, float y)
+{
+  if (dim == 1)
+    return x < 0.25f || x > 0.75f;
+  if (dim == 2)
+    return y < 0.25f || y > 0.75f;
+  return y > 0.5f;
+}
+
+// Set the sampler's image (an ARRAY<dims>D): opaque, every texel unlike
+// kBorderColor.
+void setBorderTestImage(anari::Device d, anari::Sampler s, int dims)
+{
+  const size_t n = dims == 3 ? 4 : 8;
+  const float step = 1.f / float(n - 1);
+  std::vector<float4> texels;
+  if (dims == 1) {
+    for (size_t i = 0; i < n; ++i)
+      texels.emplace_back(i * step, i * step, i * step, 1.f);
+    anari::setParameterArray1D(d, s, "image", texels.data(), n);
+  } else if (dims == 2) {
+    for (size_t j = 0; j < n; ++j)
+      for (size_t i = 0; i < n; ++i)
+        texels.emplace_back(i * step, j * step, 0.2f, 1.f);
+    anari::setParameterArray2D(d, s, "image", texels.data(), n, n);
+  } else {
+    for (size_t k = 0; k < n; ++k)
+      for (size_t j = 0; j < n; ++j)
+        for (size_t i = 0; i < n; ++i)
+          texels.emplace_back(i * step, j * step, k * step, 1.f);
+    anari::setParameterArray3D(d, s, "image", texels.data(), n, n, n);
+  }
+}
+
+anari::World clampToBorderWorld(BuildContext &ctx, int dims)
+{
+  auto d = ctx.device();
+  const std::string wrap = ctx.getString("wrap", "clampToEdge");
+  auto geom = makeScreenQuad(
+      d, {{"attribute1", dims, [](float2 s) {
+             return float4(
+                 2.f * s.x - 0.5f, 2.f * s.y - 0.5f, 0.25f + 1.5f * s.y, 0.f);
+           }}});
+  auto mat = anari::newObject<anari::Material>(d, "matte");
+  if (wrap == "borderColorSurface") {
+    anari::setParameter(d,
+        mat,
+        "color",
+        float3(kBorderColor.x, kBorderColor.y, kBorderColor.z));
+  } else {
+    const std::string subtype = "image" + std::to_string(dims) + "D";
+    auto sampler = anari::newObject<anari::Sampler>(d, subtype.c_str());
+    setBorderTestImage(d, sampler, dims);
+    anari::setParameter(d, sampler, "inAttribute", "attribute1");
+    anari::setParameter(d, sampler, "filter", "nearest");
+    for (int dim = 1; dim <= dims; ++dim) {
+      const bool border = wrap == borderValue(dim)
+          || (dim == 1
+              && (wrap == "zeroBorderColor" || wrap == "defaultBorderColor"));
+      anari::setParameter(d,
+          sampler,
+          wrapParam(dims, dim).c_str(),
+          border ? "clampToBorder" : "clampToEdge");
+    }
+    if (wrap == "zeroBorderColor")
+      anari::setParameter(d, sampler, "borderColor", float4(0.f));
+    else if (wrap != "defaultBorderColor" && wrap != "clampToEdge")
+      anari::setParameter(d, sampler, "borderColor", kBorderColor);
+    anari::commitParameters(d, sampler);
+    anari::setAndReleaseParameter(d, mat, "color", sampler);
+  }
+  anari::commitParameters(d, mat);
+  auto surface = makeSurface(d, geom, mat);
+  auto world = makeScreenQuadWorld(d, surface);
+  anari::release(d, geom);
+  anari::release(d, mat);
+  anari::release(d, surface);
+  return world;
+}
+
+void registerClampToBorderTest(Catalog &catalog, int dims)
+{
+  const std::string subtype = "image" + std::to_string(dims) + "D";
+  std::vector<std::string> wraps = {"clampToEdge", "borderColorSurface"};
+  for (int dim = 1; dim <= dims; ++dim)
+    wraps.push_back(borderValue(dim));
+  wraps.push_back("zeroBorderColor");
+  wraps.push_back("defaultBorderColor");
+  V values;
+  for (const auto &w : wraps)
+    values.emplace_back(w.c_str());
+
+  auto test = makeTest("sampler", subtype + "_clamp_to_border");
+  test.description("Checks that " + subtype
+          + " clampToBorder shows borderColor (by default (0, 0, 0, 0))"
+            " outside [0, 1] on its own dimension only, and the image inside.")
+      .build([dims](BuildContext &ctx) { return clampToBorderWorld(ctx, dims); })
+      .camera([](BuildContext &ctx, const scenes::Bounds &) {
+        return makeScreenQuadCamera(ctx.device());
+      })
+      .permute("wrap", values);
+  for (int dim = 1; dim <= dims; ++dim) {
+    test.expectDerived("wrap",
+        borderValue(dim),
+        "borderColorSurface where coordinate " + std::to_string(dim)
+            + " leaves [0, 1], clampToEdge elsewhere",
+        [dim](const Siblings &s) {
+          return regionComposite(s.at("borderColorSurface"),
+              s.at("clampToEdge"),
+              [dim](float x, float y) { return outsideImage(dim, x, y); });
+        });
+  }
+  test.expectDerived("wrap",
+          "defaultBorderColor",
+          "zeroBorderColor: the default borderColor is (0, 0, 0, 0)",
+          [](const Siblings &s) -> ExpectedImage {
+            return s.at("zeroBorderColor");
+          })
+      .noGroundTruth()
+      .covers("ANARI_KHR_SAMPLER_IMAGExD_CLAMP_TO_BORDER")
+      .requireFeature("ANARI_KHR_SAMPLER_IMAGE" + std::to_string(dims) + "D")
+      .requireFeatures(kSupportMatteTriangle)
+      .registerInto(catalog);
 }
 
 } // namespace
@@ -312,6 +471,9 @@ void registerSamplerTests(Catalog &catalog)
       .covers("ANARI_KHR_SAMPLER_TRANSFORM")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
+  // ---- clamp-to-border ------------------------------------------------------
+  for (int dims = 1; dims <= 3; ++dims)
+    registerClampToBorderTest(catalog, dims);
 }
 
 } // namespace cts

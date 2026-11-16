@@ -173,7 +173,8 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   hook (`resolveFrameSize`, pure), or the skip when it isn't whole pixels.
 - `Metrics.{h,cpp}` / `Image.{h,cpp}` — SSIM/PSNR, `changedFraction` (and its
   mask, optionally under a selection mask) for the self-checks, the
-  derived-expectation helpers (`crop`, `hconcat`, `vconcat`, `maskedBy`),
+  derived-expectation helpers (`crop`, `hconcat`, `vconcat`, `maskedBy`,
+  `regionComposite`),
   `meanAbsoluteDifference` for the accumulation check, and PNG I/O (stb).
 - `Discrimination.{h,cpp}` — `check-discrimination`: the pairs of Cases that
   differ in one Permutation value (`discriminationPairs`, pure), scoring their
@@ -201,6 +202,10 @@ ctsReport.py              reads the results tree too; retained only for the PDF
 - `HtmlReport.{h,cpp}` — renders the self-contained interactive HTML report
   (inline CSS/JS, optional base64 `--embed`); pure `htmlEscape`/`base64Encode`
   are unit-tested.
+- `ScreenQuad.{h,cpp}` — a quad filling the frame of its own camera, with
+  vertex attributes given as functions of screen position, so a Test knows
+  which screen region holds which value (a sampler's border, an opacity
+  cutoff) and derives what each region must show with `regionComposite`.
 - `GeometryLayout.{h,cpp}` — pure deterministic Layout generation using typed
   shape and primitive-mode enums.
 - `GeometryBuilder.{h,cpp}` — geometry-family specifications and ANARI
@@ -244,7 +249,8 @@ Every Permutation axis is an effect check and every Variant axis an
 equivalence check (ADR-0010). When a value must look like something derived
 from its siblings (a crop, a concatenation, the same outside a mask), declare
 it with `.expectDerived(axis, value, description, fn)` using the helpers in
-`Image.h` (`crop`, `regionPixels`, `hconcat`, `vconcat`, `maskedBy`); a Case
+`Image.h` (`crop`, `regionPixels`, `hconcat`, `vconcat`, `maskedBy`,
+`regionComposite`); a Case
 that needs another frame size than the run's gets `.frameSize(...)`
 (`regionFrameSize` for a normalized region). Pick values whose effect shows in a good share of
 the frame (the default minimum is 1 % of pixels changed by more than 8 levels);
