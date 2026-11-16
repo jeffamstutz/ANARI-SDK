@@ -5,6 +5,7 @@
 
 // std
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <utility>
@@ -93,6 +94,19 @@ struct ExpectedImage
 // `expected`, compared only where `mask` selects (maskSelects()): a partial
 // equivalence. The mask must be as large as the image.
 ExpectedImage maskedBy(Image expected, Image mask);
+
+// `inside` where `region(x, y)` holds and `outside` elsewhere, for a Case
+// that must look like one sibling in part of the frame and like another in
+// the rest. `region` takes normalized screen coordinates ([0, 1], (0, 0) the
+// bottom left). A pixel whose square, grown by `marginPixels` on each side,
+// has corners on both sides of the region's edge is not compared (the mask
+// leaves it out), so an edge that falls inside a pixel, or that a device
+// filters or antialiases, isn't judged. The edges must be straight lines for
+// the corners to find them. Invalid when the images differ in size.
+ExpectedImage regionComposite(const Image &inside,
+    const Image &outside,
+    const std::function<bool(float x, float y)> &region,
+    float marginPixels = 2.f);
 
 // Load a PNG as RGBA8. Returns an invalid Image (valid() == false) on failure.
 Image loadPNG(const std::string &path);

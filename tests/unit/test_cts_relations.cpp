@@ -623,6 +623,49 @@ TEST_CASE(
   CHECK_FALSE(vconcat(left, bottom).valid());
 }
 
+TEST_CASE(
+    "regionComposite takes each side from its own image", "[cts][relations]")
+{
+  const Image inside = solid(8, 4, 200, 0, 0, 255);
+  const Image outside = solid(8, 4, 0, 0, 200, 255);
+  // The left quarter of the frame: its edge is the line x = 0.25 (2 px).
+  const auto left = [](float x, float) { return x < 0.25f; };
+
+  SECTION("without a margin every pixel is compared")
+  {
+    const ExpectedImage e = regionComposite(inside, outside, left, 0.f);
+    REQUIRE(e.image.valid());
+    REQUIRE(e.masked());
+    for (uint32_t y = 0; y < 4; ++y) {
+      for (uint32_t x = 0; x < 8; ++x) {
+        const size_t i = size_t(y) * 8 + x;
+        INFO("pixel " << x << ", " << y);
+        CHECK(maskSelects(e.mask, i));
+        CHECK(e.image.rgba[i * 4] == (x < 2 ? 200 : 0));
+        CHECK(e.image.rgba[i * 4 + 2] == (x < 2 ? 0 : 200));
+      }
+    }
+  }
+
+  SECTION("pixels within the margin of the edge are not compared")
+  {
+    // One pixel of margin: columns 1 and 2 touch the edge within it.
+    const ExpectedImage e = regionComposite(inside, outside, left, 1.f);
+    REQUIRE(e.masked());
+    for (uint32_t x = 0; x < 8; ++x) {
+      INFO("column " << x);
+      CHECK(maskSelects(e.mask, x) == (x != 1 && x != 2));
+    }
+  }
+
+  SECTION("images of different sizes give no expectation")
+  {
+    CHECK_FALSE(regionComposite(inside, solid(4, 4, 0, 0, 0, 255), left, 0.f)
+            .image.valid());
+    CHECK_FALSE(regionComposite(Image{}, outside, left, 0.f).image.valid());
+  }
+}
+
 TEST_CASE("regionPixels needs whole pixels", "[cts][relations]")
 {
   const auto r = regionPixels(256, 256, 0.25f, 0.25f, 0.75f, 0.75f);

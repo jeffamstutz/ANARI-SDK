@@ -136,6 +136,40 @@ ExpectedImage maskedBy(Image expected, Image mask)
   return out;
 }
 
+ExpectedImage regionComposite(const Image &inside,
+    const Image &outside,
+    const std::function<bool(float x, float y)> &region,
+    float marginPixels)
+{
+  if (!inside.valid() || !outside.valid() || inside.width != outside.width
+      || inside.height != outside.height)
+    return {};
+  const uint32_t w = inside.width;
+  const uint32_t h = inside.height;
+  Image expected = blank(w, h);
+  Image mask = blank(w, h);
+  for (uint32_t y = 0; y < h; ++y) {
+    for (uint32_t x = 0; x < w; ++x) {
+      // Corners inset by a hair, so an edge on the pixel's own border
+      // doesn't count as crossing it.
+      const float g = marginPixels - 1e-3f;
+      const float lo[2] = {(x - g) / w, (y - g) / h};
+      const float hi[2] = {(x + 1 + g) / w, (y + 1 + g) / h};
+      const bool in = region(lo[0], lo[1]);
+      const bool decided = region(hi[0], lo[1]) == in
+          && region(lo[0], hi[1]) == in && region(hi[0], hi[1]) == in;
+      const size_t i = (static_cast<size_t>(y) * w + x) * 4;
+      std::memcpy(&expected.rgba[i], &(in ? inside : outside).rgba[i], 4);
+      const uint8_t m = decided ? 255 : 0;
+      mask.rgba[i + 0] = m;
+      mask.rgba[i + 1] = m;
+      mask.rgba[i + 2] = m;
+      mask.rgba[i + 3] = 255;
+    }
+  }
+  return maskedBy(std::move(expected), std::move(mask));
+}
+
 bool savePNG(const std::string &path, const Image &image)
 {
   if (!image.valid())
