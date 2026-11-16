@@ -57,6 +57,7 @@
       "khr_sampler_transform",
       "khr_spatial_field_nanovdb",
       "khr_spatial_field_structured_regular",
+      "khr_spatial_field_structured_regular_cell_centered",
       "khr_spatial_field_structured_regular_filter_cubic",
       "khr_spatial_field_unstructured",
       "khr_volume_transfer_function1d"

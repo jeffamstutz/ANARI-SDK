@@ -29,18 +29,10 @@
                     "default" : 1.0,
                     "description" : "opacity"
                 }, {
-                    "name" : "alphaMode",
-                    "types" : ["ANARI_STRING"],
-                    "tags" : [],
-                    "values" : ["opaque", "blend", "mask"],
-                    "default" : "opaque",
-                    "description" : "alpha mode"
-                }, {
                     "name" : "alphaCutoff",
                     "types" : ["ANARI_FLOAT32"],
                     "tags" : [],
-                    "default" : 0.5,
-                    "description" : "cutoff for alpha mask mode"
+                    "description" : "optional threshold to binarize opacity"
                 }
             ]
         }
