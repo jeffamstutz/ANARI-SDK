@@ -451,9 +451,9 @@ int main(int argc, char **argv)
             && has(
                 params(dev, ANARI_LIGHT, "ring"), "innerRadius", ANARI_FLOAT32)
             && has(params(dev, ANARI_MATERIAL, "matte"),
-                "alphaMode",
-                ANARI_STRING),
-        "KHR parameters are listed untrimmed (camera near, ring innerRadius, alphaMode)");
+                "alphaCutoff",
+                ANARI_FLOAT32),
+        "KHR parameters are listed untrimmed (camera near, ring innerRadius, alphaCutoff)");
   }
 
   // --- 5. Bridge (vendor) parameters are present on every delegate
