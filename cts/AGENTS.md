@@ -225,7 +225,8 @@ catalog.
 
 **Unit tests:** `tests/unit/test_cts_*.cpp` (catalog/expansion/filter/builder,
 metrics, relations, discrimination, frame accumulation, results/sidecar/workdir,
-report/html, runner, isolation).
+report/html, runner, isolation; `anari12` judges the ANARI 1.2 Tests on
+synthetic images).
 Pure tests are tagged `[cts]`; device-backed ones add `[helide]` and self-skip if
 no device loads. Images for pure tests are generated in code
 (`tests/unit/cts_test_images.h`: solid, gradient, rectangle, disc); never add
