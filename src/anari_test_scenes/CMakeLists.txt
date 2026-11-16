@@ -120,6 +120,7 @@ if (BUILD_CTS OR BUILD_TESTING)
     cts/Runner.cpp
     cts/Sidecar.cpp
     cts/SamplerBuilder.cpp
+    cts/ScreenQuad.cpp
     cts/SurfaceBuilder.cpp
     cts/TestBuilder.cpp
     cts/Value.cpp
