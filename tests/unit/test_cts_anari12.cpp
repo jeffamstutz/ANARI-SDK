@@ -287,8 +287,8 @@ TEST_CASE("structured_regular_cell_centered compares with its vertex equal",
   CHECK_FALSE(f.passes(
       {{"vertexCentered", cube}, {"cellCentered", smaller}}, "cellCentered"));
   // The default equivalence tolerance, not a loosened one: a silhouette one
-  // pixel off (1.6 % of the frame here, which the former 4 % override
-  // allowed) fails.
+  // pixel off (1.6 % of the frame here, which a 4 % tolerance would
+  // pass) fails.
   const Image shifted =
       cts_test::rectangle(kSize, kSize, 17, 16, 49, 48, Rgba{90, 200, 90, 255});
   CHECK_FALSE(f.passes(

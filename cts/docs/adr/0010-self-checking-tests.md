@@ -374,7 +374,8 @@ default tolerance holds.
 - **Silhouette edges on whole pixels:** the orthographic `height` puts the
   bounds' edges on pixel boundaries at the default frame size (the
   cell-centered Test uses `height` 8/3 for bounds [-1, 1], edges at 1/2 ± 3/8
-  of the frame, whole for a multiple of 8). No pixel straddles the edge.
+  of a square frame, whole when its size is a multiple of 8). No pixel
+  straddles the edge.
 - **If a difference remains at the silhouette**, compare outside a thin band
   with a derived expectation (`maskedBy`, or `regionComposite`'s margin), not
   a looser tolerance. The cell-centered Test did not need one.
