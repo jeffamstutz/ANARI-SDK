@@ -160,9 +160,10 @@ anari::World cellCenteredWorld(BuildContext &ctx)
 
 // Orthographic, looking straight down -z at the field's +z face, so every
 // pixel shows the field on that face and no pixel sees a side face. The view
-// is kViewHeight tall: the bounds' edges (+-1) fall at 1/2 +- 3/8 of the
-// frame, on whole pixels for any frame size that is a multiple of 8.
-constexpr float kViewHeight = 8.f / 3.f;
+// is kCellCenteredViewHeight tall: the bounds' edges (+-1) fall at 1/2 +- 3/8
+// of the frame, on whole pixels for a square frame whose size is a multiple
+// of 8.
+constexpr float kCellCenteredViewHeight = 8.f / 3.f;
 
 anari::Camera cellCenteredCamera(BuildContext &ctx, const scenes::Bounds &)
 {
@@ -171,7 +172,7 @@ anari::Camera cellCenteredCamera(BuildContext &ctx, const scenes::Bounds &)
   anari::setParameter(d, c, "position", float3(0.f, 0.f, 3.f));
   anari::setParameter(d, c, "direction", float3(0.f, 0.f, -1.f));
   anari::setParameter(d, c, "up", float3(0.f, 1.f, 0.f));
-  anari::setParameter(d, c, "height", kViewHeight);
+  anari::setParameter(d, c, "height", kCellCenteredViewHeight);
   anari::commitParameters(d, c);
   return c;
 }
@@ -231,10 +232,8 @@ void registerVolumeTests(Catalog &catalog)
       // wrong size. See cellCenteredCamera() for the framing.
       .camera(cellCenteredCamera)
       // The first value is the reference: the vertex-centered equal.
-      // Framed this way (ADR-0010, volume equivalence), the default
-      // tolerance holds: a 17^3 grid of the same function renders exactly as
-      // the 9^3 one on helide and halcyon, and within 8 levels on visrtx,
-      // while a field read as vertex-centered changes 56 % of pixels.
+      // Framed this way, the default tolerance holds on helide, halcyon and
+      // visrtx (measurements in ADR-0010, volume equivalence).
       .variant("grid", {"vertexCentered", "cellCentered"})
       .noGroundTruth()
       .covers("ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR_CELL_CENTERED")
