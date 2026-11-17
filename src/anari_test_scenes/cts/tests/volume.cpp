@@ -64,13 +64,15 @@ constexpr uint32_t kCells = 4; // per axis
 const float3 kCellOrigin(-1.f);
 const float kCellSpacing = 0.5f; // bounds [-1, 1]
 
-// The cell values: smooth, and different along each axis, so a field that is
-// shifted, mirrored or scaled renders differently.
-float cellValue(uint32_t i, uint32_t j, uint32_t k)
+// The cell values: smooth, and different along x and y, so a field that is
+// shifted, mirrored or scaled across the view renders differently. Constant
+// along z, the view direction: where a ray march first samples the field
+// (devices step by the spacing, and jitter) then doesn't change its colour.
+float cellValue(uint32_t i, uint32_t j, uint32_t /*k*/)
 {
   const float n = float(kCells - 1);
-  const float x = i / n, y = j / n, z = k / n;
-  return (x + y * y + 0.5f * z) / 2.5f;
+  const float x = i / n, y = j / n;
+  return (x + y * y) / 2.f;
 }
 
 // The cell-centered field at continuous cell index c (cell i's centre is
@@ -156,6 +158,24 @@ anari::World cellCenteredWorld(BuildContext &ctx)
   return world;
 }
 
+// Orthographic, looking straight down -z at the field's +z face, so every
+// pixel shows the field on that face and no pixel sees a side face. The view
+// is kViewHeight tall: the bounds' edges (+-1) fall at 1/2 +- 3/8 of the
+// frame, on whole pixels for any frame size that is a multiple of 8.
+constexpr float kViewHeight = 8.f / 3.f;
+
+anari::Camera cellCenteredCamera(BuildContext &ctx, const scenes::Bounds &)
+{
+  auto d = ctx.device();
+  auto c = anari::newObject<anari::Camera>(d, "orthographic");
+  anari::setParameter(d, c, "position", float3(0.f, 0.f, 3.f));
+  anari::setParameter(d, c, "direction", float3(0.f, 0.f, -1.f));
+  anari::setParameter(d, c, "up", float3(0.f, 1.f, 0.f));
+  anari::setParameter(d, c, "height", kViewHeight);
+  anari::commitParameters(d, c);
+  return c;
+}
+
 } // namespace
 
 void registerVolumeTests(Catalog &catalog)
@@ -206,31 +226,21 @@ void registerVolumeTests(Catalog &catalog)
           "Checks that a cell-centered structured regular field renders as "
           "the vertex-centered field the spec defines it to equal.")
       .build(cellCenteredWorld)
-      // A fixed camera, not one framing the world's bounds: a field whose
-      // bounds are wrong then renders at the wrong size.
-      .camera([](BuildContext &ctx, const scenes::Bounds &) {
-        auto d = ctx.device();
-        auto c = anari::newObject<anari::Camera>(d, "perspective");
-        const float3 eye(2.4f, 1.8f, 3.f);
-        anari::setParameter(d, c, "position", eye);
-        anari::setParameter(d, c, "direction", -eye);
-        anari::setParameter(d, c, "up", float3(0.f, 1.f, 0.f));
-        anari::commitParameters(d, c);
-        return c;
-      })
+      // A fixed orthographic camera looking down -z, not one framing the
+      // world's bounds: a field whose bounds are wrong then renders at the
+      // wrong size. See cellCenteredCamera() for the framing.
+      .camera(cellCenteredCamera)
       // The first value is the reference: the vertex-centered equal.
+      // Framed this way (ADR-0010, volume equivalence), the default
+      // tolerance holds: a 17^3 grid of the same function renders exactly as
+      // the 9^3 one on helide and halcyon, and within 8 levels on visrtx,
+      // while a field read as vertex-centered changes 56 % of pixels.
       .variant("grid", {"vertexCentered", "cellCentered"})
-      // Ray marching samples the two grids at different points (devices step
-      // by the spacing, and jitter), which moves colours along the silhouette
-      // and steep gradients. On helide and halcyon, two grids holding one
-      // trilinear function differ in 1.7 % of pixels by more than 32 levels;
-      // a field read as vertex-centered (bounds and values wrong) in 21 %.
-      .equivalenceTolerance("grid", 0.04, 32)
       .noGroundTruth()
       .covers("ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR_CELL_CENTERED")
       .requireFeatures({"ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR",
           "ANARI_KHR_VOLUME_TRANSFER_FUNCTION1D",
-          kSupportPerspective})
+          "ANARI_KHR_CAMERA_ORTHOGRAPHIC"})
       .registerInto(catalog);
 }
 
