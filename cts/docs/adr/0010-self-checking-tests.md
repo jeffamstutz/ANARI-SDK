@@ -349,3 +349,46 @@ on a workdir where `generate` never ran (8 of 8 centroids, 0 of 50 929
 background pixels offending). The evaluation seam's unit test runs the same
 check on a rasterized correct buffer (passes) and on wrong ones: two
 triangles' IDs swapped, a background of 0, the image upside down (all fail).
+
+## Volume equivalence: frame the scene, don't loosen (ticket 08)
+
+A ray-marched volume samples two equivalent fields at different points:
+devices step by the field's spacing and jitter the first step, so two grids
+holding one function differ wherever the colour depends on how deep the first
+samples land. With a perspective view of a field that varies along every axis,
+`volume/structured_regular_cell_centered` needed 4 % at τ = 32 to pass on
+helide and halcyon (1.7 % measured), and still failed visrtx at 5.66 %. That
+loosening is not the pattern: an equivalence between volumes is framed so the
+default tolerance holds.
+
+- **Orthographic, straight down one axis** of the field, with a fixed camera
+  rather than the runner's framing (a field with wrong bounds then renders at
+  the wrong size). No pixel sees a side face.
+- **Opaque at once:** opacity 1 and a small `unitDistance` (0.001), so the
+  image is the first samples' colour.
+- **Constant along the view axis:** the field varies only across the view, so
+  where along the ray the first samples land doesn't change the colour. The
+  Test then checks the field's extent and layout across the view; the axis
+  along the view is not checked by that Test (a second Test looking down
+  another axis would).
+- **Silhouette edges on whole pixels:** the orthographic `height` puts the
+  bounds' edges on pixel boundaries at the default frame size (the
+  cell-centered Test uses `height` 8/3 for bounds [-1, 1], edges at 1/2 ± 3/8
+  of the frame, whole for a multiple of 8). No pixel straddles the edge.
+- **If a difference remains at the silhouette**, compare outside a thin band
+  with a derived expectation (`maskedBy`, or `regionComposite`'s margin), not
+  a looser tolerance. The cell-centered Test did not need one.
+- A per-axis `.equivalenceTolerance` remains possible (decision 5), but only
+  with the measured spread on at least two devices stated beside it and a
+  stated margin below the failure the Test targets.
+
+Measured on 2026-11-17 at 256x256 with the default tolerance (0.2 %, τ = 8),
+gating removed on helide and halcyon, which don't implement the extension:
+a 17³ grid of the same function in place of the cell-centered field renders
+identically to the 9³ vertex-centered one on helide and halcyon (0 pixels
+differ at all) and within 8 levels on visrtx (1.5 % of pixels differ by 1-8
+levels); the cell-centered field read as vertex-centered (helide, halcyon)
+changes 56 % of pixels. visrtx, which implements the extension, passes at
+256, 200 and 512. Ticket 11's cross-representation equivalences
+(structuredRegular, unstructured, nanovdb; filters; element types) build on
+this framing.
