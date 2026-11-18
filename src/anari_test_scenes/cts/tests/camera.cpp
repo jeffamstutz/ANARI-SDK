@@ -126,7 +126,7 @@ anari::Camera aspectCamera(BuildContext &ctx, const char *subtype)
 {
   auto d = ctx.device();
   auto c = anari::newObject<anari::Camera>(d, subtype);
-  anari::setParameter(d, c, "position", float3(0.5f, 0.5f, -1.f));
+  anari::setParameter(d, c, "position", kEye);
   cp(ctx, d, c, "aspect");
   anari::commitParameters(d, c);
   return c;
@@ -169,7 +169,7 @@ void registerDefaultFovyTest(Catalog &catalog)
       .camera([](BuildContext &ctx, const scenes::Bounds &) -> anari::Camera {
         auto d = ctx.device();
         auto c = anari::newObject<anari::Camera>(d, "perspective");
-        anari::setParameter(d, c, "position", float3(0.5f, 0.5f, -1.f));
+        anari::setParameter(d, c, "position", kEye);
         cp(ctx, d, c, "fovy");
         anari::commitParameters(d, c);
         return c;
@@ -182,20 +182,27 @@ void registerDefaultFovyTest(Catalog &catalog)
       .registerInto(catalog);
 }
 
-} // namespace
-
-void registerCameraTests(Catalog &catalog)
+// direction, up and imageRegion, which every camera subtype takes: turning the
+// camera or its up vector changes the picture, and a region renders the crop
+// of the full frame it names.
+void registerGeneralCameraTest(Catalog &catalog,
+    const std::string &name,
+    const char *subtype,
+    const char *extension)
 {
-  // ---- perspective: general (direction / up / imageRegion) ------------------
-  makeTest("camera", "camera_general")
-      .description("Checks camera orientation and image-region parameters.")
+  makeTest("camera", name)
+      .description(std::string("Checks ") + subtype
+          + " camera orientation and image-region parameters.")
       .build(cameraSubjectWorld)
-      .camera([](BuildContext &ctx, const scenes::Bounds &) -> anari::Camera {
+      .camera([subtype](
+                  BuildContext &ctx, const scenes::Bounds &) -> anari::Camera {
         auto d = ctx.device();
-        auto c = anari::newObject<anari::Camera>(d, "perspective");
+        auto c = anari::newObject<anari::Camera>(d, subtype);
         anari::setParameter(d, c, "position", kEye);
-        anari::setParameter(d, c, "near", 0.01f);
-        anari::setParameter(d, c, "far", 100.f);
+        if (std::string(subtype) != "omnidirectional") {
+          anari::setParameter(d, c, "near", 0.01f);
+          anari::setParameter(d, c, "far", 100.f);
+        }
         cp(ctx, d, c, "direction");
         cp(ctx, d, c, "up");
         cp(ctx, d, c, "imageRegion");
@@ -228,9 +235,27 @@ void registerCameraTests(Catalog &catalog)
             return rect ? crop(full, *rect) : Image{};
           })
       .noGroundTruth()
-      .covers("ANARI_KHR_CAMERA_PERSPECTIVE")
+      .covers(extension)
       .requireFeatures(kSubjectSurface)
       .registerInto(catalog);
+}
+
+} // namespace
+
+void registerCameraTests(Catalog &catalog)
+{
+  // ---- general (direction / up / imageRegion)
+  // --------------------------------
+  registerGeneralCameraTest(
+      catalog, "camera_general", "perspective", "ANARI_KHR_CAMERA_PERSPECTIVE");
+  registerGeneralCameraTest(catalog,
+      "orthographic_general",
+      "orthographic",
+      "ANARI_KHR_CAMERA_ORTHOGRAPHIC");
+  registerGeneralCameraTest(catalog,
+      "omnidirectional_general",
+      "omnidirectional",
+      "ANARI_KHR_CAMERA_OMNIDIRECTIONAL");
 
   // ---- perspective: intrinsics ----------------------------------------------
   makeTest("camera", "perspective")

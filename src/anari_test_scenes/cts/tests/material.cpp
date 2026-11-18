@@ -183,9 +183,12 @@ struct LobeScene
 {
   bool dielectric{true}; // metallic 0
   bool smooth{true}; // roughness 0.3, so a highlight shows
+  bool light{true}; // the directional light; without it, only ambient light
 };
 
 constexpr LobeScene kDielectricLobeScene{true, true};
+// Lit by ambient light alone.
+constexpr LobeScene kAmbientLobeScene{true, true, false};
 // metallic and roughness are what the Test varies: unset is the spec default.
 constexpr LobeScene kMetalLobeScene{false, false};
 
@@ -235,10 +238,13 @@ anari::World materialWorld(BuildContext &ctx,
   anari::commitParameters(d, mat);
 
   auto surface = makeSurface(d, geom, mat);
-  auto light = makeDirectionalLight(d, float3(0.f, -1.f, -1.f));
   WorldContents wc;
   wc.surfaces = {surface};
-  wc.lights = {light};
+  anari::Light light = nullptr;
+  if (!lobe || lobe->light) {
+    light = makeDirectionalLight(d, float3(0.f, -1.f, -1.f));
+    wc.lights = {light};
+  }
   auto world = assembleWorld(d, wc);
 
   anari::release(d, geom);
@@ -247,7 +253,8 @@ anari::World materialWorld(BuildContext &ctx,
       anari::release(d, sm);
   anari::release(d, mat);
   anari::release(d, surface);
-  anari::release(d, light);
+  if (light)
+    anari::release(d, light);
   return world;
 }
 
@@ -616,6 +623,47 @@ void registerMaterialTests(Catalog &catalog)
     notShadedByHelide(test, {"ior"});
     lobeEffectMargins(test, {"ior"});
     test.groundTruth("the shading of a PBR lobe has no analytic answer")
+        .covers(kPbr)
+        .requireFeatures(kSupportTriangle)
+        .registerInto(catalog);
+  }
+
+  // The occlusion map attenuates ambient light only ("only for otherwise
+  // unoccluded ambient lighting", 1.2, section 5.11.2): under ambient light
+  // alone it changes the image, and under a directional light alone it does
+  // not.
+  for (bool ambient : {true, false}) {
+    auto test = makeTest("material",
+        ambient ? "pbr_occlusion_ambient" : "pbr_occlusion_directional");
+    test.description(ambient
+                ? "Checks that a PBR occlusion map darkens ambient light."
+                : "Checks that a PBR occlusion map doesn't change a surface "
+                  "lit by a directional light alone.")
+        .build([ambient](BuildContext &ctx) {
+          return materialWorld(
+              ctx,
+              "physicallyBased",
+              16,
+              {{"image2D", "attribute1", false}},
+              [](BuildContext &ctx,
+                  anari::Device d,
+                  anari::Material mat,
+                  const std::vector<anari::Sampler> &s) {
+                bind(ctx, d, mat, "occlusion", s);
+              },
+              ambient ? &kAmbientLobeScene : &kDielectricLobeScene);
+        })
+        .renderer([ambient](BuildContext &ctx, anari::Renderer r) {
+          anari::setParameter(
+              ctx.device(), r, "ambientRadiance", ambient ? 1.f : 0.f);
+        })
+        .rendererParam("ignoreAmbientLighting", "false");
+    if (ambient)
+      test.permute("occlusion", V{unsetBinding(), sampler(0)});
+    else
+      test.variant("occlusion", V{unsetBinding(), sampler(0)});
+    test.requireFeatureFor("occlusion", sampler(0), "ANARI_KHR_SAMPLER_IMAGE2D")
+        .noGroundTruth()
         .covers(kPbr)
         .requireFeatures(kSupportTriangle)
         .registerInto(catalog);
