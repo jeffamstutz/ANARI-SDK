@@ -17,6 +17,7 @@
 #include "anari/anari.h"
 // std
 #include <cstddef>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -35,6 +36,16 @@ struct RendererParam
 // when '=' is absent or the name is empty. The value may be empty and may
 // itself contain '='.
 std::optional<RendererParam> parseRendererParam(const std::string &arg);
+
+// The optional renderer parameters a Test declares (`.rendererParam`) that the
+// renderer actually lists: `declared` filtered, in order, to the names in
+// `listed` (the renderer subtype's parameter names with their types, from
+// device introspection). A renderer that does not list a parameter never
+// receives it, so a Test can ask for a mode (`ignoreAmbientLighting=false`)
+// without failing a device that has no such switch.
+std::vector<RendererParam> supportedRendererParams(
+    const std::vector<RendererParam> &declared,
+    const std::map<std::string, ANARIDataType> &listed);
 
 // A value parsed into the byte layout anariSetParameter expects. `type` is
 // ANARI_UNKNOWN only when parsing failed.

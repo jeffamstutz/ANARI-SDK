@@ -144,6 +144,7 @@ void registerRendererTests(Catalog &catalog)
         applyParameterValue(
             d, r, "ambientRadiance", ctx.value("ambientRadiance").raw());
       })
+      .rendererParam("ignoreAmbientLighting", "false")
       .simplified()
       .permute("ambientColor",
           V{Any(float3(0.f, 0.f, 1.f)),

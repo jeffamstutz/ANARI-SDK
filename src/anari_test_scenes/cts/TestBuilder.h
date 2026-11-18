@@ -30,6 +30,12 @@ struct TestBuilder
   // applies its selected subtype and baseline parameters.
   TestBuilder &camera(CameraFn fn);
   TestBuilder &renderer(RendererFn fn);
+  // Ask for a renderer parameter, in the CLI's NAME=VALUE text form (typed
+  // against the device). The Runner sets it only when the renderer lists the
+  // parameter, so a device without the switch is not failed for it, and
+  // records what it set in the Sidecar. Applied after the Runner's baseline
+  // and before the `--renderer-param` overrides and `.renderer()`.
+  TestBuilder &rendererParam(std::string name, std::string value);
   // Render each Case at a size derived from the run's (ADR-0010); without
   // it every Case renders at the run's size.
   TestBuilder &frameSize(FrameSizeFn fn);

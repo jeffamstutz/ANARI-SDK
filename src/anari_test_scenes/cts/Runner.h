@@ -118,6 +118,11 @@ struct Runner
   // Case has no frame size. Public for testing and reuse.
   std::vector<Image> renderCase(const TestDef &test, const Case &c);
 
+  // The optional renderer parameters of `test` this Runner sets: those the
+  // selected renderer subtype lists (`TestBuilder::rendererParam`). What the
+  // Sidecar records.
+  std::vector<RendererParam> appliedRendererParams(const TestDef &test);
+
  private:
   // The committed render objects for one Case: the world plus the camera and
   // renderer (with the Test's optional camera build / renderer configuration
@@ -211,16 +216,23 @@ struct Runner
   // m_denoiseEnabled. Called once at the start of generate()/run().
   void resolveCapabilities(const std::set<std::string> &features);
 
-  // Query the selected renderer subtype's declared parameter types once, so
-  // CLI overrides parse into the device's expected type. Populates
-  // m_rendererParamTypes; leaves it empty when introspection yields nothing.
-  void resolveRendererParamTypes();
+  // Query the selected renderer subtype's declared parameter types once (on
+  // first use), so CLI overrides and a Test's optional parameters parse into
+  // the device's expected type and the latter are set only when listed.
+  // Populates m_rendererParamTypes; leaves it empty when introspection yields
+  // nothing.
+  const std::map<std::string, ANARIDataType> &rendererParamTypes();
 
   // Apply the CLI renderer parameter overrides to `renderer` (does not commit).
   // Each value parses into its device-declared type, falling back to inference
   // when the device does not report the parameter; a value that cannot be
   // parsed is skipped with a warning.
   void applyRendererParams(anari::Renderer renderer);
+
+  // Set `params` (a Test's optional renderer parameters, already filtered to
+  // the ones the renderer lists) on `renderer`; does not commit.
+  void setRendererParams(
+      anari::Renderer renderer, const std::vector<RendererParam> &params);
 
   // Write a "missing required feature" skip sidecar for a Case, naming the
   // required features absent from `features`, and tally it.
@@ -291,6 +303,7 @@ struct Runner
   // Declared parameter types for the selected renderer subtype (name -> type),
   // resolved once from device introspection to type the CLI overrides.
   std::map<std::string, ANARIDataType> m_rendererParamTypes;
+  bool m_rendererParamTypesResolved{false};
   // probeOnce()'s result, once probed.
   std::optional<std::string> m_deviceFailure;
 };

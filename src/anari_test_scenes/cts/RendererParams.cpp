@@ -116,6 +116,17 @@ std::optional<RendererParam> parseRendererParam(const std::string &arg)
   return p;
 }
 
+std::vector<RendererParam> supportedRendererParams(
+    const std::vector<RendererParam> &declared,
+    const std::map<std::string, ANARIDataType> &listed)
+{
+  std::vector<RendererParam> out;
+  for (const auto &p : declared)
+    if (listed.count(p.name))
+      out.push_back(p);
+  return out;
+}
+
 ANARIDataType inferParamType(const std::string &text)
 {
   const std::string t = trim(text);

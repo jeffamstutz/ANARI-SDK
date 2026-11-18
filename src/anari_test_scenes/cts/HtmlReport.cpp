@@ -831,6 +831,12 @@ void appendConfigTable(std::ostringstream &os, const CaseResult &r)
       };
   rowKV("Device", device);
   rowKV("Axes", axisText(r));
+  if (!r.rendererParams.empty()) {
+    std::string params;
+    for (const auto &[name, value] : r.rendererParams)
+      params += (params.empty() ? "" : ", ") + name + "=" + value;
+    rowKV("Renderer parameters", params);
+  }
   rowKV("Detail", r.detail);
   rowKV("Duration", dur);
   os << "<div class=\"r\"><span class=\"kk\">Ground truth</span><span "
@@ -920,8 +926,10 @@ void appendAssertions(std::ostringstream &os,
   os << "<div class=\"asserts\"><div class=\"lbl\">Self-checks</div>";
   for (const auto &a : r.assertions) {
     const bool bad = a.evaluated && !a.passed;
-    const char *outcome = !a.evaluated ? "opted out" : (a.passed ? "PASS" : "FAIL");
-    const char *outcomeFg = !a.evaluated ? "skip-fg" : (a.passed ? "pass-fg" : "fail-fg");
+    const char *outcome =
+        !a.evaluated ? "opted out" : (a.passed ? "PASS" : "FAIL");
+    const char *outcomeFg =
+        !a.evaluated ? "skip-fg" : (a.passed ? "pass-fg" : "fail-fg");
     os << "<div class=\"asrt" << (bad ? " bad" : "") << "\" data-kind=\""
        << htmlEscape(a.kind) << "\"><div class=\"ah\"><span class=\"kindchip\">"
        << htmlEscape(a.kind.empty() ? kOtherFailure : a.kind) << "</span>";
@@ -976,24 +984,53 @@ void appendAssertions(std::ostringstream &os,
     if (bad) {
       os << "<div class=\"figs\">";
       if (a.kind == kEffectAssertion) {
-        appendFigure(os, root, caseImagePath(r, a.channel), "this Case", embed,
-            selected, srcPrefix);
-        appendFigure(os, root, a.partnerImage, "partner Case", embed, selected,
+        appendFigure(os,
+            root,
+            caseImagePath(r, a.channel),
+            "this Case",
+            embed,
+            selected,
             srcPrefix);
-        appendFigure(os, root, a.maskImage, "changed pixels", embed, selected,
+        appendFigure(os,
+            root,
+            a.partnerImage,
+            "partner Case",
+            embed,
+            selected,
+            srcPrefix);
+        appendFigure(os,
+            root,
+            a.maskImage,
+            "changed pixels",
+            embed,
+            selected,
             srcPrefix);
       } else if (a.kind == kEquivalenceAssertion) {
-        appendFigure(os, root, caseImagePath(r, a.channel), "actual", embed,
-            selected, srcPrefix);
-        appendFigure(os, root,
+        appendFigure(os,
+            root,
+            caseImagePath(r, a.channel),
+            "actual",
+            embed,
+            selected,
+            srcPrefix);
+        appendFigure(os,
+            root,
             !a.expectedImage.empty() ? a.expectedImage : a.partnerImage,
-            "expected", embed, selected, srcPrefix);
-        appendFigure(os, root, a.maskImage, "changed pixels", embed, selected,
+            "expected",
+            embed,
+            selected,
+            srcPrefix);
+        appendFigure(os,
+            root,
+            a.maskImage,
+            "changed pixels",
+            embed,
+            selected,
             srcPrefix);
       } else {
         // An exact check's failure mask, or whatever an unknown kind wrote.
-        appendFigure(os, root, a.maskImage, "failure mask", embed, selected,
-            srcPrefix);
+        appendFigure(
+            os, root, a.maskImage, "failure mask", embed, selected, srcPrefix);
       }
       os << "</div>";
     }
@@ -1045,8 +1082,7 @@ void appendTestRow(std::ostringstream &os,
      << htmlEscape(r.category) << "\" data-ext=\"" << htmlEscape(extList)
      << "\" data-kinds=\"" << htmlEscape(kindList(r)) << "\" id=\"case-"
      << htmlEscape(key) << "\" data-key=\"" << htmlEscape(key)
-     << "\" data-search=\""
-     << htmlEscape(searchText) << "\">";
+     << "\" data-search=\"" << htmlEscape(searchText) << "\">";
 
   // Collapsed row.
   os << "<div class=\"row\"><div><span class=\"badge " << vc << "\">"
@@ -1130,18 +1166,17 @@ void appendCoverageMatrix(std::ostringstream &os,
     if (c.core)
       advertised = "—";
     os << "<div class=\"ext\" data-extension=\"" << htmlEscape(c.extension)
-       << "\"" << (hasCases ? " data-cases" : "") << ">"
-       << "<span class=\"x\">" << htmlEscape(c.extension) << "</span>"
-       << "<span class=\"" << (c.advertised ? "dark-fg" : "skip-fg") << "\">"
-       << advertised << "</span>"
-       << "<span class=\"n pass-fg\">" << c.passed
+       << "\"" << (hasCases ? " data-cases" : "") << ">" << "<span class=\"x\">"
+       << htmlEscape(c.extension) << "</span>" << "<span class=\""
+       << (c.advertised ? "dark-fg" : "skip-fg") << "\">" << advertised
+       << "</span>" << "<span class=\"n pass-fg\">" << c.passed
        << (c.passedWithoutGroundTruth > 0
                   ? " <span class=\"skip-fg\" title=\"passed on self-checks "
                     "alone; Ground truth not evaluated\">("
-                      + std::to_string(c.passedWithoutGroundTruth) + " self)</span>"
+                      + std::to_string(c.passedWithoutGroundTruth)
+                      + " self)</span>"
                   : std::string())
-       << "</span>"
-       << "<span class=\"n fail-fg\">" << c.failed << "</span>"
+       << "</span>" << "<span class=\"n fail-fg\">" << c.failed << "</span>"
        << "<span class=\"n skip-fg\">" << c.skipped << "</span>"
        << "<span><span class=\"state " << coverageStateClass(c.state) << "\">"
        << htmlEscape(coverageStateLabel(c)) << "</span></span></div>";

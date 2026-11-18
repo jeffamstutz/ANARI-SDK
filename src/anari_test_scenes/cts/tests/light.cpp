@@ -353,6 +353,7 @@ void registerVisibilityTest(Catalog &catalog, const VisibleLight &l)
         return makeScreenQuadCamera(ctx.device());
       })
       .renderer(darkRenderer)
+      .rendererParam("ignoreAmbientLighting", "false")
       // `absent` renders the scene without the light.
       .permute("visible", V{none(), Any(false), Any(true), Any(kLightAbsent)})
       // Lights are visible unless said otherwise.
@@ -433,6 +434,7 @@ void registerLightTests(Catalog &catalog)
             });
       })
       .renderer(darkRenderer)
+      .rendererParam("ignoreAmbientLighting", "false")
       .simplified()
       .permute("direction",
           V{Any(float3(0.f, 0.f, -1.f)), Any(float3(0.f, -0.9f, -0.43589f))})
@@ -456,6 +458,7 @@ void registerLightTests(Catalog &catalog)
             });
       })
       .renderer(darkRenderer)
+      .rendererParam("ignoreAmbientLighting", "false")
       .simplified()
       // The baseline light is close enough to the grid, and the alternatives
       // for intensity and power bright enough, that each changes the lit
@@ -488,6 +491,7 @@ void registerLightTests(Catalog &catalog)
             });
       })
       .renderer(darkRenderer)
+      .rendererParam("ignoreAmbientLighting", "false")
       .simplified()
       // The baseline cone, straight down from above the grid's centre, lights
       // most of it, so moving, turning, narrowing or dimming the light changes
@@ -526,6 +530,7 @@ void registerLightTests(Catalog &catalog)
             });
       })
       .renderer(darkRenderer)
+      .rendererParam("ignoreAmbientLighting", "false")
       .simplified()
       // A quad above the grid facing it (edge1 x edge2 points down, so the
       // front side lights the grid): the baseline covers most of the grid, and
@@ -577,6 +582,7 @@ void registerLightTests(Catalog &catalog)
             });
       })
       .renderer(darkRenderer)
+      .rendererParam("ignoreAmbientLighting", "false")
       .simplified()
       // A ring above the grid facing down. The baseline opens wide enough to
       // light the grid; each alternative moves, tilts, narrows or dims it
@@ -615,6 +621,7 @@ void registerLightTests(Catalog &catalog)
             });
       })
       .renderer(darkRenderer)
+      .rendererParam("ignoreAmbientLighting", "false")
       .simplified()
       .permute("up", V{none(), Any(float3(0.f, 1.f, 0.f))})
       .permute("direction", V{none(), Any(float3(0.f, -1.f, 0.f))})
