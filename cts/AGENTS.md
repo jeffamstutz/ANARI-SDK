@@ -130,6 +130,9 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   `requireFeatureFor(axis, value, ext)` gates one axis value: a device
   lacking `ext` skips exactly the Cases holding it (they take no part in
   effect or equivalence checks); use it for an extension only some Cases need.
+  An effect pair (or Variant/derived expectation) whose partner was skipped
+  that way is recorded as "not evaluated: partner `x` was skipped: ...", never
+  dropped silently and never failed.
 - `Axis.h` / `Case.{h,cpp}` / `Expansion.{h,cpp}` — axes expand into Cases
   (cartesian, or one-factor-at-a-time when `simplified`); variants share a
   ground-truth key, permutations get distinct ones.

@@ -23,6 +23,7 @@
 // nlohmann json (vendored under scenes/file/)
 #include "scenes/file/nlohmann/json.hpp"
 // std
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -449,15 +450,30 @@ int cmdCheckProperties(const Options &o)
   auto catalog = buildCatalog();
   int runnable = 0, skipped = 0;
   for (const TestDef *t : catalog.filter(Filter{o.filter})) {
-    const bool ok = isSupported(*t, features);
+    // Gate per Case: a Test whose Cases need different extensions can run
+    // some and skip others.
+    const auto cases = expand(*t);
+    size_t skippedCases = 0;
+    std::vector<std::string> missing;
+    for (const Case &c : cases) {
+      if (isSupported(*t, c, features))
+        continue;
+      ++skippedCases;
+      for (const auto &f : missingFeatures(*t, c, features))
+        if (std::find(missing.begin(), missing.end(), f) == missing.end())
+          missing.push_back(f);
+    }
+    const bool ok = skippedCases < cases.size();
     runnable += ok;
     skipped += !ok;
     std::cout << (ok ? "[run ] " : "[skip] ") << t->id();
-    if (!ok) {
+    if (ok && skippedCases > 0)
+      std::cout << "  (" << skippedCases << " of " << cases.size()
+                << " Cases skipped)";
+    if (skippedCases > 0) {
       std::cout << "  missing:";
-      for (const auto &f : t->requiredFeatures)
-        if (!features.count(f))
-          std::cout << " " << f;
+      for (const auto &f : missing)
+        std::cout << " " << f;
     }
     std::cout << "\n";
   }

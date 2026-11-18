@@ -198,6 +198,28 @@ RelationOutcome effect(const TestDef &test,
   return out;
 }
 
+// An effect pair whose partner the device skipped: nothing was compared.
+RelationOutcome effectNotEvaluated(const TestDef &test,
+    size_t axis,
+    const std::vector<Case> &cases,
+    const std::vector<CaseRender> &renders,
+    size_t later,
+    size_t partner,
+    const SelfCheckDefaults &defaults)
+{
+  RelationOutcome out = attributed(kEffectAssertion, test, axis, later);
+  setPartners(out, cases, {partner});
+  const auto margin = test.effectMargins.find(test.axes[axis].name);
+  out.assertion.threshold =
+      margin != test.effectMargins.end() ? margin->second : defaults.effectMin;
+  out.assertion.tau = defaults.tau;
+  out.assertion.evaluated = false;
+  out.assertion.passed = false;
+  out.assertion.detail = "not evaluated: "
+      + partnerProblem(test, cases[partner], renders[partner]);
+  return out;
+}
+
 // What a value of an axis must render, if anything: a declared derived
 // expectation, or a Variant's identity with its first value.
 struct Expectation
@@ -527,24 +549,42 @@ std::vector<RelationOutcome> evaluateRelations(const TestDef &test,
         const Axis &axis = test.axes[group.axis];
         if (axis.kind != AxisKind::Permutation)
           return;
-        // Effect pairs with every earlier Case, among those taking part.
-        std::vector<size_t> partners;
-        for (size_t p = 0; p < k; ++p)
-          if (inEffectPairs(test, group, p)
-              && renders[group.cases[p]].state
-                  != CaseRender::State::Unsupported)
+        // Effect pairs with every earlier Case, among those taking part. A
+        // partner the device skipped for a missing extension can't be
+        // compared with: its pair is recorded as not evaluated, so the
+        // axis doesn't read as discriminated.
+        std::vector<size_t> partners, unsupported;
+        for (size_t p = 0; p < k; ++p) {
+          if (!inEffectPairs(test, group, p))
+            continue;
+          if (renders[group.cases[p]].state == CaseRender::State::Unsupported)
+            unsupported.push_back(group.cases[p]);
+          else
             partners.push_back(group.cases[p]);
-        if (partners.empty())
-          return;
+        }
         const auto optOut = test.noEffectCheck.find(axis.name);
         if (optOut != test.noEffectCheck.end()) {
-          out.push_back(optedOut(
-              test, group.axis, cases, later, partners.back(), optOut->second));
+          if (!partners.empty())
+            out.push_back(optedOut(test,
+                group.axis,
+                cases,
+                later,
+                partners.back(),
+                optOut->second));
           return;
         }
-        for (size_t partner : partners)
-          out.push_back(effect(
-              test, group.axis, cases, renders, later, partner, defaults));
+        // In the order of the Cases, so the report reads the same way.
+        for (size_t p = 0; p < k; ++p) {
+          const size_t partner = group.cases[p];
+          if (std::find(unsupported.begin(), unsupported.end(), partner)
+              != unsupported.end())
+            out.push_back(effectNotEvaluated(
+                test, group.axis, cases, renders, later, partner, defaults));
+          else if (std::find(partners.begin(), partners.end(), partner)
+              != partners.end())
+            out.push_back(effect(
+                test, group.axis, cases, renders, later, partner, defaults));
+        }
       });
   return out;
 }

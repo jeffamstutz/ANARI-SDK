@@ -99,7 +99,9 @@ anariCts query-metadata --filter frame
 
 ## Check which tests a device can run
 
-A Test is skipped when the device is missing any of its required extensions.
+A Test is skipped when the device is missing any of its required extensions;
+a Case is skipped when the device is missing an extension required of an axis
+value it holds, so such a Test can run with some of its Cases skipped.
 `check-properties` loads a device and reports, per Test, whether it is runnable
 or will be skipped and which features are missing:
 

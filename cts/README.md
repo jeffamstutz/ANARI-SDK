@@ -169,7 +169,8 @@ anariCts query-metadata --filter frame    # descriptions and catalog metadata as
 
 `check-properties` is the quick way to see why a Test will be skipped on a
 device — a Test is skipped when the device is missing any of its required
-extensions.
+extensions. A Test whose Cases need different extensions is gated per Case:
+`check-properties` shows it as `[run ]  (3 of 5 Cases skipped)  missing: <ext>`.
 
 ## Reporting
 

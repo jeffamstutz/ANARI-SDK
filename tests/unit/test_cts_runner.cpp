@@ -2256,12 +2256,20 @@ TEST_CASE("Runner skips only the Cases whose value needs a missing extension",
     CHECK_FALSE(
         std::filesystem::exists(wd.resultImagePath(at("b"), Channel::Color)));
 
-    // The skipped Case is no one's partner: c is compared with a alone, and
-    // nothing is failed for b's absence.
+    // The skipped Case is not compared with, and not failed for: c's effect
+    // with a is evaluated, and the pair with b is recorded as not evaluated.
     CHECK(ra.verdict == Verdict::Passed);
-    REQUIRE(rc.assertions.size() == 1);
+    REQUIRE(rc.assertions.size() == 2);
     CHECK(rc.assertions[0].relatedCases == std::vector<std::string>{"a"});
+    CHECK(rc.assertions[0].evaluated);
     CHECK(rc.assertions[0].detail.find("skipped") == std::string::npos);
+    CHECK(rc.assertions[1].kind == "effect");
+    CHECK(rc.assertions[1].relatedCases == std::vector<std::string>{"b"});
+    CHECK_FALSE(rc.assertions[1].evaluated);
+    CHECK(rc.assertions[1].detail
+        == "not evaluated: partner `" + at("b").id()
+            + "` was skipped: device is missing a required feature: "
+              "ANARI_KHR_TEST_B");
 
     CHECK(summary.failed == 1); // c fails its effect (the axis is ignored)
   }
@@ -2285,12 +2293,68 @@ TEST_CASE("Runner skips only the Cases whose value needs a missing extension",
     CHECK(summary.total == 1);
     CaseResult rc;
     REQUIRE(readSidecar(wd.sidecarPath(at("c")), rc));
-    REQUIRE(rc.assertions.size() == 1);
+    REQUIRE(rc.assertions.size() == 2);
     CHECK(rc.assertions[0].relatedCases == std::vector<std::string>{"a"});
+    CHECK_FALSE(rc.assertions[1].evaluated);
     // b is a skipped partner: it is not written as a support render.
     CHECK_FALSE(
         std::filesystem::exists(wd.resultImagePath(at("b"), Channel::Color)));
   }
+
+  std::filesystem::remove_all(root, ec);
+  anari::release(d, d);
+  anari::unloadLibrary(lib);
+}
+
+TEST_CASE(
+    "An effect pair's only partner being skipped is not evaluated, not "
+    "failed",
+    "[cts][runner][features][helide]")
+{
+  anari::Library lib = anari::loadLibrary("helide", statusFunc, nullptr);
+  if (!lib) {
+    WARN("helide library not available; skipping only-partner gating test");
+    return;
+  }
+  anari::Device d = anari::newDevice(lib, "default");
+  REQUIRE(d != nullptr);
+  anari::commitParameters(d, d);
+
+  const auto root =
+      std::filesystem::temp_directory_path() / "cts_runner_only_partner";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+
+  Catalog catalog;
+  makeTest("demo", "gated2")
+      .description("The first value needs an extension.")
+      .build(buildTriangleWorld)
+      .permute("ignored", {"a", "b"})
+      .requireFeatureFor("ignored", Any("a"), "ANARI_KHR_TEST_A")
+      .noGroundTruth()
+      .registerInto(catalog);
+
+  RunOptions opts;
+  opts.width = 64;
+  opts.height = 64;
+  opts.device = {"helide", "default", "default"};
+  const Workdir wd(root);
+  Runner runner(d, wd, opts);
+  const auto summary = runner.run(catalog, Filter{"demo/gated2"}, {});
+  CHECK(summary.total == 2);
+  CHECK(summary.failed == 0);
+  CHECK(summary.skipped == 2);
+
+  CaseResult rb;
+  REQUIRE(readSidecar(
+      wd.sidecarPath(caseOf(
+          "demo", "gated2", {{"ignored", Any("b"), AxisKind::Permutation}})),
+      rb));
+  REQUIRE(rb.assertions.size() == 1);
+  CHECK_FALSE(rb.assertions[0].evaluated);
+  CHECK(rb.assertions[0].detail.find("not evaluated: partner") == 0);
+  // Nothing was evaluated: skipped, not passed and not failed.
+  CHECK(rb.verdict == Verdict::Skipped);
 
   std::filesystem::remove_all(root, ec);
   anari::release(d, d);
