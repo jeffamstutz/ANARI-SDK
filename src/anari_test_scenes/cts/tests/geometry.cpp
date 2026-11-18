@@ -3,8 +3,10 @@
 
 #include "../AnariObject.h"
 #include "../BuildContext.h"
+#include "../ExactCheck.h"
 #include "../FrameReadback.h"
 #include "../GeometryBuilder.h"
+#include "../GeometryLayout.h"
 #include "../LightBuilder.h"
 #include "../Metrics.h"
 #include "../ScreenQuad.h"
@@ -18,13 +20,16 @@
 
 #include "generators/ColorPalette.h"
 // std
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <initializer_list>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace anari {
@@ -116,7 +121,7 @@ anari::World surfaceWorld(BuildContext &ctx, const Spec &spec)
   anari::commitParameters(d, mat);
 
   auto surface = makeSurface(d, geom, mat);
-  auto light = makeDirectionalLight(d, float3(0.f, -1.f, -1.f));
+  auto light = makeDirectionalLight(d, float3(0.f, -1.f, -1.f), 1.f);
 
   WorldContents contents;
   contents.surfaces = {surface};
@@ -371,6 +376,116 @@ const std::vector<Channel> kColorDepth = {Channel::Color, Channel::Depth};
 const std::vector<Channel> kColorOnly = {Channel::Color};
 const std::vector<Channel> kDepthOnly = {Channel::Depth};
 
+// Exact checks on a layout's primitives //////////////////////////////////////
+//
+// The shape Tests lay their primitives out in a known grid (GeometryLayout),
+// so where each one is, and so what the frame holds there, is analytic.
+
+// The centre of each primitive of a soup layout with `perPrimitive` vertices.
+std::vector<float3> primitiveCenters(
+    const std::vector<float3> &positions, size_t perPrimitive)
+{
+  std::vector<float3> out;
+  for (size_t i = 0; i + perPrimitive <= positions.size(); i += perPrimitive) {
+    float3 sum(0.f);
+    for (size_t k = 0; k < perPrimitive; ++k)
+      sum = sum + positions[i + k];
+    out.push_back(sum / float(perPrimitive));
+  }
+  return out;
+}
+
+std::vector<float3> triangleCenters(int count)
+{
+  return primitiveCenters(
+      makeTriangleLayout(TriangleShape::Triangle, PrimitiveMode::Soup, count)
+          .positions,
+      3);
+}
+
+// A quad is two triangles meeting along a diagonal through its centre, where
+// a ray can fall between them, so the sample point is a quarter edge off it.
+std::vector<float3> quadCenters(int count)
+{
+  const auto positions =
+      makeQuadLayout(QuadShape::Quad, PrimitiveMode::Soup, count).positions;
+  auto out = primitiveCenters(positions, 4);
+  for (size_t i = 0; i < out.size(); ++i)
+    out[i] = out[i] + 0.25f * (positions[4 * i + 1] - positions[4 * i]);
+  return out;
+}
+
+std::vector<float3> sphereCenters(int count)
+{
+  return primitiveCenters(
+      makeSphereLayout(PrimitiveMode::Soup, count).positions, 1);
+}
+
+std::vector<float3> segmentCenters(int count)
+{
+  return primitiveCenters(
+      makeSegmentLayout(PrimitiveMode::Soup, count).positions, 2);
+}
+
+// Where the world point `p` falls, as a whole pixel inside the frame.
+std::pair<uint32_t, uint32_t> pixelOf(
+    ExactCheck &x, const float3 &p, uint32_t width, uint32_t height)
+{
+  const auto at = x.project(p);
+  if (!at || at->x < 0.f || at->y < 0.f || at->x >= width || at->y >= height)
+    throw std::runtime_error("a primitive's centre is outside the frame");
+  return {uint32_t(at->x), uint32_t(at->y)};
+}
+
+// Depth is "euclidean distance to the camera" (1.2, section 5.1): at each
+// primitive's centre, a flat primitive facing the camera shows that distance,
+// to within what one pixel's offset from the centre changes it.
+void depthAtCenters(ExactCheck &x, const std::vector<float3> &centers)
+{
+  const auto depth = x.depth();
+  const auto cam = x.camera();
+  if (!cam)
+    throw std::runtime_error("the Case's camera has no recorded projection");
+  PixelMask at(depth.width, depth.height);
+  std::vector<float> expected(size_t(depth.width) * depth.height, 0.f);
+  for (const auto &c : centers) {
+    const auto p = pixelOf(x, c, depth.width, depth.height);
+    at.set(p.first, p.second);
+    expected[size_t(p.second) * depth.width + p.first] =
+        anari::math::length(c - cam->position);
+  }
+  x.matches(
+      "the depth at each primitive's centre is its distance to the camera",
+      depth,
+      [&](uint32_t px, uint32_t y) {
+        return expected[size_t(y) * depth.width + px];
+      },
+      0.03,
+      &at);
+}
+
+// Colours are applied: the pixels at the primitives' centres are not all one
+// colour. The palette's colours, lit, span well over 20 levels between the two
+// that differ most; a device that ignores the attribute shows one colour
+// (lighting aside, which is the same at every centre of a flat layout).
+void colorsAreApplied(ExactCheck &x, const std::vector<float3> &centers)
+{
+  const auto color = x.rgba(Channel::Color);
+  std::vector<Rgba8> seen;
+  for (const auto &c : centers) {
+    const auto p = pixelOf(x, c, color.width, color.height);
+    seen.push_back(color.at(p.first, p.second));
+  }
+  double spread = 0.0;
+  for (size_t i = 0; i < seen.size(); ++i)
+    for (size_t j = i + 1; j < seen.size(); ++j)
+      spread = std::max(spread, valueDistance(seen[i], seen[j]));
+  x.measure("largest colour difference between two primitives' centres",
+      spread,
+      Limit::AtLeast,
+      20.0);
+}
+
 // Register the family of tests shared by every "shaped" geometry subtype
 // (triangle/quad and the sphere-like subtypes differ only in available extras).
 template <typename Spec>
@@ -379,7 +494,8 @@ void registerShape(Catalog &catalog,
     Spec spec,
     const char *description,
     const char *feature,
-    bool soupVariantOnly)
+    bool soupVariantOnly,
+    const std::function<void(TestBuilder &)> &verify)
 {
   // Basic soup-vs-indexed equivalence: a Variant sharing one ground truth.
   auto basic = makeTest("geometry", prefix);
@@ -391,6 +507,7 @@ void registerShape(Catalog &catalog,
     basic.variant("primitiveMode", {"soup", "indexed"});
   else
     basic.permute("primitiveMode", {"soup", "indexed"});
+  verify(basic);
   basic.channels(kColorDepth)
       .covers(feature)
       .requireFeatures(kSupportMatte)
@@ -675,19 +792,32 @@ void registerGeometryTests(Catalog &catalog)
       triangle(TriangleShape::Triangle, 16),
       "Checks basic triangle geometry in soup and indexed modes.",
       "ANARI_KHR_GEOMETRY_TRIANGLE",
-      /*soupVariantOnly=*/true);
+      /*soupVariantOnly=*/true,
+      [](TestBuilder &b) {
+        b.expectExact("depth at each triangle's centre", [](ExactCheck &x) {
+           depthAtCenters(x, triangleCenters(16));
+         }).noGroundTruth();
+      });
   registerShape(catalog,
       "triangle_quad",
       triangle(TriangleShape::Quad, 16),
       "Checks triangles arranged as a quad in soup and indexed modes.",
       "ANARI_KHR_GEOMETRY_TRIANGLE",
-      true);
+      true,
+      [](TestBuilder &b) {
+        b.groundTruth(
+            "a mesh of triangles shaded across shared edges has no analytic answer; its soup and indexed forms are also checked against each other");
+      });
   registerShape(catalog,
       "triangle_cube",
       triangle(TriangleShape::Cube, 16),
       "Checks triangles arranged as a cube in soup and indexed modes.",
       "ANARI_KHR_GEOMETRY_TRIANGLE",
-      true);
+      true,
+      [](TestBuilder &b) {
+        b.groundTruth(
+            "a lit cube of triangles has no analytic answer; its soup and indexed forms are also checked against each other");
+      });
 
   makeTest("geometry", "triangle_colors")
       .description("Checks primitive and vertex colors on triangle geometry.")
@@ -697,6 +827,9 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("color", {"primitive.color", "vertex.color"})
       .channels(kColorOnly)
+      .expectExact("the attribute colours show",
+          [](ExactCheck &x) { colorsAreApplied(x, triangleCenters(4)); })
+      .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_TRIANGLE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -709,6 +842,9 @@ void registerGeometryTests(Catalog &catalog)
       .variant("tangent", {"unset", "vec3", "vec4"})
       .simplified()
       .channels(kColorOnly)
+      .groundTruth(
+          "the equivalences alone would pass a device that draws nothing; the "
+          "lit gradient primitive has no analytic answer")
       .covers("ANARI_KHR_GEOMETRY_TRIANGLE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -723,6 +859,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
+      .groundTruth(
+          "attribute ramps across a lit surface have no analytic answer")
       .covers("ANARI_KHR_GEOMETRY_TRIANGLE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -737,6 +875,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
+      .groundTruth(
+          "the lit image of the primitives that stay drawn has no analytic answer")
       .covers("ANARI_KHR_GEOMETRY_TRIANGLE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -747,13 +887,22 @@ void registerGeometryTests(Catalog &catalog)
       quad(QuadShape::Quad, 16),
       "Checks basic quad geometry in soup and indexed modes.",
       "ANARI_KHR_GEOMETRY_QUAD",
-      true);
+      true,
+      [](TestBuilder &b) {
+        b.expectExact("depth at each quad's centre", [](ExactCheck &x) {
+           depthAtCenters(x, quadCenters(16));
+         }).noGroundTruth();
+      });
   registerShape(catalog,
       "quad_cube",
       quad(QuadShape::Cube, 16),
       "Checks quads arranged as a cube in soup and indexed modes.",
       "ANARI_KHR_GEOMETRY_QUAD",
-      true);
+      true,
+      [](TestBuilder &b) {
+        b.groundTruth(
+            "a lit cube of quads has no analytic answer; its soup and indexed forms are also checked against each other");
+      });
 
   makeTest("geometry", "quad_colors")
       .description("Checks primitive and vertex colors on quad geometry.")
@@ -762,6 +911,9 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("color", {"primitive.color", "vertex.color"})
       .channels(kColorOnly)
+      .expectExact("the attribute colours show",
+          [](ExactCheck &x) { colorsAreApplied(x, quadCenters(4)); })
+      .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_QUAD")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -790,6 +942,9 @@ void registerGeometryTests(Catalog &catalog)
       .variant("tangent", {"unset", "vec3", "vec4"})
       .simplified()
       .channels(kColorOnly)
+      .groundTruth(
+          "the equivalences alone would pass a device that draws nothing; the "
+          "lit gradient primitive has no analytic answer")
       .covers("ANARI_KHR_GEOMETRY_QUAD")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -803,6 +958,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
+      .groundTruth(
+          "the lit image of the primitives that stay drawn has no analytic answer")
       .covers("ANARI_KHR_GEOMETRY_QUAD")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -817,6 +974,7 @@ void registerGeometryTests(Catalog &catalog)
       .permute("primitiveCount", {1, 16})
       .variant("primitiveMode", {"soup", "indexed"})
       .channels(kColorDepth)
+      .groundTruth("lit spheres have no analytic answer")
       .covers("ANARI_KHR_GEOMETRY_SPHERE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -826,9 +984,14 @@ void registerGeometryTests(Catalog &catalog)
       .build([](BuildContext &ctx) {
         return surfaceWorld(ctx, withAxes(ctx, sphere(4)));
       })
-      .permute("color", {"primitive.color", "vertex.color"})
-      .permute("primitiveMode", {"soup", "indexed"})
+      // A sphere has one vertex, so its vertex colour is its primitive's; the
+      // indexed layout is the soup one in order.
+      .variant("color", {"primitive.color", "vertex.color"})
+      .variant("primitiveMode", {"soup", "indexed"})
       .channels(kColorOnly)
+      .expectExact("the attribute colours show",
+          [](ExactCheck &x) { colorsAreApplied(x, sphereCenters(4)); })
+      .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_SPHERE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -858,6 +1021,7 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
+      .groundTruth("a lit sphere of a given radius has no analytic answer")
       .covers("ANARI_KHR_GEOMETRY_SPHERE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -871,6 +1035,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
+      .groundTruth(
+          "the lit image of the primitives that stay drawn has no analytic answer")
       .covers("ANARI_KHR_GEOMETRY_SPHERE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -881,7 +1047,11 @@ void registerGeometryTests(Catalog &catalog)
       cone(16),
       "Checks basic cone geometry in soup and indexed modes.",
       "ANARI_KHR_GEOMETRY_CONE",
-      true);
+      true,
+      [](TestBuilder &b) {
+        b.groundTruth(
+            "a lit cone has no analytic answer; its soup and indexed forms are also checked against each other");
+      });
 
   makeTest("geometry", "cone_colors")
       .description("Checks primitive and vertex colors on cone geometry.")
@@ -890,6 +1060,9 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("color", {"primitive.color", "vertex.color"})
       .channels(kColorOnly)
+      .expectExact("the attribute colours show",
+          [](ExactCheck &x) { colorsAreApplied(x, segmentCenters(4)); })
+      .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_CONE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -918,6 +1091,7 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("globalCaps", {"none", "first", "second", "both"})
       .channels(kColorDepth)
+      .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_CONE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -929,6 +1103,7 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("vertexCaps", V{Any(true), Any(false)})
       .channels(kColorDepth)
+      .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_CONE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -942,6 +1117,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
+      .groundTruth(
+          "the lit image of the primitives that stay drawn has no analytic answer")
       .covers("ANARI_KHR_GEOMETRY_CONE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -952,7 +1129,11 @@ void registerGeometryTests(Catalog &catalog)
       cylinder(16),
       "Checks basic cylinder geometry in soup and indexed modes.",
       "ANARI_KHR_GEOMETRY_CYLINDER",
-      true);
+      true,
+      [](TestBuilder &b) {
+        b.groundTruth(
+            "a lit cylinder has no analytic answer; its soup and indexed forms are also checked against each other");
+      });
 
   makeTest("geometry", "cylinder_colors")
       .description("Checks primitive and vertex colors on cylinder geometry.")
@@ -961,6 +1142,9 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("color", {"primitive.color", "vertex.color"})
       .channels(kColorOnly)
+      .expectExact("the attribute colours show",
+          [](ExactCheck &x) { colorsAreApplied(x, segmentCenters(4)); })
+      .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_CYLINDER")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -989,6 +1173,7 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("globalCaps", {"none", "first", "second", "both"})
       .channels(kColorDepth)
+      .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_CYLINDER")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -1001,6 +1186,7 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
+      .groundTruth("a lit cylinder of a given radius has no analytic answer")
       .covers("ANARI_KHR_GEOMETRY_CYLINDER")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -1012,6 +1198,7 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("vertexCaps", V{Any(true), Any(false)})
       .channels(kColorDepth)
+      .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_CYLINDER")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -1026,6 +1213,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
+      .groundTruth(
+          "the lit image of the primitives that stay drawn has no analytic answer")
       .covers("ANARI_KHR_GEOMETRY_CYLINDER")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -1059,6 +1248,8 @@ void registerGeometryTests(Catalog &catalog)
             0.001f);
       })
       .channels(kDepthOnly)
+      .groundTruth(
+          "the interior-wall depth of this scene has no closed form in the Test")
       .covers("ANARI_KHR_GEOMETRY_SPHERE")
       .requireFeatures(kSupportMatte)
       .requireFeature(kPerspective)
@@ -1095,6 +1286,7 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("caps", {"none", "first", "second", "both"})
       .channels(kColorDepth)
+      .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_CYLINDER")
       .requireFeatures(kSupportMatte)
       .requireFeature(kPerspective)
@@ -1124,6 +1316,7 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("caps", {"none", "first", "second", "both"})
       .channels(kDepthOnly)
+      .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_CYLINDER")
       .requireFeatures(kSupportMatte)
       .requireFeature(kPerspective)
@@ -1157,6 +1350,7 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("caps", {"none", "first", "second", "both"})
       .channels(kColorDepth)
+      .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_CONE")
       .requireFeatures(kSupportMatte)
       .requireFeature(kPerspective)
@@ -1188,6 +1382,8 @@ void registerGeometryTests(Catalog &catalog)
             0.01f);
       })
       .channels(kColorDepth)
+      .groundTruth(
+          "the shading of the flank at the apex has no analytic answer")
       .covers("ANARI_KHR_GEOMETRY_CONE")
       .requireFeatures(kSupportMatte)
       .requireFeature(kPerspective)
@@ -1211,6 +1407,7 @@ void registerGeometryTests(Catalog &catalog)
             ctx.device(), eye, math::normalize(at - eye), 0.5f, 0.01f);
       })
       .channels(kColorDepth)
+      .groundTruth("grazing-ray silhouette shading has no analytic answer")
       .covers("ANARI_KHR_GEOMETRY_SPHERE")
       .requireFeatures(kSupportMatte)
       .requireFeature(kPerspective)
@@ -1222,7 +1419,10 @@ void registerGeometryTests(Catalog &catalog)
       curve(16),
       "Checks basic curve geometry in soup and indexed modes.",
       "ANARI_KHR_GEOMETRY_CURVE",
-      /*soupVariantOnly=*/false);
+      /*soupVariantOnly=*/false,
+      [](TestBuilder &b) {
+        b.groundTruth("a lit curve has no analytic answer");
+      });
 
   makeTest("geometry", "curve_colors")
       .description("Checks primitive and vertex colors on curve geometry.")
@@ -1231,6 +1431,7 @@ void registerGeometryTests(Catalog &catalog)
       })
       .permute("color", {"primitive.color", "vertex.color"})
       .channels(kColorOnly)
+      .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_CURVE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -1260,6 +1461,7 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
+      .groundTruth("a lit curve of a given radius has no analytic answer")
       .covers("ANARI_KHR_GEOMETRY_CURVE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -1273,6 +1475,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
+      .groundTruth(
+          "the lit image of the primitives that stay drawn has no analytic answer")
       .covers("ANARI_KHR_GEOMETRY_CURVE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -1283,6 +1487,8 @@ void registerGeometryTests(Catalog &catalog)
           "Checks isosurface extraction from a structured regular field.")
       .build([](BuildContext &ctx) { return isosurfaceWorld(ctx); })
       .channels(kColorDepth)
+      .groundTruth(
+          "an extracted isosurface of the Test field has no closed form in the Test")
       .covers("ANARI_KHR_GEOMETRY_ISOSURFACE")
       .requireFeature("ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR")
       .requireFeatures(kSupportMatte)
