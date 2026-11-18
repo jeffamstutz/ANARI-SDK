@@ -107,11 +107,14 @@ struct ChannelResult
   std::string thresholdImage;
 };
 
-// The kinds of Assertion this schema version writes. A later ticket adds
-// "convergence"; a reader keeps any kind as a string.
+// The kinds of Assertion this schema version writes; a reader keeps any kind
+// as a string.
 inline constexpr const char *kEffectAssertion = "effect";
 inline constexpr const char *kEquivalenceAssertion = "equivalence";
 inline constexpr const char *kExactAssertion = "exact";
+// The convergence guard (ConvergenceGuard.h): `score` is the changed fraction
+// over the extra frames, `framesRendered` and `refinementProgress` as measured.
+inline constexpr const char *kConvergenceAssertion = "convergence";
 
 // Where an exact check's pixel finding first failed: the pixel (Image
 // convention, row 0 at the bottom) with the value it held and, in words or
@@ -155,6 +158,12 @@ struct Assertion
   std::string label;
   std::optional<PixelCounts> pixels;
   std::optional<Measurement> measurement;
+  // A convergence guard's frames accumulated before its first image (0 when
+  // not a convergence entry), and the frame's refinementProgress then, if
+  // reported. Additive in v4: a reader that defaults them can't misread an
+  // older Sidecar.
+  uint32_t framesRendered{0};
+  std::optional<double> refinementProgress;
   // The partner Case ids (Case::id(), same Test): an effect's partner, or
   // the siblings an equivalence's expected image was derived from.
   std::vector<std::string> relatedCases;

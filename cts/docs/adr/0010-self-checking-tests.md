@@ -403,3 +403,65 @@ the single view on visrtx saw differences up to 8 levels, exactly τ.
 Ticket 11's cross-representation equivalences (structuredRegular,
 unstructured, nanovdb; filters; element types) build on this framing,
 second view included.
+
+## Convergence guard (ticket 18)
+
+Changed fraction is asymmetric under noise. A noisy Candidate fails equivalence
+checks, which is visible, but it also *passes* every effect check, because noise
+alone moves more than 1 % of pixels past τ. Effect is the default meaning of a
+Permutation, so a path tracer at one sample per pixel would pass them all
+without the parameter doing anything.
+
+27. **Tolerances never adapt to the Candidate.** A measured noise floor that
+    widens τ lets a noisy device loosen its own bar.
+28. **The contract:** relational assertions (effect, equivalence, derived
+    expectations) require the Candidate's image to be converged to within τ at
+    the run's accumulation count (`--accumulation`). Getting there is the
+    operator's job.
+29. **The guard:** for each Test with an evaluated relational assertion and a
+    color Channel, the runner renders the baseline Case (the first Case in
+    expansion order), keeps accumulating for as many frames again, and requires
+    the changed fraction between the two color images to be within the
+    equivalence maximum (0.2 %, τ = 8). *Rejected:* two fresh renders (many
+    renderers seed deterministically, so two fresh renders can be identical
+    while still noisy). The guard frame has `accumulation` on even when the run
+    renders once, so it can keep refining. It runs only on a device that
+    advertises `KHR_FRAME_ACCUMULATION`; one without it passes trivially and
+    records nothing. A Test with no color Channel is not guarded (depth and ID
+    Channels are never accumulated). Exact checks are not guarded either: they
+    carry their own tolerances.
+30. **If the guard fails,** every evaluated relational assertion of the Test
+    is recorded failed with the reason "not converged at N frames (changed
+    fraction X %, ...); raise `--accumulation`", the check's own finding kept
+    after it. They are never dropped and never passed. The guard's own
+    `convergence` assertion (Sidecar: `score` the changed fraction, `threshold`
+    the maximum, `framesRendered`, `refinementProgress` if reported) sits on
+    the baseline Case, or on the first selected Case when the filter excludes
+    it, and the report counts "convergence" as its own failure kind.
+31. **`refinementProgress` is the stop condition, not the proof.** When the
+    frame reports it, accumulation stops at 1 or at the run's accumulation
+    count, whichever comes first, so `--accumulation` is a cap; when it isn't
+    reported, exactly that many frames are rendered. The guard still runs for
+    every device. A device that reported 1 and then changed beyond τ has
+    contradicted itself, and the detail says so.
+32. **Known gap, documented, not fixed:** a device that *stops refining while
+    still noisy* (a low sample limit) gives a stable image, passes the guard,
+    and can still pass effect checks on noise. Neither continued accumulation
+    nor `refinementProgress` (which reads 1) detects it. Configuring the
+    Candidate to converge is the operator's responsibility; the guard catches
+    "still refining" only.
+33. **A support render never overwrites a scored Case's images.** In `run
+    --stdin` one Runner handles each line in turn, and a later line may need a
+    Case scored earlier as a partner. The Runner remembers the Cases it scored
+    and skips the support render's image write for them, so a non-deterministic
+    device's images keep matching the scores in their Sidecars.
+
+Measured on 2026-11-17, full Catalog at 256x256 (`anariCts run`, no Ground
+truth): halcyon's default renderer and helide change no verdicts (207/121/59
+and 160/107/120 passed/failed/skipped, as before). helide doesn't advertise
+`KHR_FRAME_ACCUMULATION`, so the guard doesn't run; halcyon's default renderer
+passes it on all 68 guarded Tests (0.00 % changed). Wall time, default
+`--accumulation 16`: halcyon 5.9 s to 6.4 s, helide 5.1 s to 5.3 s. halcyon's
+`quality` renderer fails the guard on 66 Cases at `--accumulation 1` (about 10
+to 13 % of pixels change in the next frame), 60 at 16, 26 at 64, 1 at 128 and
+none at 256, which is the count that passes it on every Test.

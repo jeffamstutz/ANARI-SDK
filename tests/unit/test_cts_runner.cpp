@@ -1125,6 +1125,87 @@ TEST_CASE("Runner runs exact checks on raw values and records them",
   anari::unloadLibrary(lib);
 }
 
+TEST_CASE("A support render never overwrites a scored Case's images",
+    "[cts][runner][helide]")
+{
+  anari::Library lib = anari::loadLibrary("helide", statusFunc, nullptr);
+  if (!lib) {
+    WARN("helide library not available; skipping support-render test");
+    return;
+  }
+  anari::Device d = anari::newDevice(lib, "default");
+  REQUIRE(d != nullptr);
+  anari::commitParameters(d, d);
+
+  const auto root =
+      std::filesystem::temp_directory_path() / "cts_runner_support_test";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+
+  Catalog catalog;
+  makeTest("demo", "ignores_axis")
+      .build(buildTriangleWorld)
+      .permute("ignored", {"a", "b", "c"})
+      .noGroundTruth()
+      .registerInto(catalog);
+
+  struct RecordingWriter : public ArtifactWriter
+  {
+    std::vector<std::string> images;
+    bool writeImage(
+        const std::filesystem::path &path, const Image &image) override
+    {
+      images.push_back(path.generic_string());
+      return savePNG(path.string(), image);
+    }
+    bool writeSidecar(
+        const std::filesystem::path &path, const CaseResult &result) override
+    {
+      return anari::cts::writeSidecar(path, result);
+    }
+  };
+
+  RunOptions opts;
+  opts.width = 32;
+  opts.height = 32;
+  opts.device = {"helide", "default", "default"};
+  const Workdir wd(root);
+  const Case a = caseOf(
+      "demo", "ignores_axis", {{"ignored", Any("a"), AxisKind::Permutation}});
+  const Case b = caseOf(
+      "demo", "ignores_axis", {{"ignored", Any("b"), AxisKind::Permutation}});
+  auto writer = std::make_shared<RecordingWriter>();
+  Runner runner(d, wd, opts, writer);
+  const std::set<std::string> features;
+
+  // --stdin runs one Filter per line through the same Runner: line 1 scores
+  // a, line 2 scores c and so renders a and b as support renders.
+  runner.run(catalog, Filter{"demo/ignores_axis/a"}, features);
+  // The writer sees staged paths (<dir>/.<file>.stage.N): match on those.
+  auto wroteImageOf = [&](const Case &c) {
+    const auto final = wd.resultImagePath(c, Channel::Color);
+    const auto staged =
+        (final.parent_path() / ("." + final.filename().string() + ".stage."))
+            .generic_string();
+    return std::count_if(writer->images.begin(),
+        writer->images.end(),
+        [&](const std::string &w) { return w.find(staged) == 0; });
+  };
+  REQUIRE(wroteImageOf(a) == 1);
+  const auto scoredBytes = readFile(wd.resultImagePath(a, Channel::Color));
+
+  runner.run(catalog, Filter{"demo/ignores_axis/c"}, features);
+  CHECK(wroteImageOf(a) == 1); // not rewritten as a support render
+  CHECK(readFile(wd.resultImagePath(a, Channel::Color)) == scoredBytes);
+  CHECK(wroteImageOf(b) == 1); // never scored: written as a support render
+  CaseResult ra;
+  CHECK(readSidecar(wd.sidecarPath(a), ra));
+
+  std::filesystem::remove_all(root, ec);
+  anari::release(d, d);
+  anari::unloadLibrary(lib);
+}
+
 TEST_CASE("generate writes a shared Ground truth from the first Variant only",
     "[cts][runner][helide]")
 {

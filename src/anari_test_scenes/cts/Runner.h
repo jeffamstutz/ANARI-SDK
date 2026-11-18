@@ -7,6 +7,7 @@
 #include "ArtifactPublication.h"
 #include "CameraProjection.h"
 #include "Catalog.h"
+#include "ConvergenceGuard.h"
 #include "DeviceErrorLog.h"
 #include "ExactCheck.h"
 #include "Image.h"
@@ -195,6 +196,11 @@ struct Runner
   CaseFrameSize frameSizeOf(const TestDef &test, const Case &c) const;
   // The Case's frame size, recorded in `result`; or empty, with `result`
   // skipped for the reason, when it isn't whole pixels at the run's size.
+  // The convergence guard's measurement (ConvergenceGuard.h): the Case's color
+  // channel after the run's accumulation, then after as many frames again.
+  // Never throws; a failure is in ConvergenceMeasurement::error.
+  ConvergenceMeasurement measureConvergence(const TestDef &test, const Case &c);
+
   std::optional<FrameSize> sizeOrSkip(
       const TestDef &test, const Case &c, CaseResult &result) const;
 
@@ -272,6 +278,12 @@ struct Runner
   SelfCheckDefaults m_selfChecks;
 
   uint32_t m_effectiveAccumulationFrames{1};
+  // Whether the device advertises KHR_FRAME_ACCUMULATION: the guard runs only
+  // then (a device without accumulation has nothing that could still refine).
+  bool m_accumulationSupported{false};
+  // Qualified ids of the Cases this Runner scored, so a later support render
+  // doesn't overwrite their images.
+  std::set<std::string> m_scored;
   bool m_denoiseEnabled{false};
   // coveredExtensions() of the Catalog being run, sorted; every sidecar
   // records it (schema v3).

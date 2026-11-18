@@ -158,6 +158,14 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   and relations over supplied channel data, no device).
 - `CameraProjection.{h,cpp}` — what a Case's camera does to a world point
   (perspective or orthographic, with its image region), for `project()`.
+- `ConvergenceGuard.{h,cpp}` — the convergence guard (ADR-0010, "Convergence
+  guard"): the accumulation stop condition (`accumulationDone`), the guard's
+  decision (`judgeConvergence`) and failing a Test's relational assertions
+  when it fails (`failRelationsNotConverged`); pure + unit-tested. The runner
+  renders the baseline Case twice (`Runner::measureConvergence`). Relational
+  assertions need a converged Candidate: raise `--accumulation` until the
+  `convergence` assertions pass. A device that stops refining while still
+  noisy is not caught (operator's responsibility).
 - `FrameAccumulation.{h,cpp}` — the `KHR_FRAME_ACCUMULATION` behaviour check
   behind `frame/progressive_rendering`: convergence towards a many-render
   image, restart after a world change, and `refinementProgress` where reported.

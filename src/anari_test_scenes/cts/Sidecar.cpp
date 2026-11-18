@@ -146,6 +146,10 @@ std::string toJson(const CaseResult &result)
           {"bound", a.measurement->bound},
           {"limit", a.measurement->limit}};
     }
+    if (a.framesRendered > 0)
+      e["framesRendered"] = a.framesRendered;
+    if (a.refinementProgress)
+      e["refinementProgress"] = *a.refinementProgress;
     j["assertions"].push_back(std::move(e));
   }
 
@@ -298,6 +302,10 @@ bool fromJson(const std::string &text, CaseResult &out, bool *schemaMismatch)
         measurement.limit = m->value("limit", "");
         a.measurement = std::move(measurement);
       }
+      a.framesRendered = e.value("framesRendered", 0u);
+      if (const auto rp = e.find("refinementProgress");
+          rp != e.end() && rp->is_number())
+        a.refinementProgress = rp->get<double>();
       out.assertions.push_back(std::move(a));
     }
   }
