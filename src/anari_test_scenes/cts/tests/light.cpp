@@ -85,13 +85,16 @@ void setIntensityDistribution(
         "intensityDistribution",
         anari::newArray1D(d, a.data(), a.size()));
   } else if (id == "2d") {
-    // A checker over the two axes (the angle from the light's axis and the
-    // angle around it), so that turning the C0 plane by a quarter turn
-    // (`c0`) moves which directions are bright.
+    // Rows are the azimuth around the light's axis (row 0 at `c0`), columns
+    // the angle from it. One bright azimuth, a dark one opposite it and half
+    // between, at every angle from the axis, so that turning the C0 plane by
+    // a quarter turn (`c0`) moves the lit side of the whole receiver, and a
+    // device that ignores `c0` can't pass by averaging a checker.
+    const float azimuth[4] = {1.f, 0.55f, 0.1f, 0.55f};
     std::vector<float> a;
     for (int row = 0; row < 4; ++row)
       for (int col = 0; col < 4; ++col)
-        a.push_back(((row + col) % 2) ? 1.f : 0.1f);
+        a.push_back(azimuth[row]);
     anari::setAndReleaseParameter(
         d, l, "intensityDistribution", anari::newArray2D(d, a.data(), 4, 4));
   }

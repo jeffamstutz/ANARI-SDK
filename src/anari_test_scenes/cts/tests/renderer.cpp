@@ -146,6 +146,11 @@ void registerRendererTests(Catalog &catalog)
       })
       .rendererParam("ignoreAmbientLighting", "false")
       .simplified()
+      .noEffectCheckOn("ambientColor",
+          "helide",
+          {},
+          "helide reads the renderer's ambientRadiance but never its "
+          "ambientColor (no device ticket)")
       .permute("ambientColor",
           V{Any(float3(0.f, 0.f, 1.f)),
               Any(float3(0.5f, 0.5f, 0.5f)),
@@ -187,7 +192,8 @@ void registerRendererTests(Catalog &catalog)
             d, r, "background", anari::newArray2D(d, img.data(), res, res));
       })
       .groundTruth(
-          "the image the background shows (its orientation and sampling) has no analytic answer in the Test")
+          "the image the background shows (its orientation and sampling) has "
+          "no analytic answer in the Test")
       .covers("ANARI_KHR_RENDERER_BACKGROUND_IMAGE")
       .requireFeature(kSupportPerspective)
       .registerInto(catalog);

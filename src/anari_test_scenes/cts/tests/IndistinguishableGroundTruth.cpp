@@ -8,13 +8,13 @@
 // opted out with `.noEffectCheck`. Remove an entry once its Test tells the
 // two values apart (the check lists such entries).
 //
-// What is left after ticket 04's conversion is what the Reference devices
-// (helide, and halcyon's default `preview` renderer) can't show, measured on
-// 2026-11-17 on both devices' Ground truth at 256x256. None of it is a Test
-// that can't tell the values apart on the Candidate: every Test here has the
-// effect check on the Candidate's own render, and the Ground-truth comparison
-// is kept for appearance with no analytic answer. The reasons below say which
-// of the two kinds of limit each entry is.
+// What is left after the conversion to self-checks is what the Reference
+// devices (helide, and halcyon's default `preview` renderer) can't show,
+// measured on 2026-11-18 on both devices' Ground truth at 256x256. None of it
+// is a Test that can't tell the values apart on the Candidate: every Test here
+// has the effect check on the Candidate's own render, and the Ground-truth
+// comparison is kept for appearance with no analytic answer. The reasons below
+// say which of the two kinds of limit each entry is.
 
 #include "../BuiltinTests.h"
 
@@ -49,9 +49,9 @@ constexpr const char *kNoLobe =
     "PBR parameter, so their Ground truth is one image for every value; the "
     "Candidate's own effect check judges it";
 constexpr const char *kNoAmbient =
-    "helide ignores the renderer's ambient light, and halcyon ignores it "
-    "unless ignoreAmbientLighting is false, so their Ground truth is one "
-    "image for every value";
+    "helide reads the renderer's ambientRadiance but never its ambientColor "
+    "(even with ignoreAmbientLighting false, which the Test sets where the "
+    "renderer lists it), so its Ground truth is one image for every colour";
 constexpr const char *kNoFieldFilter =
     "neither helide nor halcyon reads the spatial field's `filter` (always "
     "linear), so their Ground truth is one image for both values";
@@ -60,12 +60,11 @@ constexpr const char *kNoFieldFilter =
 
 const std::vector<Allowance> &builtinIndistinguishableAllowList()
 {
-  static const std::vector<Allowance> list{
-      {"light/directional",
-          "direction",
-          "0-0--1",
-          "0--0.9--0.43589",
-          kHeadlight},
+  static const std::vector<Allowance> list{{"light/directional",
+                                               "direction",
+                                               "0-0--1",
+                                               "0--0.9--0.43589",
+                                               kHeadlight},
       {"light/directional", "irradiance", "none", "0.5", kHeadlight},
       {"light/hdri", "direction", "none", "0--1-0", kHeadlight},
       {"light/point", "intensity", "none", "4", kHeadlight},
@@ -74,8 +73,6 @@ const std::vector<Allowance> &builtinIndistinguishableAllowList()
       {"light/quad", "intensity", "none", "4", kHeadlight},
       {"light/quad", "intensityDistribution", "1d", "2d", kHeadlight},
       {"light/quad", "intensityDistribution", "none", "1d", kHeadlight},
-      {"light/quad", "intensityDistribution", "none", "2d", kHeadlight},
-      {"light/quad", "power", "none", "40", kHeadlight},
       {"light/quad", "side", "both", "front", kHeadlight},
       {"light/ring", "c0", "none", "0-1-0", kHeadlight},
       {"light/ring", "direction", "0-0--1", "0.3-0--0.954", kHeadlight},
@@ -86,13 +83,12 @@ const std::vector<Allowance> &builtinIndistinguishableAllowList()
       {"light/ring", "intensityDistribution", "none", "1d", kHeadlight},
       {"light/ring", "intensityDistribution", "2d", "none", kHeadlight},
       {"light/ring", "openingAngle", "1.4", "0.7", kHeadlight},
-      {"light/ring", "power", "none", "40", kHeadlight},
+      {"light/ring", "position", "0.5-0.5-1", "0.2-0.2-1", kHeadlight},
       {"light/ring", "radiance", "none", "0.2", kHeadlight},
       {"light/ring", "radius", "0.3", "0.15", kHeadlight},
       {"light/spot", "direction", "0-0--1", "0-0.371391--0.928477", kHeadlight},
       {"light/spot", "falloffAngle", "none", "0.6", kHeadlight},
       {"light/spot", "intensity", "none", "0.3", kHeadlight},
-      {"light/spot", "openingAngle", "1.6", "0.8", kHeadlight},
       {"light/spot", "position", "0-0-1", "0.4-0.4-1", kHeadlight},
       {"light/spot", "power", "none", "0.5", kHeadlight},
       {"material/matte_color",
@@ -139,9 +135,6 @@ const std::vector<Allowance> &builtinIndistinguishableAllowList()
           "none",
           "attribute0",
           kWithinThresholds},
-      {"material/pbr_clearcoat", "clearcoat", "0.5", "attribute0", kNoLobe},
-      {"material/pbr_clearcoat", "clearcoat", "0.5", "none", kNoLobe},
-      {"material/pbr_clearcoat", "clearcoat", "0.5", "ref_sampler_0", kNoLobe},
       {"material/pbr_clearcoat", "clearcoat", "none", "attribute0", kNoLobe},
       {"material/pbr_clearcoat",
           "clearcoat",
@@ -149,6 +142,9 @@ const std::vector<Allowance> &builtinIndistinguishableAllowList()
           "ref_sampler_0",
           kNoLobe},
       {"material/pbr_clearcoat", "clearcoat", "none", "ref_sampler_0", kNoLobe},
+      {"material/pbr_clearcoat", "clearcoat", "1", "none", kNoLobe},
+      {"material/pbr_clearcoat", "clearcoat", "1", "attribute0", kNoLobe},
+      {"material/pbr_clearcoat", "clearcoat", "1", "ref_sampler_0", kNoLobe},
       {"material/pbr_clearcoat",
           "clearcoatNormal",
           "none",
@@ -207,13 +203,6 @@ const std::vector<Allowance> &builtinIndistinguishableAllowList()
           "ref_sampler_0",
           kWithinThresholds},
       {"material/pbr_ior", "ior", "none", "2.42", kNoLobe},
-      {"material/pbr_iridescence", "iridescence", "0.5", "attribute0", kNoLobe},
-      {"material/pbr_iridescence", "iridescence", "0.5", "none", kNoLobe},
-      {"material/pbr_iridescence",
-          "iridescence",
-          "0.5",
-          "ref_sampler_0",
-          kNoLobe},
       {"material/pbr_iridescence",
           "iridescence",
           "none",
@@ -227,38 +216,45 @@ const std::vector<Allowance> &builtinIndistinguishableAllowList()
       {"material/pbr_iridescence",
           "iridescence",
           "none",
+          "ref_sampler_0",
+          kNoLobe},
+      {"material/pbr_iridescence", "iridescence", "1", "none", kNoLobe},
+      {"material/pbr_iridescence", "iridescence", "1", "attribute0", kNoLobe},
+      {"material/pbr_iridescence",
+          "iridescence",
+          "1",
           "ref_sampler_0",
           kNoLobe},
       {"material/pbr_iridescence", "iridescenceIor", "none", "2", kNoLobe},
       {"material/pbr_iridescence",
           "iridescenceThickness",
-          "0.5",
-          "attribute0",
-          kNoLobe},
-      {"material/pbr_iridescence",
-          "iridescenceThickness",
-          "0.5",
+          "400",
           "none",
           kNoLobe},
       {"material/pbr_iridescence",
           "iridescenceThickness",
-          "0.5",
-          "ref_sampler_0",
+          "400",
+          "attribute3",
           kNoLobe},
       {"material/pbr_iridescence",
           "iridescenceThickness",
           "none",
-          "attribute0",
+          "attribute3",
           kNoLobe},
       {"material/pbr_iridescence",
           "iridescenceThickness",
-          "attribute0",
-          "ref_sampler_0",
+          "400",
+          "ref_sampler_1",
           kNoLobe},
       {"material/pbr_iridescence",
           "iridescenceThickness",
           "none",
-          "ref_sampler_0",
+          "ref_sampler_1",
+          kNoLobe},
+      {"material/pbr_iridescence",
+          "iridescenceThickness",
+          "attribute3",
+          "ref_sampler_1",
           kNoLobe},
       {"material/pbr_metallic_roughness",
           "metallic",
@@ -359,9 +355,6 @@ const std::vector<Allowance> &builtinIndistinguishableAllowList()
           "none",
           "ref_sampler_1",
           kNoLobe},
-      {"material/pbr_specular", "specular", "0.5", "attribute0", kNoLobe},
-      {"material/pbr_specular", "specular", "0.5", "none", kNoLobe},
-      {"material/pbr_specular", "specular", "0.5", "ref_sampler_1", kNoLobe},
       {"material/pbr_specular", "specular", "none", "attribute0", kNoLobe},
       {"material/pbr_specular",
           "specular",
@@ -369,6 +362,9 @@ const std::vector<Allowance> &builtinIndistinguishableAllowList()
           "ref_sampler_1",
           kNoLobe},
       {"material/pbr_specular", "specular", "none", "ref_sampler_1", kNoLobe},
+      {"material/pbr_specular", "specular", "1", "none", kNoLobe},
+      {"material/pbr_specular", "specular", "1", "attribute0", kNoLobe},
+      {"material/pbr_specular", "specular", "1", "ref_sampler_1", kNoLobe},
       {"material/pbr_specular",
           "specularColor",
           "0.98-0.5-0.44",
@@ -467,9 +463,6 @@ const std::vector<Allowance> &builtinIndistinguishableAllowList()
           "0.5-0.5-0.5",
           "1-1-1",
           kNoAmbient},
-      {"renderer/renderer_ambient", "ambientRadiance", "0.5", "0", kNoAmbient},
-      {"renderer/renderer_ambient", "ambientRadiance", "4", "0", kNoAmbient},
-      {"renderer/renderer_ambient", "ambientRadiance", "0.5", "4", kNoAmbient},
       {"sampler/image1D", "filter", "nearest", "linear", kWithinThresholds},
       {"sampler/image3D", "filter", "nearest", "linear", kWithinThresholds},
       {"sampler/image3D",
@@ -497,8 +490,7 @@ const std::vector<Allowance> &builtinIndistinguishableAllowList()
       {"volume/volume", "filter", "nearest", "linear", kNoFieldFilter},
       {"volume/volume", "opacity", "array", "scalar", kWithinThresholds},
       {"volume/volume", "unitDistance", "none", "0.1", kWithinThresholds},
-      {"volume/volume", "valueRange", "none", "0.25-0.75", kWithinThresholds},
-  };
+      {"volume/volume", "valueRange", "none", "0.25-0.75", kWithinThresholds}};
   return list;
 }
 

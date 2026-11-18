@@ -121,59 +121,37 @@ CaseFrameSize wideFrame(FrameSize run)
   return FrameSize{run.width, run.width / 2};
 }
 
-// The region the default-aspect region Tests set: its normalized width (0.5)
-// and height (0.75) differ, so a device that regards the region's shape, or
-// ignores it, shows up in the aspect it derives.
-constexpr Region kAspectRegion = {0.0f, 0.25f, 0.5f, 1.0f};
-
-// A camera of `subtype` viewing the subject, with `aspect` from the Case and
-// the image region, when the Test sets one.
-anari::Camera aspectCamera(
-    BuildContext &ctx, const char *subtype, const Region *region)
+// A camera of `subtype` viewing the subject, with `aspect` from the Case.
+anari::Camera aspectCamera(BuildContext &ctx, const char *subtype)
 {
   auto d = ctx.device();
   auto c = anari::newObject<anari::Camera>(d, subtype);
   anari::setParameter(d, c, "position", float3(0.5f, 0.5f, -1.f));
   cp(ctx, d, c, "aspect");
-  if (region) {
-    const float box[4] = {region->loX, region->loY, region->hiX, region->hiY};
-    anariSetParameter(d, c, "imageRegion", ANARI_FLOAT32_BOX2, box);
-  }
   anari::commitParameters(d, c);
   return c;
 }
 
+// ANARI 1.2 gives an unset `aspect` as the Frame's width over height. It adds
+// that "a potentially set image region needs to be regarded as well" but gives
+// no formula, so no Test here sets an `imageRegion` with an unset aspect.
 void registerDefaultAspectTest(Catalog &catalog,
     const std::string &name,
     const char *subtype,
-    const char *extension,
-    const Region *region = nullptr)
+    const char *extension)
 {
-  // ANARI 1.2 gives the default aspect as the Frame's, and says only that "a
-  // potentially set image region needs to be regarded as well". With a region
-  // the Test assumes aspect = frame aspect x region width / region height:
-  // the frame is 2:1, so the explicit value is 2 x 0.5 / 0.75.
+  // The frame is 2:1, so the explicit value is 2.
   const float frameAspect = 2.f;
-  const float explicitAspect = region
-      ? frameAspect * (region->hiX - region->loX) / (region->hiY - region->loY)
-      : frameAspect;
-  std::string description = std::string("Checks that an unset ") + subtype
-      + " aspect is the frame's width over height (ANARI 1.2).";
-  if (region)
-    description = std::string("Checks that an unset ") + subtype
-        + " aspect, with an image region set, is the frame's width over "
-          "height times the region's width over its height (ANARI 1.2 says "
-          "the region needs to be regarded but gives no formula; this is "
-          "the assumed one).";
   makeTest("camera", name)
-      .description(description)
+      .description(std::string("Checks that an unset ") + subtype
+          + " aspect is the frame's width over height (ANARI 1.2).")
       .build(cameraSubjectWorld)
-      .camera([subtype, region](BuildContext &ctx, const scenes::Bounds &) {
-        return aspectCamera(ctx, subtype, region);
+      .camera([subtype](BuildContext &ctx, const scenes::Bounds &) {
+        return aspectCamera(ctx, subtype);
       })
       .frameSize([](BuildContext &, FrameSize run) { return wideFrame(run); })
       // The first value is the reference: aspect set explicitly.
-      .variant("aspect", V{Any(explicitAspect), none()})
+      .variant("aspect", V{Any(frameAspect), none()})
       .noGroundTruth()
       .covers(extension)
       .requireFeatures(kSubjectSurface)
@@ -337,16 +315,6 @@ void registerCameraTests(Catalog &catalog)
       "orthographic_default_aspect",
       "orthographic",
       "ANARI_KHR_CAMERA_ORTHOGRAPHIC");
-  registerDefaultAspectTest(catalog,
-      "perspective_region_default_aspect",
-      "perspective",
-      "ANARI_KHR_CAMERA_PERSPECTIVE",
-      &kAspectRegion);
-  registerDefaultAspectTest(catalog,
-      "orthographic_region_default_aspect",
-      "orthographic",
-      "ANARI_KHR_CAMERA_ORTHOGRAPHIC",
-      &kAspectRegion);
   registerDefaultFovyTest(catalog);
 }
 

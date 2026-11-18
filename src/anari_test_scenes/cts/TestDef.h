@@ -125,13 +125,11 @@ struct ExactCheckDef
 // Whether a Test compares its Cases against Ground truth (ADR-0010).
 enum class GroundTruthUse
 {
-  // Undeclared: self-checked only, as with `.noGroundTruth()`. A Test needs
-  // `.groundTruth(reason)` to compare against a Reference device.
-  Default,
+  // The default: fully self-checked, which is also `.noGroundTruth()`;
+  // `generate` skips the Test.
+  None,
   // `.groundTruth(reason)`: needs a Reference device comparison, and why.
   Required,
-  // `.noGroundTruth()`: fully self-checked; `generate` skips it.
-  None,
 };
 
 // `.noEffectCheckOn`: an axis opted out of its effect check on the devices
@@ -227,7 +225,7 @@ struct TestDef
   // Per-Case assertions over raw channel values, in declaration order.
   std::vector<ExactCheckDef> exactChecks;
   // Whether the Test's Cases are compared against Ground truth, and why.
-  GroundTruthUse groundTruthUse{GroundTruthUse::Default};
+  GroundTruthUse groundTruthUse{GroundTruthUse::None};
   std::string groundTruthReason;
 
   // Whether the runner compares this Test's Cases against Ground truth (a

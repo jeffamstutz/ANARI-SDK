@@ -332,8 +332,24 @@ const std::map<std::string, ANARIDataType> &Runner::rendererParamTypes()
   qo.typeFilter = "RENDERER";
   qo.includeParameters = true;
   const auto info = introspection::queryDeviceInfo(m_device, qo);
+  // "default" names a renderer subtype the device may not list as such
+  // (halcyon lists `preview` and `quality`); the device's default is its
+  // first.
+  const std::string &wanted = m_options.device.renderer;
+  const auto isRenderer = [](const auto &o) {
+    return o.type == ANARI_RENDERER;
+  };
+  const auto listsWanted = std::any_of(info.objects.begin(),
+      info.objects.end(),
+      [&](const auto &o) { return isRenderer(o) && o.subtype == wanted; });
+  bool first = true;
   for (const auto &obj : info.objects) {
-    if (obj.type != ANARI_RENDERER || obj.subtype != m_options.device.renderer)
+    if (!isRenderer(obj))
+      continue;
+    const bool chosen = listsWanted
+        ? obj.subtype == wanted
+        : (wanted == "default" && std::exchange(first, false));
+    if (!chosen)
       continue;
     for (const auto &p : obj.parameters)
       m_rendererParamTypes[p.name] = p.type;
@@ -386,8 +402,8 @@ TestDef Runner::forRunDevice(const TestDef &test) const
             == opt.renderers.end())
       continue;
     // A reason the Test gave for every device wins: it is the more general.
-    out.noEffectCheck.emplace(opt.axis,
-        dev.library + " (" + dev.renderer + ") doesn't render it: " + opt.reason);
+    out.noEffectCheck.emplace(
+        opt.axis, dev.library + " (" + dev.renderer + "): " + opt.reason);
   }
   return out;
 }
