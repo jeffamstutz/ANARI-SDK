@@ -130,6 +130,7 @@ if (BUILD_CTS OR BUILD_TESTING)
     cts/WorldBuilder.cpp
     cts/Workdir.cpp
 
+    cts/tests/attributes.cpp
     cts/tests/camera.cpp
     cts/tests/frame.cpp
     cts/tests/geometry.cpp

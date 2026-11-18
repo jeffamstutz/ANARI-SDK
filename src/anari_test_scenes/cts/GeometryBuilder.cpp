@@ -5,6 +5,7 @@
 #include "generators/ColorPalette.h"
 // std
 #include <cmath>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -83,17 +84,40 @@ void setAttributeRamps(anari::Device d,
       anari::newArray1D(d, a3.data(), a3.size()));
 }
 
+// primitive.index with UINT32 / UINT32_VECn elements, or, when `wide`, the
+// same values as UINT64 / UINT64_VECn.
 template <typename Index>
 void publishIndices(anari::Device d,
     anari::Geometry geometry,
-    const std::vector<Index> &indices)
+    const std::vector<Index> &indices,
+    bool wide = false)
 {
-  if (!indices.empty()) {
-    anari::setAndReleaseParameter(d,
-        geometry,
-        "primitive.index",
-        anari::newArray1D(d, indices.data(), indices.size()));
+  if (indices.empty())
+    return;
+  if (wide) {
+    constexpr size_t components = sizeof(Index) / sizeof(uint32_t);
+    std::vector<uint64_t> flat;
+    flat.reserve(indices.size() * components);
+    for (const auto &i : indices) {
+      const uint32_t *v = reinterpret_cast<const uint32_t *>(&i);
+      for (size_t k = 0; k < components; ++k)
+        flat.push_back(v[k]);
+    }
+    const ANARIDataType type = components == 1 ? ANARI_UINT64
+        : components == 2                      ? ANARI_UINT64_VEC2
+        : components == 3                      ? ANARI_UINT64_VEC3
+                                               : ANARI_UINT64_VEC4;
+    auto array = anari::newArray1D(d, type, indices.size());
+    void *dst = anariMapArray(d, array);
+    std::memcpy(dst, flat.data(), flat.size() * sizeof(uint64_t));
+    anariUnmapArray(d, array);
+    anari::setAndReleaseParameter(d, geometry, "primitive.index", array);
+    return;
   }
+  anari::setAndReleaseParameter(d,
+      geometry,
+      "primitive.index",
+      anari::newArray1D(d, indices.data(), indices.size()));
 }
 
 void publishAttributes(anari::Device d,
@@ -231,7 +255,7 @@ anari::Geometry buildTriangleGeometry(anari::Device d, const TriangleSpec &spec)
   const auto layout = makeTriangleLayout(
       spec.shape, spec.mode, spec.primitiveCount, spec.unusedVertices);
   auto geometry = anari::newObject<anari::Geometry>(d, "triangle");
-  publishIndices(d, geometry, layout.indices);
+  publishIndices(d, geometry, layout.indices, spec.wideIndices);
   publishPositions(d, geometry, layout.positions);
   const size_t primitiveCount = layout.indices.empty()
       ? layout.positions.size() / 3
@@ -248,7 +272,7 @@ anari::Geometry buildQuadGeometry(anari::Device d, const QuadSpec &spec)
   const auto layout = makeQuadLayout(
       spec.shape, spec.mode, spec.primitiveCount, spec.unusedVertices);
   auto geometry = anari::newObject<anari::Geometry>(d, "quad");
-  publishIndices(d, geometry, layout.indices);
+  publishIndices(d, geometry, layout.indices, spec.wideIndices);
   publishPositions(d, geometry, layout.positions);
   const size_t primitiveCount = layout.indices.empty()
       ? layout.positions.size() / 4
@@ -266,7 +290,7 @@ anari::Geometry buildSphereGeometry(anari::Device d, const SphereSpec &spec)
   const auto layout =
       makeSphereLayout(spec.mode, spec.primitiveCount, spec.unusedVertices);
   auto geometry = anari::newObject<anari::Geometry>(d, "sphere");
-  publishIndices(d, geometry, layout.indices);
+  publishIndices(d, geometry, layout.indices, spec.wideIndices);
   if (spec.globalRadius) {
     anari::setParameter(d, geometry, "radius", *spec.globalRadius);
   } else {
@@ -293,7 +317,7 @@ anari::Geometry buildCurveGeometry(anari::Device d, const CurveSpec &spec)
   const auto layout =
       makeCurveLayout(spec.mode, spec.primitiveCount, spec.unusedVertices);
   auto geometry = anari::newObject<anari::Geometry>(d, "curve");
-  publishIndices(d, geometry, layout.indices);
+  publishIndices(d, geometry, layout.indices, spec.wideIndices);
   if (spec.globalRadius) {
     anari::setParameter(d, geometry, "radius", *spec.globalRadius);
   } else {
@@ -319,7 +343,7 @@ anari::Geometry buildConeGeometry(anari::Device d, const ConeSpec &spec)
   const auto layout =
       makeSegmentLayout(spec.mode, spec.primitiveCount, spec.unusedVertices);
   auto geometry = anari::newObject<anari::Geometry>(d, "cone");
-  publishIndices(d, geometry, layout.indices);
+  publishIndices(d, geometry, layout.indices, spec.wideIndices);
   std::vector<float> radii;
   radii.reserve(layout.positions.size());
   for (int i = 0; i < spec.primitiveCount; ++i) {
@@ -346,7 +370,7 @@ anari::Geometry buildCylinderGeometry(anari::Device d, const CylinderSpec &spec)
   const auto layout =
       makeSegmentLayout(spec.mode, spec.primitiveCount, spec.unusedVertices);
   auto geometry = anari::newObject<anari::Geometry>(d, "cylinder");
-  publishIndices(d, geometry, layout.indices);
+  publishIndices(d, geometry, layout.indices, spec.wideIndices);
   if (spec.globalRadius) {
     anari::setParameter(d, geometry, "radius", *spec.globalRadius);
   } else {
