@@ -16,12 +16,15 @@
 #include "../VolumeBuilder.h"
 #include "../WorldBuilder.h"
 #include "Categories.h"
+#include "FrameTypeAxis.h"
 #include "ParameterQuery.h"
 // std
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace anari {
@@ -113,7 +116,8 @@ void primitiveIdsAreIndices(ExactCheck &x)
 }
 
 // A single lit triangle surface (the subject for the simple channel tests).
-anari::World triangleSurfaceWorld(BuildContext &ctx, float3 color, int count)
+anari::World triangleSurfaceWorld(
+    BuildContext &ctx, float3 color, int count, float irradiance = 4.f)
 {
   auto d = ctx.device();
   TriangleSpec spec;
@@ -121,7 +125,7 @@ anari::World triangleSurfaceWorld(BuildContext &ctx, float3 color, int count)
   auto geom = buildTriangleGeometry(d, spec);
   auto mat = makeMatteMaterial(d, color);
   auto surface = makeSurface(d, geom, mat);
-  auto light = makeDirectionalLight(d, float3(0.f, -1.f, -1.f));
+  auto light = makeDirectionalLight(d, float3(0.f, -1.f, -1.f), irradiance);
   WorldContents wc;
   wc.surfaces = {surface};
   wc.lights = {light};
@@ -175,6 +179,180 @@ anari::Instance idInstance(
   return inst;
 }
 
+// The ID Channel holds `id` at the projected centroid of the single triangle
+// translated by each offset (as idSurface() and idInstance() place them). The
+// 1.2 draft (appendix D) gives the value of an ID that is not set at the
+// surface, volume or instance: -1u.
+constexpr uint32_t kUnsetId = ~0u;
+
+void idsAtCentroids(ExactCheck &x,
+    Channel channel,
+    const std::vector<std::pair<float3, uint32_t>> &wanted,
+    const std::string &name)
+{
+  const auto ids = x.ids(channel);
+  const auto soup = layoutTriangleSoup(1);
+  const float3 base = (soup[0] + soup[1] + soup[2]) / 3.f;
+  PixelMask at(ids.width, ids.height);
+  std::vector<uint32_t> expected(size_t(ids.width) * ids.height, 0u);
+  for (const auto &w : wanted) {
+    const auto p = x.project(base + w.first);
+    if (!p || p->x < 0.f || p->y < 0.f || p->x >= ids.width
+        || p->y >= ids.height)
+      throw std::runtime_error("a triangle's centroid is outside the frame");
+    const auto cx = uint32_t(p->x), cy = uint32_t(p->y);
+    at.set(cx, cy);
+    expected[size_t(cy) * ids.width + cx] = w.second;
+  }
+  x.matches(
+      name,
+      ids,
+      [&](uint32_t px, uint32_t y) {
+        return expected[size_t(y) * ids.width + px];
+      },
+      0.0,
+      &at);
+}
+
+void surfaceIdsAtCentroids(ExactCheck &x)
+{
+  idsAtCentroids(x,
+      Channel::ObjectId,
+      {{float3(-0.3f, 0.f, 0.f), 1u}, {float3(0.3f, 0.f, 0.f), 0u}},
+      "the object ID at each surface's centroid is the surface's id");
+}
+
+void unsetObjectIdsAtCentroids(ExactCheck &x)
+{
+  idsAtCentroids(x,
+      Channel::ObjectId,
+      {{float3(-0.3f, 0.f, 0.f), kUnsetId}, {float3(0.3f, 0.f, 0.f), kUnsetId}},
+      "the object ID where no surface id is set is -1u");
+}
+
+void instanceIdsAtCentroids(ExactCheck &x)
+{
+  idsAtCentroids(x,
+      Channel::InstanceId,
+      {{float3(-0.3f, 0.f, 0.f), 1u}, {float3(0.3f, 0.f, 0.f), 0u}},
+      "the instance ID at each instance's centroid is the instance's id");
+}
+
+// Two volumes side by side (id 1 on the left, id 0 on the right): each ID
+// covers a visible share of the frame, and the volume with id 1 lies left of
+// the one with id 0 (compared by mean column).
+void volumeIdsAreSeparated(ExactCheck &x)
+{
+  const auto ids = x.ids(Channel::ObjectId);
+  double sum[2] = {0.0, 0.0};
+  size_t count[2] = {0, 0};
+  for (uint32_t y = 0; y < ids.height; ++y)
+    for (uint32_t px = 0; px < ids.width; ++px) {
+      const uint32_t id = ids.at(px, y);
+      if (id <= 1) {
+        sum[id] += px + 0.5;
+        ++count[id];
+      }
+    }
+  const double minimum = 0.005 * double(ids.width) * ids.height;
+  x.measure(
+      "pixels holding volume id 1", double(count[1]), Limit::AtLeast, minimum);
+  x.measure(
+      "pixels holding volume id 0", double(count[0]), Limit::AtLeast, minimum);
+  if (count[0] && count[1])
+    x.measure("mean column of id 0 minus that of id 1 (id 1 is on the left)",
+        sum[0] / count[0] - sum[1] / count[1],
+        Limit::AtLeast,
+        1.0);
+}
+
+// triangleSurfaceWorld's triangle soup, in the runner's frame: each triangle's
+// centroid pixel and its world position.
+struct CentroidPixel
+{
+  uint32_t x, y;
+  float3 world;
+};
+
+std::vector<CentroidPixel> centroidPixels(
+    ExactCheck &x, int count, uint32_t width, uint32_t height)
+{
+  const auto positions = layoutTriangleSoup(count);
+  std::vector<CentroidPixel> out;
+  for (int i = 0; i < count; ++i) {
+    const float3 c =
+        (positions[3 * i] + positions[3 * i + 1] + positions[3 * i + 2]) / 3.f;
+    const auto p = x.project(c);
+    if (!p || p->x < 0.f || p->y < 0.f || p->x >= width || p->y >= height)
+      throw std::runtime_error(
+          "triangle " + std::to_string(i) + "'s centroid is outside the frame");
+    out.push_back({uint32_t(p->x), uint32_t(p->y), c});
+  }
+  return out;
+}
+
+constexpr int kChannelTriangles = 16;
+
+// The depth Channel is "euclidean distance to the camera (not to the image
+// plane)" (1.2, section 5.1): at each triangle's centroid pixel, the distance
+// from the camera to the centroid, to within what one pixel's offset from the
+// centroid changes it.
+void depthIsDistanceToCamera(ExactCheck &x)
+{
+  const auto depth = x.depth();
+  const auto cam = x.camera();
+  if (!cam)
+    throw std::runtime_error("the Case's camera has no recorded projection");
+  const auto pixels =
+      centroidPixels(x, kChannelTriangles, depth.width, depth.height);
+  PixelMask at(depth.width, depth.height);
+  std::vector<float> expected(size_t(depth.width) * depth.height, 0.f);
+  for (const auto &p : pixels) {
+    at.set(p.x, p.y);
+    expected[size_t(p.y) * depth.width + p.x] =
+        anari::math::length(p.world - cam->position);
+  }
+  x.matches(
+      "the depth at each triangle's centroid is its distance to the camera",
+      depth,
+      [&](uint32_t px, uint32_t y) {
+        return expected[size_t(y) * depth.width + px];
+      },
+      0.03,
+      &at);
+}
+
+// The albedo Channel holds the material's base colour where a triangle is:
+// at each centroid pixel the matte colour of triangleSurfaceWorld(), to
+// within 3 levels of 8 bits.
+void albedoIsMaterialColor(ExactCheck &x)
+{
+  const auto albedo = x.rgba(Channel::Albedo);
+  float3 color(0.55f, 0.82f, 0.78f);
+  // The sRGB type holds the colour encoded (the comparison image is the
+  // buffer's bytes).
+  if (x.values().getString("frame_albedo_type", "") == "UFIXED8_RGB_SRGB")
+    color = float3(srgbEncodedValue(color.x),
+        srgbEncodedValue(color.y),
+        srgbEncodedValue(color.z));
+  const auto pixels =
+      centroidPixels(x, kChannelTriangles, albedo.width, albedo.height);
+  PixelMask at(albedo.width, albedo.height);
+  for (const auto &p : pixels)
+    at.set(p.x, p.y);
+  x.matches(
+      "the albedo at each triangle's centroid is the material colour",
+      albedo,
+      [&](uint32_t, uint32_t) {
+        return Rgba8{uint8_t(std::lround(color.x * 255.f)),
+            uint8_t(std::lround(color.y * 255.f)),
+            uint8_t(std::lround(color.z * 255.f)),
+            255};
+      },
+      3.0,
+      &at);
+}
+
 // A frame carrying the runner's world/camera/renderer, ready to render.
 UniqueAnariObject<anari::Frame> behaviorFrame(anari::Device d,
     anari::World world,
@@ -210,12 +388,11 @@ BehaviorResult checkFrameCompletionCallback(anari::Device d,
   anari::setParameter(d,
       f,
       "frameCompletionCallback",
-      (anari::FrameCompletionCallback)(+[](const void *userPtr,
-                                            ANARIDevice,
-                                            ANARIFrame) {
-        if (userPtr)
-          ++*static_cast<int *>(const_cast<void *>(userPtr));
-      }));
+      (anari::FrameCompletionCallback)(
+          +[](const void *userPtr, ANARIDevice, ANARIFrame) {
+            if (userPtr)
+              ++*static_cast<int *>(const_cast<void *>(userPtr));
+          }));
   anari::setParameter(
       d, f, "frameCompletionCallbackUserData", static_cast<void *>(&fired));
   anari::commitParameters(d, f);
@@ -359,19 +536,23 @@ BehaviorResult checkMpiCommunicatorParameter(anari::Device d,
 
 void registerFrameTests(Catalog &catalog)
 {
-  const V colorTypes = {
-      Any("UFIXED8_VEC4"), Any("UFIXED8_RGBA_SRGB"), Any("FLOAT32_VEC4")};
-
   // ---- color channel output types -------------------------------------------
-  makeTest("frame", "frame_color_channel")
-      .description("Checks color channel output across supported buffer types.")
-      .build([](BuildContext &ctx) {
-        return triangleSurfaceWorld(ctx, float3(0.55f, 0.82f, 0.78f), 16);
-      })
-      .permute("frame_color_type", colorTypes)
-      .channels({Channel::Color})
-      .requireFeatures(kSupportMatteTriangle)
-      .registerInto(catalog);
+  auto colorChannel =
+      makeTest("frame", "frame_color_channel")
+          .description(
+              "Checks color channel output across supported buffer types.")
+          .build([](BuildContext &ctx) {
+            return triangleSurfaceWorld(ctx, float3(0.55f, 0.82f, 0.78f), 16);
+          })
+          .groundTruth("a lit colour has no analytic answer")
+          .channels({Channel::Color})
+          .requireFeatures(kSupportMatteTriangle);
+  frameTypeAxis(colorChannel,
+      "frame_color_type",
+      "UFIXED8_VEC4",
+      "FLOAT32_VEC4",
+      "UFIXED8_RGBA_SRGB");
+  colorChannel.registerInto(catalog);
 
   // ---- depth channel --------------------------------------------------------
   makeTest("frame", "frame_depth_channel")
@@ -380,6 +561,8 @@ void registerFrameTests(Catalog &catalog)
         return triangleSurfaceWorld(ctx, float3(0.7f, 0.5f, 0.3f), 16);
       })
       .channels({Channel::Depth})
+      .expectExact("depth", depthIsDistanceToCamera)
+      .noGroundTruth()
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
@@ -387,18 +570,24 @@ void registerFrameTests(Catalog &catalog)
   // The runner renders albedo at the axis's buffer format (UFIXED8_VEC3 /
   // UFIXED8_RGB_SRGB / FLOAT32_VEC3) and reads it back accordingly (D2). helide
   // has no albedo channel, so these still skip there.
-  makeTest("frame", "frame_albedo_channel")
-      .description(
-          "Checks albedo channel output across supported buffer types.")
-      .build([](BuildContext &ctx) {
-        return triangleSurfaceWorld(ctx, float3(0.55f, 0.82f, 0.78f), 16);
-      })
-      .permute("frame_albedo_type",
-          {"UFIXED8_VEC3", "UFIXED8_RGB_SRGB", "FLOAT32_VEC3"})
-      .channels({Channel::Albedo})
-      .covers("ANARI_KHR_FRAME_CHANNEL_ALBEDO")
-      .requireFeatures(kSupportMatteTriangle)
-      .registerInto(catalog);
+  auto albedoChannel =
+      makeTest("frame", "frame_albedo_channel")
+          .description(
+              "Checks albedo channel output across supported buffer types.")
+          .build([](BuildContext &ctx) {
+            return triangleSurfaceWorld(ctx, float3(0.55f, 0.82f, 0.78f), 16);
+          })
+          .channels({Channel::Albedo})
+          .expectExact("albedo", albedoIsMaterialColor)
+          .noGroundTruth()
+          .covers("ANARI_KHR_FRAME_CHANNEL_ALBEDO")
+          .requireFeatures(kSupportMatteTriangle);
+  frameTypeAxis(albedoChannel,
+      "frame_albedo_type",
+      "UFIXED8_VEC3",
+      "FLOAT32_VEC3",
+      "UFIXED8_RGB_SRGB");
+  albedoChannel.registerInto(catalog);
 
   // ---- normal channel output types ------------------------------------------
   makeTest("frame", "frame_normal_channel")
@@ -407,7 +596,10 @@ void registerFrameTests(Catalog &catalog)
       .build([](BuildContext &ctx) {
         return triangleSurfaceWorld(ctx, float3(0.7f, 0.5f, 0.3f), 1);
       })
-      .permute("frame_normal_type", {"FIXED16_VEC3", "FLOAT32_VEC3"})
+      .variant("frame_normal_type", {"FIXED16_VEC3", "FLOAT32_VEC3"})
+      .groundTruth(
+          "the sign of a flat triangle's normal (towards the camera or by "
+          "winding) is not pinned down by the spec text")
       .channels({Channel::Normal})
       .covers("ANARI_KHR_FRAME_CHANNEL_NORMAL")
       .requireFeatures(kSupportMatteTriangle)
@@ -457,6 +649,8 @@ void registerFrameTests(Catalog &catalog)
         return world;
       })
       .channels({Channel::ObjectId})
+      .expectExact("surface IDs", surfaceIdsAtCentroids)
+      .noGroundTruth()
       .covers("ANARI_KHR_FRAME_CHANNEL_OBJECT_ID")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
@@ -477,6 +671,8 @@ void registerFrameTests(Catalog &catalog)
         return world;
       })
       .channels({Channel::ObjectId})
+      .expectExact("unset IDs", unsetObjectIdsAtCentroids)
+      .noGroundTruth()
       .covers("ANARI_KHR_FRAME_CHANNEL_OBJECT_ID")
       .requireFeatures(kSupportMatteTriangle)
       .requireFeature("ANARI_KHR_INSTANCE_TRANSFORM")
@@ -509,6 +705,8 @@ void registerFrameTests(Catalog &catalog)
         return world;
       })
       .channels({Channel::ObjectId})
+      .expectExact("volume IDs", volumeIdsAreSeparated)
+      .noGroundTruth()
       .covers("ANARI_KHR_FRAME_CHANNEL_OBJECT_ID")
       .requireFeatures({"ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR",
           "ANARI_KHR_VOLUME_TRANSFER_FUNCTION1D",
@@ -530,6 +728,8 @@ void registerFrameTests(Catalog &catalog)
         return world;
       })
       .channels({Channel::InstanceId})
+      .expectExact("instance IDs", instanceIdsAtCentroids)
+      .noGroundTruth()
       .covers("ANARI_KHR_FRAME_CHANNEL_INSTANCE_ID")
       .requireFeatures(kSupportMatteTriangle)
       .requireFeature("ANARI_KHR_INSTANCE_TRANSFORM")

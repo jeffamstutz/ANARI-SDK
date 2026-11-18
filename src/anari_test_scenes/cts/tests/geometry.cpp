@@ -13,6 +13,7 @@
 #include "../VolumeBuilder.h"
 #include "../WorldBuilder.h"
 #include "Categories.h"
+#include "FrameTypeAxis.h"
 #include "ScreenScene.h"
 
 #include "generators/ColorPalette.h"
@@ -369,9 +370,6 @@ const float3 kEdgeLight = float3(-1.f, -1.f, -1.f);
 const std::vector<Channel> kColorDepth = {Channel::Color, Channel::Depth};
 const std::vector<Channel> kColorOnly = {Channel::Color};
 const std::vector<Channel> kDepthOnly = {Channel::Depth};
-
-const std::vector<Any> kFrameColorTypes = {
-    Any("UFIXED8_VEC4"), Any("UFIXED8_RGBA_SRGB"), Any("FLOAT32_VEC4")};
 
 // Register the family of tests shared by every "shaped" geometry subtype
 // (triangle/quad and the sphere-like subtypes differ only in available extras).
@@ -768,12 +766,18 @@ void registerGeometryTests(Catalog &catalog)
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
-  makeTest("geometry", "quad_frame_color_types")
-      .description("Checks quad rendering across supported color buffer types.")
-      .build([](BuildContext &ctx) {
-        return surfaceWorld(ctx, withAxes(ctx, quad(QuadShape::Quad, 16)));
-      })
-      .permute("frame_color_type", kFrameColorTypes)
+  frameTypeAxis(
+      makeTest("geometry", "quad_frame_color_types")
+          .description(
+              "Checks quad rendering across supported color buffer types.")
+          .build([](BuildContext &ctx) {
+            return surfaceWorld(ctx, withAxes(ctx, quad(QuadShape::Quad, 16)));
+          }),
+      "frame_color_type",
+      "UFIXED8_VEC4",
+      "FLOAT32_VEC4",
+      "UFIXED8_RGBA_SRGB")
+      .noGroundTruth()
       .channels(kColorOnly)
       .covers("ANARI_KHR_GEOMETRY_QUAD")
       .requireFeatures(kSupportMatte)
@@ -829,13 +833,18 @@ void registerGeometryTests(Catalog &catalog)
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
-  makeTest("geometry", "sphere_frame_color_types")
-      .description(
-          "Checks sphere rendering across supported color buffer types.")
-      .build([](BuildContext &ctx) {
-        return surfaceWorld(ctx, withAxes(ctx, sphere(16)));
-      })
-      .permute("frame_color_type", kFrameColorTypes)
+  frameTypeAxis(
+      makeTest("geometry", "sphere_frame_color_types")
+          .description(
+              "Checks sphere rendering across supported color buffer types.")
+          .build([](BuildContext &ctx) {
+            return surfaceWorld(ctx, withAxes(ctx, sphere(16)));
+          }),
+      "frame_color_type",
+      "UFIXED8_VEC4",
+      "FLOAT32_VEC4",
+      "UFIXED8_RGBA_SRGB")
+      .noGroundTruth()
       .channels(kColorOnly)
       .covers("ANARI_KHR_GEOMETRY_SPHERE")
       .requireFeatures(kSupportMatte)
@@ -885,12 +894,18 @@ void registerGeometryTests(Catalog &catalog)
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
-  makeTest("geometry", "cone_frame_color_types")
-      .description("Checks cone rendering across supported color buffer types.")
-      .build([](BuildContext &ctx) {
-        return surfaceWorld(ctx, withAxes(ctx, cone(16)));
-      })
-      .permute("frame_color_type", kFrameColorTypes)
+  frameTypeAxis(
+      makeTest("geometry", "cone_frame_color_types")
+          .description(
+              "Checks cone rendering across supported color buffer types.")
+          .build([](BuildContext &ctx) {
+            return surfaceWorld(ctx, withAxes(ctx, cone(16)));
+          }),
+      "frame_color_type",
+      "UFIXED8_VEC4",
+      "FLOAT32_VEC4",
+      "UFIXED8_RGBA_SRGB")
+      .noGroundTruth()
       .channels(kColorOnly)
       .covers("ANARI_KHR_GEOMETRY_CONE")
       .requireFeatures(kSupportMatte)
@@ -950,13 +965,18 @@ void registerGeometryTests(Catalog &catalog)
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
-  makeTest("geometry", "cylinder_frame_color_types")
-      .description(
-          "Checks cylinder rendering across supported color buffer types.")
-      .build([](BuildContext &ctx) {
-        return surfaceWorld(ctx, withAxes(ctx, cylinder(16)));
-      })
-      .permute("frame_color_type", kFrameColorTypes)
+  frameTypeAxis(
+      makeTest("geometry", "cylinder_frame_color_types")
+          .description(
+              "Checks cylinder rendering across supported color buffer types.")
+          .build([](BuildContext &ctx) {
+            return surfaceWorld(ctx, withAxes(ctx, cylinder(16)));
+          }),
+      "frame_color_type",
+      "UFIXED8_VEC4",
+      "FLOAT32_VEC4",
+      "UFIXED8_RGBA_SRGB")
+      .noGroundTruth()
       .channels(kColorOnly)
       .covers("ANARI_KHR_GEOMETRY_CYLINDER")
       .requireFeatures(kSupportMatte)
@@ -1215,13 +1235,18 @@ void registerGeometryTests(Catalog &catalog)
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
 
-  makeTest("geometry", "curve_frame_color_types")
-      .description(
-          "Checks curve rendering across supported color buffer types.")
-      .build([](BuildContext &ctx) {
-        return surfaceWorld(ctx, withAxes(ctx, curve(16)));
-      })
-      .permute("frame_color_type", kFrameColorTypes)
+  frameTypeAxis(
+      makeTest("geometry", "curve_frame_color_types")
+          .description(
+              "Checks curve rendering across supported color buffer types.")
+          .build([](BuildContext &ctx) {
+            return surfaceWorld(ctx, withAxes(ctx, curve(16)));
+          }),
+      "frame_color_type",
+      "UFIXED8_VEC4",
+      "FLOAT32_VEC4",
+      "UFIXED8_RGBA_SRGB")
+      .noGroundTruth()
       .channels(kColorOnly)
       .covers("ANARI_KHR_GEOMETRY_CURVE")
       .requireFeatures(kSupportMatte)
