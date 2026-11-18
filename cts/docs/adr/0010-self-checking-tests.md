@@ -356,10 +356,10 @@ A ray-marched volume samples two equivalent fields at different points:
 devices step by the field's spacing and jitter the first step, so two grids
 holding one function differ wherever the colour depends on how deep the first
 samples land. With a perspective view of a field that varies along every axis,
-`volume/structured_regular_cell_centered` needed 4 % at τ = 32 to pass on
-helide and halcyon (1.7 % measured), and still failed visrtx at 5.66 %. That
-loosening is not the pattern: an equivalence between volumes is framed so the
-default tolerance holds.
+the cell-centered Test (then a single `volume/structured_regular_cell_centered`)
+needed 4 % at τ = 32 to pass on helide and halcyon (1.7 % measured), and still
+failed visrtx at 5.66 %. That loosening is not the pattern: an equivalence
+between volumes is framed so the default tolerance holds.
 
 - **Orthographic, straight down one axis** of the field, with a fixed camera
   rather than the runner's framing (a field with wrong bounds then renders at
@@ -369,16 +369,17 @@ default tolerance holds.
 - **Constant along the view axis:** the field varies only across the view, so
   where along the ray the first samples land doesn't change the colour. A view
   then checks the field's extent and layout across it, not along it.
-- **A second view down another axis:** a volume equivalence Test must cover
-  the axis along the view, so it also runs looking straight down another axis,
-  with the field laid out to be constant along that axis and vary in the other
-  two. Between them the two views check all three axes. Nothing is compared
-  across views. The example is `volume/structured_regular_cell_centered`: a
-  Permutation axis `view` (`z`, `x`) with `.noEffectCheck`, so each view's
-  Cases hold their own equivalence.
+- **A second view down another axis:** a volume equivalence must cover the
+  axis along the view, so it also runs as a second Test looking straight down
+  another axis, with the field laid out to be constant along that axis and
+  vary in the other two. Between them the two views check all three axes.
+  Nothing is compared across views, which is why they are two Tests rather
+  than one with a view axis (an axis implies an effect check between views,
+  and opting out is only for effects images can't judge). The example is
+  `volume/structured_regular_cell_centered_down_z` and `..._down_x`.
 - **Silhouette edges on whole pixels:** the orthographic `height` puts the
   bounds' edges on pixel boundaries at the default frame size (the
-  cell-centered Test uses `height` 8/3 for bounds [-1, 1], edges at 1/2 ± 3/8
+  cell-centered Tests use `height` 8/3 for bounds [-1, 1], edges at 1/2 ± 3/8
   of a square frame, whole when its size is a multiple of 8). No pixel
   straddles the edge.
 - **If a difference remains at the silhouette**, compare outside a thin band
