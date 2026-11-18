@@ -182,7 +182,15 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   overrides into ANARI-typed bytes (unit-tested). The runner resolves each
   name's type from device introspection (falling back to inference) and sets it
   on every Case's renderer before the Test's own `rendererConfig`, so it stays
-  device-agnostic and a renderer Test still wins on conflict.
+  device-agnostic and a renderer Test still wins on conflict. A Test can also
+  ask for renderer parameters itself (`.rendererParam(name, value)`, the same
+  text form): the runner sets them, after its baseline and before the CLI's
+  overrides, only when the selected renderer subtype lists them
+  (`supportedRendererParams`; `default` is the device's first subtype when it
+  isn't listed), and records what it set in the Sidecar (`rendererParams`,
+  additive in v4). The light Tests use it for `ignoreAmbientLighting=false`
+  and the ID-channel Tests for `resolutionDivider=1`, so a mode a renderer
+  has by default doesn't fail it on a Test's assumption.
 - `FrameSize.{h,cpp}` — a Case's frame size from its Test's `.frameSize`
   hook (`resolveFrameSize`, pure), or the skip when it isn't whole pixels.
 - `Metrics.{h,cpp}` / `Image.{h,cpp}` — SSIM/PSNR, `changedFraction` (and its
@@ -293,7 +301,8 @@ that needs another frame size than the run's gets `.frameSize(...)`
 (`regionFrameSize` for a normalized region). Pick values whose effect shows in a good share of
 the frame (the default minimum is 1 % of pixels changed by more than 8 levels);
 rework the scene rather than loosen it (`.effectMargin`) when a change is too
-subtle, and opt an axis out (`.noEffectCheck(axis, reason)`) only when its
+subtle, and opt an axis out (`.noEffectCheck(axis, reason)`, or `.noEffectCheckOn(axis,
+library, renderers, reason)` for a device known not to render the parameter) only when its
 effect can't be judged by image difference.
 
 When the answer is analytic (an ID at a pixel, a depth, "background outside

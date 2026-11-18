@@ -541,7 +541,7 @@ void registerMaterialTests(Catalog &catalog)
                 sampler(0)})
         .requireFeatureFor("clearcoat", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
         .permute("clearcoatRoughness",
-            V{constant(0.5f),
+            V{constant(0.3f),
                 unsetBinding(),
                 attribute("attribute0"),
                 sampler(0)})
