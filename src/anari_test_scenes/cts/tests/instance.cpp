@@ -4,13 +4,17 @@
 #include "../BuildContext.h"
 #include "../ExactCheck.h"
 #include "../GeometryBuilder.h"
+#include "../GeometryLayout.h"
 #include "../LightBuilder.h"
 #include "../ScreenQuad.h"
 #include "../SurfaceBuilder.h"
 #include "../TestBuilder.h"
 #include "../WorldBuilder.h"
+#include "AttributeColors.h"
 #include "Categories.h"
+#include "RawArray.h"
 #include "ScreenScene.h"
+#include "SubjectShown.h"
 // std
 #include <algorithm>
 #include <array>
@@ -255,6 +259,182 @@ std::vector<mat4> regionMatrices()
       placement(-0.9f, 0.f, 0.f, 1.f)}; // left out, after
 }
 
+using V = std::vector<Any>;
+
+V attributeValues()
+{
+  V out;
+  for (const auto &a : attributeNames())
+    out.emplace_back(a.c_str());
+  return out;
+}
+
+// ---- instance attributes ----------------------------------------------------
+//
+// An instance's uniform `color` and `attribute0` to `attribute3` apply to
+// every object of its group that carries no such attribute itself (1.2,
+// section 5.5.1). Four instances of a triangle each get colours of their own
+// from the instance (one shared group), from the geometry (a group each), or
+// from both with the instance's colours decoys: all three must render alike.
+
+// Whether, and with what, an object carries every attribute.
+enum class Carries
+{
+  Nothing,
+  Colors,
+  Decoys
+};
+
+void setUniformAttributes(
+    anari::Device d, anari::Object o, Carries carries, int item)
+{
+  if (carries == Carries::Nothing)
+    return;
+  const auto &names = attributeNames();
+  for (size_t k = 0; k < names.size(); ++k)
+    anari::setParameter(d,
+        o,
+        names[k].c_str(),
+        carries == Carries::Colors ? setColor(int(k), item)
+                                   : decoyColor(int(k), item));
+}
+
+anari::Group attributeGroup(
+    anari::Device d, const std::string &attribute, Carries geometry, int item)
+{
+  const auto verts =
+      std::vector<float3>(kInstanceTriangle.begin(), kInstanceTriangle.end());
+  auto geom = anari::newObject<anari::Geometry>(d, "triangle");
+  anari::setAndReleaseParameter(d,
+      geom,
+      "vertex.position",
+      anari::newArray1D(d, verts.data(), verts.size()));
+  setUniformAttributes(d, geom, geometry, item);
+  anari::commitParameters(d, geom);
+  auto mat = anari::newObject<anari::Material>(d, "matte");
+  anari::setParameter(d, mat, "color", attribute.c_str());
+  anari::commitParameters(d, mat);
+  auto surface = makeSurface(d, geom, mat);
+  auto group = anari::newObject<anari::Group>(d);
+  anari::setAndReleaseParameter(
+      d, group, "surface", anari::newArray1D(d, &surface, 1));
+  anari::commitParameters(d, group);
+  anari::release(d, geom);
+  anari::release(d, mat);
+  anari::release(d, surface);
+  return group;
+}
+
+anari::World instanceAttributesWorld(
+    anari::Device d, const std::string &attribute, const std::string &source)
+{
+  const Carries geometry =
+      source == "instance" ? Carries::Nothing : Carries::Colors;
+  const Carries instance = source == "instance" ? Carries::Colors
+      : source == "geometryOverInstance"        ? Carries::Decoys
+                                                : Carries::Nothing;
+  const auto matrices = quadrantMatrices();
+  std::vector<anari::Group> groups;
+  std::vector<anari::Instance> instances;
+  anari::Group shared = nullptr;
+  if (source == "instance")
+    shared = attributeGroup(d, attribute, Carries::Nothing, 0);
+  for (size_t i = 0; i < matrices.size(); ++i) {
+    auto group =
+        shared ? shared : attributeGroup(d, attribute, geometry, int(i));
+    if (!shared)
+      groups.push_back(group);
+    auto inst = anari::newObject<anari::Instance>(d, "transform");
+    setMatrix(d, inst, matrices[i]);
+    setUniformAttributes(d, inst, instance, int(i));
+    anari::setParameter(d, inst, "group", group);
+    anari::commitParameters(d, inst);
+    instances.push_back(inst);
+  }
+  auto light = makeDirectionalLight(d, float3(0.f, 0.f, -1.f), 1.5f);
+  WorldContents wc;
+  wc.instances = instances;
+  wc.lights = {light};
+  auto world = assembleWorld(d, wc);
+  anari::release(d, light);
+  if (shared)
+    anari::release(d, shared);
+  for (auto g : groups)
+    anari::release(d, g);
+  for (auto i : instances)
+    anari::release(d, i);
+  return world;
+}
+
+// ---- non-uniform scale
+// -------------------------------------------------------
+//
+// An instance transform with a non-uniform scale and a rotation shears its
+// group's normals unless they are transformed by the inverse transpose. A lit
+// cube under such a transform must shade, and be as deep, as the cube with
+// the transform applied to its vertices (whose faces then have their own
+// flat normals).
+
+const mat4 kSheared = anari::math::mul(mat4(float4(1.f, 0.f, 0.f, 0.f),
+                                           float4(0.f, 1.f, 0.f, 0.f),
+                                           float4(0.f, 0.f, 1.f, 0.f),
+                                           float4(0.3f, -0.2f, 0.f, 1.f)),
+    anari::math::mul(anari::math::rotation_matrix(anari::math::rotation_quat(
+                         float3(0.f, 0.f, 1.f), 0.6f)),
+        mat4(float4(1.8f, 0.f, 0.f, 0.f),
+            float4(0.f, 0.5f, 0.f, 0.f),
+            float4(0.f, 0.f, 1.2f, 0.f),
+            float4(0.f, 0.f, 0.f, 1.f))));
+
+anari::World nonUniformScaleWorld(anari::Device d, bool baked)
+{
+  const auto layout =
+      makeTriangleLayout(TriangleShape::Cube, PrimitiveMode::Soup, 1);
+  float3 center(0.f);
+  for (const auto &p : layout.positions)
+    center = center + p;
+  center = center / float(layout.positions.size());
+
+  // The cube about the origin, so the matrix scales it about its centre.
+  std::vector<float3> verts;
+  for (const auto &p : layout.positions) {
+    auto q = p - center;
+    if (baked) {
+      const float4 t = anari::math::mul(kSheared, float4(q, 1.f));
+      q = float3(t.x, t.y, t.z);
+    }
+    verts.push_back(q);
+  }
+  auto geom = anari::newObject<anari::Geometry>(d, "triangle");
+  anari::setAndReleaseParameter(d,
+      geom,
+      "vertex.position",
+      anari::newArray1D(d, verts.data(), verts.size()));
+  anari::commitParameters(d, geom);
+  auto mat = makeMatteMaterial(d, float3(0.7f, 0.5f, 0.3f));
+  auto surface = makeSurface(d, geom, mat);
+  auto group = anari::newObject<anari::Group>(d);
+  anari::setAndReleaseParameter(
+      d, group, "surface", anari::newArray1D(d, &surface, 1));
+  anari::commitParameters(d, group);
+  auto inst = anari::newObject<anari::Instance>(d, "transform");
+  setMatrix(d, inst, baked ? anari::math::identity : kSheared);
+  anari::setParameter(d, inst, "group", group);
+  anari::commitParameters(d, inst);
+  auto light = makeDirectionalLight(d, float3(-0.4f, -0.7f, -1.f), 1.5f);
+  WorldContents wc;
+  wc.instances = {inst};
+  wc.lights = {light};
+  auto world = assembleWorld(d, wc);
+  anari::release(d, light);
+  anari::release(d, inst);
+  anari::release(d, group);
+  anari::release(d, geom);
+  anari::release(d, mat);
+  anari::release(d, surface);
+  return world;
+}
+
 } // namespace
 
 void registerInstanceTests(Catalog &catalog)
@@ -305,6 +485,58 @@ void registerInstanceTests(Catalog &catalog)
       .groundTruth(
           "where the two transformed instances land, in colour and depth, has "
           "no analytic answer in the Test")
+      .covers("ANARI_KHR_INSTANCE_TRANSFORM")
+      .requireFeatures(kSupportMatteTriangle)
+      .registerInto(catalog);
+
+  makeTest("instance", "attributes")
+      .description(
+          "Checks that an instance's uniform color and attribute0 to "
+          "attribute3 colour a group whose geometry carries none, as the "
+          "geometry's own uniform attributes do, and that the geometry's win "
+          "over the instance's.")
+      .build([](BuildContext &ctx) {
+        return instanceAttributesWorld(ctx.device(),
+            ctx.getString("attribute", "color"),
+            ctx.getString("source", "geometry"));
+      })
+      .camera([](BuildContext &ctx, const scenes::Bounds &) {
+        return makeScreenQuadCamera(ctx.device());
+      })
+      .variant("source", V{"geometry", "instance", "geometryOverInstance"})
+      .permute("attribute", attributeValues())
+      .channels({Channel::Color})
+      .noGroundTruth()
+      .covers("ANARI_KHR_INSTANCE_TRANSFORM")
+      .requireFeatures(kSupportMatteTriangle)
+      .registerInto(catalog);
+
+  makeTest("instance", "non_uniform_scale")
+      .description(
+          "Checks that an instance transform with a rotation and a "
+          "non-uniform scale shades and places a cube as the cube with the "
+          "transform applied to its vertices.")
+      .build([](BuildContext &ctx) {
+        return nonUniformScaleWorld(
+            ctx.device(), ctx.getString("form", "instance") == "baked");
+      })
+      // A fixed camera: the default one frames the world's bounds, and an
+      // instance's bounds are its group's box transformed, looser than the
+      // baked cube's.
+      .camera([](BuildContext &ctx, const scenes::Bounds &) {
+        auto d = ctx.device();
+        auto c = anari::newObject<anari::Camera>(d, "perspective");
+        anari::setParameter(d, c, "position", float3(0.f, 0.f, 3.f));
+        anari::setParameter(d, c, "direction", float3(0.f, 0.f, -1.f));
+        anari::setParameter(d, c, "up", float3(0.f, 1.f, 0.f));
+        anari::setParameter(d, c, "fovy", 0.6f);
+        anari::commitParameters(d, c);
+        return c;
+      })
+      .variant("form", V{"baked", "instance"})
+      .channels({Channel::Color})
+      .expectExact("the cube shows", subjectIsShown)
+      .noGroundTruth()
       .covers("ANARI_KHR_INSTANCE_TRANSFORM")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);

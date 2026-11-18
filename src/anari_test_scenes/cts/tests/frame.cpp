@@ -230,6 +230,25 @@ void unsetObjectIdsAtCentroids(ExactCheck &x)
       "the object ID where no surface id is set is -1u");
 }
 
+void unsetInstanceIdsAtCentroids(ExactCheck &x)
+{
+  idsAtCentroids(x,
+      Channel::InstanceId,
+      {{float3(-0.3f, 0.f, 0.f), kUnsetId}, {float3(0.3f, 0.f, 0.f), kUnsetId}},
+      "the instance ID where no instance id is set is -1u");
+}
+
+// One instance with an id and one without: each reads what it was given, the
+// other the default.
+void mixedInstanceIdsAtCentroids(ExactCheck &x)
+{
+  idsAtCentroids(x,
+      Channel::InstanceId,
+      {{float3(-0.3f, 0.f, 0.f), 5u}, {float3(0.3f, 0.f, 0.f), kUnsetId}},
+      "the instance ID is the id of the instance that has one and -1u for "
+      "the one that has none");
+}
+
 void instanceIdsAtCentroids(ExactCheck &x)
 {
   idsAtCentroids(x,
@@ -665,7 +684,8 @@ void registerFrameTests(Catalog &catalog)
   // ---- object id channel (fallback to group/instance index) -----------------
   makeTest("frame", "frame_objectID_channel_group")
       .description(
-          "Checks fallback object IDs for instanced groups and surfaces.")
+          "Checks that surfaces in instanced groups whose id is not set read "
+          "the default id, -1u (1.2 has no implicit ids).")
       .build([](BuildContext &ctx) {
         auto d = ctx.device();
         auto i0 = idInstance(d, float3(-0.3f, 0.f, 0.f), 0, false);
@@ -739,6 +759,38 @@ void registerFrameTests(Catalog &catalog)
       .channels({Channel::InstanceId})
       .rendererParam("resolutionDivider", "1")
       .expectExact("instance IDs", instanceIdsAtCentroids)
+      .noGroundTruth()
+      .covers("ANARI_KHR_FRAME_CHANNEL_INSTANCE_ID")
+      .requireFeatures(kSupportMatteTriangle)
+      .requireFeature("ANARI_KHR_INSTANCE_TRANSFORM")
+      .registerInto(catalog);
+
+  makeTest("frame", "frame_instanceID_channel_unset")
+      .description(
+          "Checks that instances whose id is not set read the default id, "
+          "-1u, in the instanceId channel, beside one that has an id.")
+      .build([](BuildContext &ctx) {
+        auto d = ctx.device();
+        const bool mixed = ctx.getString("ids", "none") == "mixed";
+        auto i0 = idInstance(d, float3(-0.3f, 0.f, 0.f), 5, mixed);
+        auto i1 = idInstance(d, float3(0.3f, 0.f, 0.f), 0, false);
+        WorldContents wc;
+        wc.instances = {i0, i1};
+        auto world = assembleWorld(d, wc);
+        anari::release(d, i0);
+        anari::release(d, i1);
+        return world;
+      })
+      .permute("ids", {"none", "mixed"})
+      .channels({Channel::InstanceId})
+      .rendererParam("resolutionDivider", "1")
+      .expectExact("unset instance IDs",
+          [](ExactCheck &x) {
+            if (x.values().getString("ids", "none") == "mixed")
+              mixedInstanceIdsAtCentroids(x);
+            else
+              unsetInstanceIdsAtCentroids(x);
+          })
       .noGroundTruth()
       .covers("ANARI_KHR_FRAME_CHANNEL_INSTANCE_ID")
       .requireFeatures(kSupportMatteTriangle)
