@@ -112,6 +112,17 @@ struct TestBuilder
 
   TestBuilder &requireFeatures(std::vector<std::string> features);
   TestBuilder &requireFeature(std::string feature);
+  // Only the Cases holding `value` on `axis` need `feature`: a device lacking
+  // it skips exactly those Cases, naming the extension, and the others run.
+  // The skipped Cases take no part in the Test's effect or equivalence checks
+  // (their partners are not failed for their absence). Use it for an
+  // extension a few values need (an image sampler a material Case binds); one
+  // every Case needs goes in requireFeature(). Throws std::invalid_argument
+  // for an undeclared axis (declare it first) or a value it doesn't hold.
+  //   .permute("color", V{unsetBinding(), sampler(0)})
+  //   .requireFeatureFor("color", sampler(0), "ANARI_KHR_SAMPLER_IMAGE2D")
+  TestBuilder &requireFeatureFor(
+      std::string axis, const Any &value, std::string feature);
   // Name a primary extension: one the Test is evidence for (call once per
   // extension). It is also required. Support extensions the Test merely needs
   // to build its scene go in requireFeatures().

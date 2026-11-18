@@ -11,6 +11,7 @@
 #include "helium/utility/ParameterizedObject.h"
 // std
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 
@@ -47,6 +48,11 @@ struct BuildContext
   // The typed material binding carried under 'name'. Throws an actionable
   // diagnostic when the axis is absent or contains a regular value.
   const ParameterBinding &binding(const std::string &name) const;
+
+  // The sampler slots the Case's typed bindings reference. A Test that builds
+  // only the samplers a Case binds can run its other Cases on a device lacking
+  // that sampler's extension (TestBuilder::requireFeatureFor).
+  std::set<size_t> boundSamplerSlots() const;
 
   // Load a resolved axis value. A `none()` (invalid) value is intentionally
   // dropped so that get<>() falls back to the build()-supplied default.

@@ -116,10 +116,18 @@ anari::World materialWorld(BuildContext &ctx,
   auto d = ctx.device();
   auto geom = materialBaseGeometry(d, count);
 
+  // Only the samplers the Case binds: a Case binding none builds none, so it
+  // runs on a device lacking the sampler (requireFeatureFor); an unbound slot
+  // stays null.
+  const auto bound = ctx.boundSamplerSlots();
   std::vector<anari::Sampler> samplers;
-  for (const auto &s : specs) {
-    auto sm = newImageSampler(d, s.subtype, s.inAttribute, s.normalMap);
-    anari::commitParameters(d, sm);
+  for (size_t i = 0; i < specs.size(); ++i) {
+    anari::Sampler sm = nullptr;
+    if (bound.count(i)) {
+      const auto &s = specs[i];
+      sm = newImageSampler(d, s.subtype, s.inAttribute, s.normalMap);
+      anari::commitParameters(d, sm);
+    }
     samplers.push_back(sm);
   }
 
@@ -136,7 +144,8 @@ anari::World materialWorld(BuildContext &ctx,
 
   anari::release(d, geom);
   for (auto sm : samplers)
-    anari::release(d, sm);
+    if (sm)
+      anari::release(d, sm);
   anari::release(d, mat);
   anari::release(d, surface);
   anari::release(d, light);
@@ -277,6 +286,7 @@ void registerMaterialTests(Catalog &catalog)
               constant(float3(0.98f, 0.5f, 0.44f)),
               attribute("attribute0"),
               sampler(0)})
+      .requireFeatureFor("color", sampler(0), "ANARI_KHR_SAMPLER_IMAGE2D")
       .covers(kMatte)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -302,6 +312,7 @@ void registerMaterialTests(Catalog &catalog)
               constant(0.5f),
               attribute("attribute2"),
               sampler(0)})
+      .requireFeatureFor("opacity", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
       .covers(kMatte)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -329,6 +340,7 @@ void registerMaterialTests(Catalog &catalog)
               constant(float3(0.98f, 0.5f, 0.44f)),
               attribute("attribute0"),
               sampler(0)})
+      .requireFeatureFor("baseColor", sampler(0), "ANARI_KHR_SAMPLER_IMAGE2D")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -356,12 +368,17 @@ void registerMaterialTests(Catalog &catalog)
               unsetBinding(),
               attribute("attribute0"),
               sampler(0)})
+      .requireFeatureFor("clearcoat", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
       .permute("clearcoatRoughness",
           V{constant(0.5f),
               unsetBinding(),
               attribute("attribute0"),
               sampler(0)})
+      .requireFeatureFor(
+          "clearcoatRoughness", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
       .permute("clearcoatNormal", V{unsetBinding(), sampler(1)})
+      .requireFeatureFor(
+          "clearcoatNormal", sampler(1), "ANARI_KHR_SAMPLER_IMAGE2D")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -386,6 +403,7 @@ void registerMaterialTests(Catalog &catalog)
               constant(float3(1.f, 0.f, 0.f)),
               attribute("attribute0"),
               sampler(0)})
+      .requireFeatureFor("emissive", sampler(0), "ANARI_KHR_SAMPLER_IMAGE2D")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -434,12 +452,15 @@ void registerMaterialTests(Catalog &catalog)
               unsetBinding(),
               attribute("attribute0"),
               sampler(0)})
+      .requireFeatureFor("iridescence", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
       .permute("iridescenceIor", V{unsetBinding(), constant(2.0f)})
       .permute("iridescenceThickness",
           V{constant(0.5f),
               unsetBinding(),
               attribute("attribute0"),
               sampler(0)})
+      .requireFeatureFor(
+          "iridescenceThickness", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -466,12 +487,15 @@ void registerMaterialTests(Catalog &catalog)
               unsetBinding(),
               attribute("attribute0"),
               sampler(0)})
+      .requireFeatureFor("metallic", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
       .permute("roughness",
           V{constant(0.5f),
               unsetBinding(),
               attribute("attribute0"),
               sampler(0)})
+      .requireFeatureFor("roughness", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
       .permute("normal", V{unsetBinding(), sampler(1)})
+      .requireFeatureFor("normal", sampler(1), "ANARI_KHR_SAMPLER_IMAGE2D")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -497,6 +521,7 @@ void registerMaterialTests(Catalog &catalog)
               constant(0.5f),
               attribute("attribute2"),
               sampler(0)})
+      .requireFeatureFor("opacity", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -523,11 +548,14 @@ void registerMaterialTests(Catalog &catalog)
               unsetBinding(),
               attribute("attribute0"),
               sampler(0)})
+      .requireFeatureFor("sheenColor", sampler(0), "ANARI_KHR_SAMPLER_IMAGE2D")
       .permute("sheenRoughness",
           V{constant(0.5f),
               unsetBinding(),
               attribute("attribute0"),
               sampler(1)})
+      .requireFeatureFor(
+          "sheenRoughness", sampler(1), "ANARI_KHR_SAMPLER_IMAGE1D")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -554,11 +582,14 @@ void registerMaterialTests(Catalog &catalog)
               unsetBinding(),
               attribute("attribute0"),
               sampler(1)})
+      .requireFeatureFor("specular", sampler(1), "ANARI_KHR_SAMPLER_IMAGE1D")
       .permute("specularColor",
           V{constant(float3(0.98f, 0.5f, 0.44f)),
               unsetBinding(),
               attribute("attribute0"),
               sampler(0)})
+      .requireFeatureFor(
+          "specularColor", sampler(0), "ANARI_KHR_SAMPLER_IMAGE2D")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -586,6 +617,7 @@ void registerMaterialTests(Catalog &catalog)
               unsetBinding(),
               attribute("attribute0"),
               sampler(0)})
+      .requireFeatureFor("thickness", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
       .permute("attenuationDistance", V{constant(0.5f), unsetBinding()})
       .permute("attenuationColor",
           V{constant(float3(0.98f, 0.5f, 0.44f)), unsetBinding()})
@@ -613,6 +645,8 @@ void registerMaterialTests(Catalog &catalog)
               constant(0.5f),
               attribute("attribute0"),
               sampler(0)})
+      .requireFeatureFor(
+          "transmission", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);

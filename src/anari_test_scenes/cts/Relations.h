@@ -46,6 +46,10 @@ struct CaseRender
     Rendered,
     Failed, // build or render failed; `error` says why
     Skipped, // not rendered for a reason of its own (`error`), e.g. its size
+    // The device lacks an extension this Case's values need (`error` names
+    // it). The Case takes no part in any relation: its partners are not
+    // failed for its absence.
+    Unsupported,
   };
   State state{State::Absent};
   std::vector<Image> images; // in TestDef::channels order

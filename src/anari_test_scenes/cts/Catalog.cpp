@@ -3,6 +3,8 @@
 
 #include "Catalog.h"
 #include "Expansion.h"
+// std
+#include <algorithm>
 
 namespace anari {
 namespace cts {
@@ -26,6 +28,38 @@ std::vector<std::string> missingFeatures(
       out.push_back(f);
   }
   return out;
+}
+
+std::vector<std::string> requiredFeaturesOf(const TestDef &test, const Case &c)
+{
+  std::vector<std::string> out = test.requiredFeatures;
+  for (const auto &req : test.valueRequirements) {
+    const bool held =
+        std::any_of(c.values.begin(), c.values.end(), [&](const CaseValue &cv) {
+          return cv.axisName == req.axis && anyToString(cv.value) == req.value;
+        });
+    if (held && std::find(out.begin(), out.end(), req.feature) == out.end())
+      out.push_back(req.feature);
+  }
+  return out;
+}
+
+std::vector<std::string> missingFeatures(const TestDef &test,
+    const Case &c,
+    const std::set<std::string> &deviceFeatures)
+{
+  std::vector<std::string> out;
+  for (const auto &f : requiredFeaturesOf(test, c))
+    if (deviceFeatures.find(f) == deviceFeatures.end())
+      out.push_back(f);
+  return out;
+}
+
+bool isSupported(const TestDef &test,
+    const Case &c,
+    const std::set<std::string> &deviceFeatures)
+{
+  return missingFeatures(test, c, deviceFeatures).empty();
 }
 
 const TestDef &Catalog::add(TestDef test)

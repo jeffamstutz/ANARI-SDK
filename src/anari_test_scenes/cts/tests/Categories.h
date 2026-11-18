@@ -23,8 +23,9 @@ namespace cts {
 // (TestBuilder::camera) requires that camera instead. The directional light
 // most scenes add is not required: a device without one ignores it and still
 // renders the scene the Test is about. Extensions only some of a Test's Cases
-// need (such as the image samplers some material Cases bind) are not required
-// yet: gating per Case is pending (cts-1.2-coverage ticket 22).
+// need (such as the image samplers some material Cases bind) are declared per
+// axis value with TestBuilder::requireFeatureFor(), which skips exactly the
+// Cases holding the value on a device lacking the extension.
 inline constexpr const char *kSupportPerspective =
     "ANARI_KHR_CAMERA_PERSPECTIVE";
 inline const std::vector<std::string> kSupportTriangle = {
