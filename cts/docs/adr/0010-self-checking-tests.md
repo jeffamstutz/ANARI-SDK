@@ -527,31 +527,67 @@ declares what it compares against Ground truth. What the conversion decided:
     spec and is to be raised with the working group. `perspective_default_fovy`
     equals pi/3.
 41. **The allow-list is documentation of the Reference devices' limits.** What
-    stays on it (153 pairs, none seeded) is what helide, and halcyon's default
+    stays on it (147 pairs, none seeded) is what helide, and halcyon's default
     preview renderer, can't show: a light under halcyon's headlight blend, a PBR
     lobe neither shades, opacity without `alphaCutoff`, ambient light,
     the spatial field's `filter`, and changes within SSIM 0.7 / PSNR 20 on a
     washed-out lit colour. Each entry names which; none is a Test that can't
     tell its values apart on the Candidate.
+42. **A Test can declare optional renderer parameters** (`.rendererParam`),
+    set only when the renderer subtype lists them (device introspection; the
+    run's `default` is the device's first subtype when it isn't listed) and
+    recorded in the Sidecar. halcyon's preview renderer and helide pin the
+    ambient radiance unless `ignoreAmbientLighting` is false (so the ambient
+    and every dark-scene light Test failed on a mode, not on the lobe), and
+    halcyon's quality renderer renders the ID channels at a quarter of the
+    resolution unless `resolutionDivider` is 1. The ambient, light and
+    ID-channel Tests declare them. The command line's `-p` still overrides.
+43. **The PBR lobe Tests render a grey dielectric sphere.** `metallic`
+    defaults to 1 in the spec, which multiplied every dielectric lobe
+    (specular, ior, transmission, most of clearcoat) away, and a flat white
+    surface facing the camera saturates and hides a highlight, a sheen or a
+    Fresnel change. The scene fixes `metallic 0` (except in the metallic
+    Test, where unset must stay the spec default), a mid-grey base, a weak
+    ambient term and, where the Test doesn't vary it, `roughness 0.3`;
+    `iridescenceThickness` is in nanometres (constant 400, a 100 to 800
+    attribute, a sampler scaled to 800 through `outTransform`). A lobe changes
+    a highlight, a small part of the frame, so the lobe axes carry an effect
+    margin of 0.3 % (about 200 pixels; a render's noise changes none).
+    `thickness` and the attenuation axes are opted out everywhere, since no
+    renderer in the SDK or visrtx shows them on a thin surface.
+44. **`noEffectCheckOn(axis, library, renderers, reason)`** opts an axis out
+    only on a device known not to render the parameter: helide reads only
+    `baseColor` and `opacity`; halcyon's preview only `baseColor`, `metallic`,
+    `roughness`, `ior`, `emissive` and `normal`. The assertion reads "not
+    evaluated" with the device's reason, so a Candidate that does render the
+    parameter is held to the check. The cone and cylinder `caps` axes
+    (helide, halcyon: neither reads `caps`) and helide's `ambientColor` are
+    opted out the same way, with no device ticket. The near/far and
+    spatial-field `filter` axes stay failing on helide and halcyon, as
+    cts-device-findings 10 and 11 say.
+45. **Ring `c0`** uses an intensity distribution bright in one azimuth, so a
+    device that ignores `c0` can't pass by averaging a checker; halcyon's
+    quality renderer passes it.
 
-Measured on 2026-11-17 (256x256, `--accumulation 16`; helide doesn't advertise
-`KHR_FRAME_ACCUMULATION`). 393 Cases.
+Measured on 2026-11-18 (256x256; helide doesn't advertise
+`KHR_FRAME_ACCUMULATION`). 389 Cases (the two region default-aspect Tests are
+gone).
 
 | Run | Passed | Failed | Skipped | Wall time |
 | --- | ---: | ---: | ---: | ---: |
-| halcyon, no Ground truth | 258 | 81 | 54 | 7.2 s |
-| halcyon vs halcyon Ground truth | 274 | 80 | 39 | 14.1 s |
-| helide, no Ground truth | 192 | 86 | 115 | 4.9 s |
-| helide vs helide Ground truth | 207 | 86 | 100 | 11.2 s |
+| halcyon preview, `--accumulation 16`, no Ground truth | 254 | 17 | 118 | 5.4 s |
+| halcyon preview vs halcyon Ground truth | 309 | 17 | 63 | 14.9 s |
+| halcyon `-r quality --accumulation 256`, no Ground truth | 285 | 20 | 84 | 71.8 s |
+| helide, no Ground truth | 176 | 17 | 196 | 4.1 s |
+| helide vs helide Ground truth | 248 | 17 | 124 | 10.1 s |
 
-Failures by kind on halcyon vs its own Ground truth: effect 74, equivalence
-6, exact 4, one crash in `synchronization/different_objects_concurrently`
-(cts-device-findings 01); no Ground-truth failure. They are the devices'
-(clip planes, `caps`, the field `filter`, ambient light by default, PBR
-lobes, the image region in the default aspect), not Tests that can't judge,
-with the caveat that no installed device implements the PBR lobes the Tests
-exercise, so the PBR scenes themselves are unvalidated on a device (visrtx and
-OSPRay fail the same axes, halcyon's quality renderer too). halcyon's
-`quality` renderer (`-r quality --accumulation 128`) passes 54 of the 55 light
-Cases, which is what validates the reworked light scenes; its ring `c0` stays
-unvalidated.
+The 17 failures on halcyon preview and helide are the same Cases: the
+near/far clip planes (4 Cases; cts-device-findings 10), the spatial field
+`filter` (1; 11), and `alphaCutoff` and opacity on matte and physicallyBased
+(12; 04 to 07), all devices'. halcyon's quality renderer adds 3 Cases of
+`pbr_iridescence`'s `iridescenceThickness` bound to an attribute or a sampler:
+it reads a thickness from a texture as glTF does (the green channel, mixed
+between 400 and 100 nm), not as nanometres in the value (no ticket yet). There
+is no Ground-truth failure. visrtx's quality renderer (`--accumulation 64`)
+passes all 62 `material/pbr_*` Cases it runs, which validates the lobe scenes
+on a device that renders the lobes.

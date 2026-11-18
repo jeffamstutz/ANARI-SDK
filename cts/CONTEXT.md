@@ -213,7 +213,9 @@ An optional per-Case builder a Test supplies beyond `build()`. `cameraBuild`
 (`.camera(...)`) replaces the runner's bounds-framed camera. The related
 `rendererConfig` hook (`.renderer(...)`) instead mutates the runner-created
 renderer after its selected subtype and baseline parameters are applied
-(ADR-0006). The third, `frameSize` (`.frameSize(...)`), gives the Case's frame
+(ADR-0006). A Test can also declare optional renderer parameters
+(`.rendererParam(name, value)`) that the runner sets only when the selected
+renderer lists them and records in the Sidecar. The third, `frameSize` (`.frameSize(...)`), gives the Case's frame
 size relative to the run's (`--width`/`--height`); a size that isn't whole
 pixels skips the Case (ADR-0010).
 
