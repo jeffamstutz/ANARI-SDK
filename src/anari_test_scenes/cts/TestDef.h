@@ -124,8 +124,8 @@ struct ExactCheckDef
 // Whether a Test compares its Cases against Ground truth (ADR-0010).
 enum class GroundTruthUse
 {
-  // Undeclared: compared against Ground truth (the behaviour until ticket 04
-  // flips the default to self-checked only).
+  // Undeclared: self-checked only, as with `.noGroundTruth()`. A Test needs
+  // `.groundTruth(reason)` to compare against a Reference device.
   Default,
   // `.groundTruth(reason)`: needs a Reference device comparison, and why.
   Required,
@@ -217,7 +217,7 @@ struct TestDef
   // behaviour Test never does).
   bool usesGroundTruth() const
   {
-    return !behaviorCheck && groundTruthUse != GroundTruthUse::None;
+    return !behaviorCheck && groundTruthUse == GroundTruthUse::Required;
   }
 
   std::string id() const

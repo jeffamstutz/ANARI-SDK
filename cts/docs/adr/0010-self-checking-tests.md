@@ -73,9 +73,10 @@ where appearance has no analytic answer.
 
 7. **Ground truth is declared.** `.groundTruth("reason")` says the Test needs a
    Reference device comparison and why; `.noGroundTruth()` says it is fully
-   self-checked. A Test that says neither still compares against Ground truth
-   (unchanged behaviour); ticket 04 flips that default. `generate` skips
-   `.noGroundTruth()` Tests, as it skips behaviour Tests. The SSIM/PSNR
+   self-checked. A Test that says neither is self-checked only: ticket 04
+   flipped this default, which compared such a Test against Ground truth
+   until every Test had been through the conversion. `generate` skips every
+   Test without `.groundTruth`, as it skips behaviour Tests. The SSIM/PSNR
    comparison and its thresholds are untouched.
 
 8. **When something can't be evaluated.**

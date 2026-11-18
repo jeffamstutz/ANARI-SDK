@@ -338,12 +338,12 @@ void registerCameraTests(Catalog &catalog)
       "orthographic",
       "ANARI_KHR_CAMERA_ORTHOGRAPHIC");
   registerDefaultAspectTest(catalog,
-      "perspective_default_aspect_region",
+      "perspective_region_default_aspect",
       "perspective",
       "ANARI_KHR_CAMERA_PERSPECTIVE",
       &kAspectRegion);
   registerDefaultAspectTest(catalog,
-      "orthographic_default_aspect_region",
+      "orthographic_region_default_aspect",
       "orthographic",
       "ANARI_KHR_CAMERA_ORTHOGRAPHIC",
       &kAspectRegion);

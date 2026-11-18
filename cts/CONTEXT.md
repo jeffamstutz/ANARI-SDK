@@ -128,7 +128,7 @@ _Avoid_: device under test, SUT
 The expected reference image(s) a Case is compared against, produced by the
 Reference device. Optional per Test: declared with `.groundTruth(reason)`
 where appearance has no analytic answer, absent with `.noGroundTruth()` for a
-fully self-checked Test (undeclared means compared, until ticket 04). A Case
+fully self-checked Test (undeclared means self-checked only). A Case
 that passed its Assertions while its Ground truth was missing is "passed,
 Ground truth not evaluated".
 _Avoid_: reference image, golden image, baseline
