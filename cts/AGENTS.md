@@ -230,6 +230,11 @@ device's introspection lists a parameter; the denoise and MPI Tests use it, as
 `anariCts` does not run MPI ranks and no SDK device has a noisy setup to
 calibrate a denoise bound on).
 
+The light primary-visibility Tests do not assume what a hidden light leaves
+behind: the `visible` axis has a value `absent` that renders the scene without
+the light, and `visible=false` is a derived expectation (that render inside
+the light's footprint, the default render elsewhere).
+
 **Unit tests:** `tests/unit/test_cts_*.cpp` (catalog/expansion/filter/builder,
 metrics, relations, discrimination, frame accumulation, results/sidecar/workdir,
 report/html, runner, isolation; `anari12` and `small_extensions` judge the
