@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "../BuildContext.h"
+#include "../ExactCheck.h"
 #include "../GeometryBuilder.h"
 #include "../LightBuilder.h"
 #include "../SurfaceBuilder.h"
@@ -58,11 +59,52 @@ Any box2(float lx, float ly, float hx, float hy)
   return Any(ANARI_FLOAT32_BOX2, v);
 }
 
-// camera_general's imageRegion: the middle half of the sensor on each axis.
-// Its edges are whole pixels at any even run size, so the Case renders the
-// crop at the crop's own size and must equal the crop of the full frame.
-constexpr float kRegionLo = 0.25f;
-constexpr float kRegionHi = 0.75f;
+// camera_general's imageRegion: the upper-left quarter of the sensor. It is
+// not symmetric, so a device that flips or mirrors the region doesn't pass.
+// Its edges are whole pixels at a run size that is a multiple of 4, so the
+// Case renders the crop at the crop's own size and must equal the crop of the
+// full frame.
+struct Region
+{
+  float loX, loY, hiX, hiY;
+};
+constexpr Region kRegion = {0.0f, 0.5f, 0.5f, 1.0f};
+
+Any regionValue(const Region &r)
+{
+  return box2(r.loX, r.loY, r.hiX, r.hiY);
+}
+
+// A clip plane that removes the whole subject (which stands a few units from
+// the camera): `near` this far, or `far` this close.
+constexpr float kNearClipsAll = 50.f;
+constexpr float kFarClipsAll = 0.5f;
+
+// A Case whose clip planes remove the whole subject shows only background:
+// every pixel equals the corner's (the default background is one colour). A
+// Case that clips nothing shows the subject, so some pixel differs from it.
+void clippedFrameIsBackground(ExactCheck &x)
+{
+  const auto color = x.rgba(Channel::Color);
+  const Rgba8 corner = color.at(0, 0);
+  size_t differing = 0;
+  for (uint32_t y = 0; y < color.height; ++y)
+    for (uint32_t px = 0; px < color.width; ++px)
+      if (valueDistance(color.at(px, y), corner) > 0)
+        ++differing;
+  const bool clipsAll = x.get<float>("near", 0.01f) >= kNearClipsAll
+      || x.get<float>("far", 100.f) <= kFarClipsAll;
+  if (clipsAll)
+    x.measure("pixels differing from the background corner, all clipped",
+        double(differing),
+        Limit::AtMost,
+        0.0);
+  else
+    x.measure("pixels of the unclipped subject",
+        double(differing),
+        Limit::AtLeast,
+        1.0);
+}
 
 void cp(BuildContext &ctx, anari::Device d, anari::Camera c, const char *param)
 {
@@ -79,13 +121,24 @@ CaseFrameSize wideFrame(FrameSize run)
   return FrameSize{run.width, run.width / 2};
 }
 
-// A camera of `subtype` viewing the subject, with `aspect` from the Case.
-anari::Camera aspectCamera(BuildContext &ctx, const char *subtype)
+// The region the default-aspect region Tests set: its normalized width (0.5)
+// and height (0.75) differ, so a device that regards the region's shape, or
+// ignores it, shows up in the aspect it derives.
+constexpr Region kAspectRegion = {0.0f, 0.25f, 0.5f, 1.0f};
+
+// A camera of `subtype` viewing the subject, with `aspect` from the Case and
+// the image region, when the Test sets one.
+anari::Camera aspectCamera(
+    BuildContext &ctx, const char *subtype, const Region *region)
 {
   auto d = ctx.device();
   auto c = anari::newObject<anari::Camera>(d, subtype);
   anari::setParameter(d, c, "position", float3(0.5f, 0.5f, -1.f));
   cp(ctx, d, c, "aspect");
+  if (region) {
+    const float box[4] = {region->loX, region->loY, region->hiX, region->hiY};
+    anariSetParameter(d, c, "imageRegion", ANARI_FLOAT32_BOX2, box);
+  }
   anari::commitParameters(d, c);
   return c;
 }
@@ -93,20 +146,60 @@ anari::Camera aspectCamera(BuildContext &ctx, const char *subtype)
 void registerDefaultAspectTest(Catalog &catalog,
     const std::string &name,
     const char *subtype,
-    const char *extension)
+    const char *extension,
+    const Region *region = nullptr)
 {
+  // ANARI 1.2 gives the default aspect as the Frame's, and says only that "a
+  // potentially set image region needs to be regarded as well". With a region
+  // the Test assumes aspect = frame aspect x region width / region height:
+  // the frame is 2:1, so the explicit value is 2 x 0.5 / 0.75.
+  const float frameAspect = 2.f;
+  const float explicitAspect = region
+      ? frameAspect * (region->hiX - region->loX) / (region->hiY - region->loY)
+      : frameAspect;
+  std::string description = std::string("Checks that an unset ") + subtype
+      + " aspect is the frame's width over height (ANARI 1.2).";
+  if (region)
+    description = std::string("Checks that an unset ") + subtype
+        + " aspect, with an image region set, is the frame's width over "
+          "height times the region's width over its height (ANARI 1.2 says "
+          "the region needs to be regarded but gives no formula; this is "
+          "the assumed one).";
   makeTest("camera", name)
-      .description(std::string("Checks that an unset ") + subtype
-          + " aspect is the frame's width over height (ANARI 1.2).")
+      .description(description)
       .build(cameraSubjectWorld)
-      .camera([subtype](BuildContext &ctx, const scenes::Bounds &) {
-        return aspectCamera(ctx, subtype);
+      .camera([subtype, region](BuildContext &ctx, const scenes::Bounds &) {
+        return aspectCamera(ctx, subtype, region);
       })
       .frameSize([](BuildContext &, FrameSize run) { return wideFrame(run); })
-      // The first value is the reference: aspect set to the frame's 2:1.
-      .variant("aspect", V{Any(2.f), none()})
+      // The first value is the reference: aspect set explicitly.
+      .variant("aspect", V{Any(explicitAspect), none()})
       .noGroundTruth()
       .covers(extension)
+      .requireFeatures(kSubjectSurface)
+      .registerInto(catalog);
+}
+
+// An unset `fovy` is pi/3 (the spec's default): rendering it must equal
+// rendering that value. The runner's own camera sets `fovy` explicitly, so
+// nothing else pins the device default.
+void registerDefaultFovyTest(Catalog &catalog)
+{
+  makeTest("camera", "perspective_default_fovy")
+      .description("Checks that an unset perspective fovy is pi/3 (ANARI 1.2).")
+      .build(cameraSubjectWorld)
+      .camera([](BuildContext &ctx, const scenes::Bounds &) -> anari::Camera {
+        auto d = ctx.device();
+        auto c = anari::newObject<anari::Camera>(d, "perspective");
+        anari::setParameter(d, c, "position", float3(0.5f, 0.5f, -1.f));
+        cp(ctx, d, c, "fovy");
+        anari::commitParameters(d, c);
+        return c;
+      })
+      // The first value is the reference: fovy set to the default.
+      .variant("fovy", V{Any(float(M_PI / 3.0)), none()})
+      .noGroundTruth()
+      .covers("ANARI_KHR_CAMERA_PERSPECTIVE")
       .requireFeatures(kSubjectSurface)
       .registerInto(catalog);
 }
@@ -136,24 +229,24 @@ void registerCameraTests(Catalog &catalog)
       .frameSize([](BuildContext &ctx, FrameSize run) -> CaseFrameSize {
         if (!ctx.value("imageRegion").valid())
           return run;
-        return regionFrameSize(run, kRegionLo, kRegionLo, kRegionHi, kRegionHi);
+        return regionFrameSize(
+            run, kRegion.loX, kRegion.loY, kRegion.hiX, kRegion.hiY);
       })
       .simplified()
       .permute("direction", V{none(), Any(float3(0.20601f, 0.f, -0.97855f))})
       .permute("up", V{none(), Any(float3(0.f, -0.97855f, 0.20601f))})
-      .permute("imageRegion",
-          V{none(), box2(kRegionLo, kRegionLo, kRegionHi, kRegionHi)})
+      .permute("imageRegion", V{none(), regionValue(kRegion)})
       .expectDerived("imageRegion",
-          anyToString(box2(kRegionLo, kRegionLo, kRegionHi, kRegionHi)),
+          anyToString(regionValue(kRegion)),
           "the region's crop of the full frame",
           [](const Siblings &s) -> ExpectedImage {
             const Image &full = s.at("none");
             const auto rect = regionPixels(full.width,
                 full.height,
-                kRegionLo,
-                kRegionLo,
-                kRegionHi,
-                kRegionHi);
+                kRegion.loX,
+                kRegion.loY,
+                kRegion.hiX,
+                kRegion.hiY);
             return rect ? crop(full, *rect) : Image{};
           })
       .noGroundTruth()
@@ -180,8 +273,11 @@ void registerCameraTests(Catalog &catalog)
       .simplified()
       .permute("fovy", V{none(), Any(0.6f)})
       .permute("aspect", V{none(), Any(1.77f)})
-      .permute("near", V{Any(0.01f), Any(1.0f)})
-      .permute("far", V{Any(100.0f), Any(1.0f)})
+      .permute("near", V{Any(0.01f), Any(kNearClipsAll)})
+      .permute("far", V{Any(100.0f), Any(kFarClipsAll)})
+      .expectExact(
+          "a clipped subject leaves only background", clippedFrameIsBackground)
+      .noGroundTruth()
       .covers("ANARI_KHR_CAMERA_PERSPECTIVE")
       .requireFeatures(kSubjectSurface)
       .registerInto(catalog);
@@ -204,8 +300,11 @@ void registerCameraTests(Catalog &catalog)
       .simplified()
       .permute("aspect", V{none(), Any(1.77f)})
       .permute("height", V{none(), Any(0.5f)})
-      .permute("near", V{Any(0.01f), Any(1.0f)})
-      .permute("far", V{Any(100.0f), Any(1.0f)})
+      .permute("near", V{Any(0.01f), Any(kNearClipsAll)})
+      .permute("far", V{Any(100.0f), Any(kFarClipsAll)})
+      .expectExact(
+          "a clipped subject leaves only background", clippedFrameIsBackground)
+      .noGroundTruth()
       .covers("ANARI_KHR_CAMERA_ORTHOGRAPHIC")
       .requireFeatures(kSubjectSurface)
       .registerInto(catalog);
@@ -222,7 +321,10 @@ void registerCameraTests(Catalog &catalog)
         anari::commitParameters(d, c);
         return c;
       })
-      .permute("layout", V{none(), Any("equirectangular")})
+      // The spec's default layout is equirectangular, so setting it renders
+      // like leaving it unset.
+      .variant("layout", V{Any("equirectangular"), none()})
+      .groundTruth("the equirectangular projection has no analytic answer here")
       .covers("ANARI_KHR_CAMERA_OMNIDIRECTIONAL")
       .requireFeatures(kSubjectSurface)
       .registerInto(catalog);
@@ -235,6 +337,17 @@ void registerCameraTests(Catalog &catalog)
       "orthographic_default_aspect",
       "orthographic",
       "ANARI_KHR_CAMERA_ORTHOGRAPHIC");
+  registerDefaultAspectTest(catalog,
+      "perspective_default_aspect_region",
+      "perspective",
+      "ANARI_KHR_CAMERA_PERSPECTIVE",
+      &kAspectRegion);
+  registerDefaultAspectTest(catalog,
+      "orthographic_default_aspect_region",
+      "orthographic",
+      "ANARI_KHR_CAMERA_ORTHOGRAPHIC",
+      &kAspectRegion);
+  registerDefaultFovyTest(catalog);
 }
 
 } // namespace cts
