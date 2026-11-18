@@ -6,6 +6,7 @@
 #include "../VolumeBuilder.h"
 #include "../WorldBuilder.h"
 #include "Categories.h"
+#include "SubjectShown.h"
 // std
 #include <algorithm>
 #include <array>
@@ -270,6 +271,105 @@ void registerVolumeTests(Catalog &catalog)
       .covers("ANARI_KHR_VOLUME_TRANSFER_FUNCTION1D")
       .requireFeature("ANARI_KHR_CAMERA_ORTHOGRAPHIC")
       .registerInto(catalog);
+
+  // The volume tests' camera: orthographic, looking down -z at a field that
+  // doesn't vary along the view, so what the volume shows doesn't depend on
+  // where the ray march first samples it.
+  auto rampCamera = [](BuildContext &ctx, const scenes::Bounds &) {
+    auto d = ctx.device();
+    auto c = anari::newObject<anari::Camera>(d, "orthographic");
+    anari::setParameter(d, c, "position", float3(0.f, 0.f, 5.f));
+    anari::setParameter(d, c, "direction", float3(0.f, 0.f, -1.f));
+    anari::setParameter(d, c, "up", float3(0.f, 1.f, 0.f));
+    anari::setParameter(d, c, "height", 3.f);
+    anari::commitParameters(d, c);
+    return c;
+  };
+  auto rampVolume = [](BuildContext &ctx) {
+    auto d = ctx.device();
+    auto field = newStructuredRegularField(
+        d, {3, 3, 3}, [](anari::math::float3 p) { return (p.x + 1.f) / 2.f; });
+    anari::commitParameters(d, field);
+    auto vol = anari::newObject<anari::Volume>(d, "transferFunction1D");
+    anari::setParameter(d, vol, "value", field);
+    setVolumeColor(ctx, d, vol);
+    setVolumeOpacity(ctx, d, vol);
+    anari::release(d, field);
+    return vol;
+  };
+
+  // `visible` false removes a volume from the picture, like a world without
+  // it (`absent`); a volume is visible unless said otherwise.
+  makeTest("volume", "visible")
+      .description(
+          "Checks that a volume with visible false renders as a world "
+          "without it, and that a volume is visible by default.")
+      .build([rampVolume](BuildContext &ctx) {
+        auto d = ctx.device();
+        const std::string visible = ctx.getString("visible", "none");
+        WorldContents wc;
+        anari::Volume vol = nullptr;
+        if (visible != "absent") {
+          vol = rampVolume(ctx);
+          if (visible == "true" || visible == "false")
+            anari::setParameter(d, vol, "visible", visible == "true");
+          anari::commitParameters(d, vol);
+          wc.volumes = {vol};
+        }
+        auto world = assembleWorld(d, wc);
+        if (vol)
+          anari::release(d, vol);
+        return world;
+      })
+      .camera(rampCamera)
+      .permute("visible", V{"absent", "true", "false", "none"})
+      .expectDerived("visible",
+          "false",
+          "the world without the volume",
+          [](const Siblings &s) -> ExpectedImage { return s.at("absent"); })
+      .expectDerived("visible",
+          "none",
+          "the visible volume: a volume is visible by default",
+          [](const Siblings &s) -> ExpectedImage { return s.at("true"); })
+      .channels({Channel::Color})
+      .noGroundTruth()
+      .covers("ANARI_KHR_VOLUME_TRANSFER_FUNCTION1D")
+      .requireFeatures({"ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR",
+          "ANARI_KHR_CAMERA_ORTHOGRAPHIC"})
+      .registerInto(catalog);
+
+  // valueRange is a FLOAT32_BOX1 or a FLOAT64_BOX1.
+  makeTest("volume", "value_range_types")
+      .description(
+          "Checks that a volume's valueRange as a FLOAT64_BOX1 re-maps its "
+          "colours as the same FLOAT32_BOX1 does.")
+      .build([rampVolume](BuildContext &ctx) {
+        auto d = ctx.device();
+        auto vol = rampVolume(ctx);
+        if (ctx.getString("rangeType", "float32") == "float64") {
+          const double range[2] = {0.25, 0.75};
+          anariSetParameter(d, vol, "valueRange", ANARI_FLOAT64_BOX1, range);
+        } else {
+          const float range[2] = {0.25f, 0.75f};
+          anariSetParameter(d, vol, "valueRange", ANARI_FLOAT32_BOX1, range);
+        }
+        anari::commitParameters(d, vol);
+        WorldContents wc;
+        wc.volumes = {vol};
+        auto world = assembleWorld(d, wc);
+        anari::release(d, vol);
+        return world;
+      })
+      .camera(rampCamera)
+      .variant("rangeType", V{"float32", "float64"})
+      .channels({Channel::Color})
+      .expectExact("the volume shows", subjectIsShown)
+      .noGroundTruth()
+      .covers("ANARI_KHR_VOLUME_TRANSFER_FUNCTION1D")
+      .requireFeatures({"ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR",
+          "ANARI_KHR_CAMERA_ORTHOGRAPHIC"})
+      .registerInto(catalog);
+
   // A volume equivalence covers the axis along its view with a second view
   // down another axis (ADR-0010, volume equivalence); nothing relates the two
   // views' images, so they are two Tests.
