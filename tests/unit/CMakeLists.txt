@@ -129,6 +129,7 @@ add_executable(anariCatalogTests
   test_cts_report.cpp
   test_cts_results.cpp
   test_cts_runner.cpp
+  test_cts_sink_smoke.cpp
   test_cts_small_extensions.cpp
   test_cts_worldbuilder.cpp
 )
@@ -141,12 +142,14 @@ PRIVATE
 # Pure harness/metrics/results tests run anywhere; the device-backed tests
 # (world-build smoke + runner integration) need helide and skip themselves if no
 # device can be loaded.
-add_test(NAME unit_test::cts::catalog COMMAND anariCatalogTests "[cts]~[helide]")
+add_test(NAME unit_test::cts::catalog COMMAND anariCatalogTests "[cts]~[helide]~[sink_smoke]")
+add_test(NAME unit_test::cts::sink_smoke COMMAND anariCatalogTests "[sink_smoke]")
 add_test(NAME unit_test::cts::device COMMAND anariCatalogTests "[helide]")
 # The isolation tests start child processes, one of which hangs until killed;
 # the synchronization Tests run in-process here, where a device that breaks
 # them hangs.
 set_tests_properties(unit_test::cts::catalog unit_test::cts::device
+  unit_test::cts::sink_smoke
   PROPERTIES TIMEOUT 300)
 
 ## helide_gpu tests ##

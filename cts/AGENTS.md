@@ -253,6 +253,16 @@ no device loads. Images for pure tests are generated in code
 (`tests/unit/cts_test_images.h`: solid, gradient, rectangle, disc); never add
 an image file.
 
+**Sink smoke test** (`test_cts_sink_smoke.cpp`, tag `[sink_smoke]`, ctest
+`unit_test::cts::sink_smoke`): runs every Case's `build`, `cameraBuild` and
+`rendererConfig` hooks against the `sink` device with feature gating bypassed, so
+a Test no SDK device can run still has its build code executed. It requires that
+nothing throws, `build` returns a non-null world and `cameraBuild` a non-null
+camera. `sink` answers no property, so the world bounds are the fixed
+`[-1, 1]` box. A `behaviorCheck` is not run. It catches crashes, exceptions and
+null objects; it cannot catch a wrong parameter name or value, because `sink`
+accepts any call. Self-skips when `sink` isn't built (`BUILD_SINK_DEVICE`).
+
 **Python:** `ctsReport.py` — the `report --pdf` path only; it reads the results
 tree exactly as the C++ `report` does. Text and HTML live in C++.
 
