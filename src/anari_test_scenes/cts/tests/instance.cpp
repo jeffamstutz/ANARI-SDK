@@ -302,6 +302,8 @@ void registerInstanceTests(Catalog &catalog)
         return world;
       })
       .channels({Channel::Color, Channel::Depth})
+      .groundTruth(
+          "where the two transformed instances land, in colour and depth, has no analytic answer in the Test")
       .covers("ANARI_KHR_INSTANCE_TRANSFORM")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);

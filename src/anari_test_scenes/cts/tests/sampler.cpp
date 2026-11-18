@@ -296,9 +296,12 @@ void registerClampToBorderTest(Catalog &catalog, int dims)
 
 void registerSamplerTests(Catalog &catalog)
 {
-  const V filter = {none(), Any("nearest"), Any("linear")};
+  // `filter` defaults to linear and the wrap modes to clampToEdge (the spec):
+  // an unset value renders like the explicit default, and the default's value
+  // is the baseline.
+  const V filter = {Any("nearest"), Any("linear"), none()};
   const V wrap = {
-      none(), Any("clampToEdge"), Any("repeat"), Any("mirrorRepeat")};
+      Any("clampToEdge"), Any("repeat"), Any("mirrorRepeat"), none()};
   const V xform = {none(), Any(kInTransform)};
   const V outXform = {none(), Any(kOutTransform)};
   const V offset = {none(), Any(kOffset)};
@@ -330,11 +333,23 @@ void registerSamplerTests(Catalog &catalog)
       })
       .simplified()
       .permute("filter", filter)
+      .expectDerived("filter",
+          "none",
+          "the linear image (the default filter)",
+          [](const Siblings &s) -> ExpectedImage { return s.at("linear"); })
       .permute("wrapMode", wrap)
+      .expectDerived("wrapMode",
+          "none",
+          "the clampToEdge image (the default wrap mode)",
+          [](const Siblings &s) -> ExpectedImage {
+            return s.at("clampToEdge");
+          })
       .permute("inTransform", xform)
       .permute("outTransform", outXform)
       .permute("inOffset", offset)
       .permute("outOffset", offset)
+      .groundTruth(
+          "a lit, filtered and wrapped texel colour has no analytic answer in the Test; effects alone would pass swapped wrap modes")
       .covers("ANARI_KHR_SAMPLER_IMAGE1D")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
@@ -368,12 +383,30 @@ void registerSamplerTests(Catalog &catalog)
       })
       .simplified()
       .permute("filter", filter)
+      .expectDerived("filter",
+          "none",
+          "the linear image (the default filter)",
+          [](const Siblings &s) -> ExpectedImage { return s.at("linear"); })
       .permute("wrapMode1", wrap)
+      .expectDerived("wrapMode1",
+          "none",
+          "the clampToEdge image (the default wrap mode)",
+          [](const Siblings &s) -> ExpectedImage {
+            return s.at("clampToEdge");
+          })
       .permute("wrapMode2", wrap)
+      .expectDerived("wrapMode2",
+          "none",
+          "the clampToEdge image (the default wrap mode)",
+          [](const Siblings &s) -> ExpectedImage {
+            return s.at("clampToEdge");
+          })
       .permute("inTransform", xform)
       .permute("outTransform", outXform)
       .permute("inOffset", offset)
       .permute("outOffset", offset)
+      .groundTruth(
+          "a lit, filtered and wrapped texel colour has no analytic answer in the Test; effects alone would pass swapped wrap modes")
       .covers("ANARI_KHR_SAMPLER_IMAGE2D")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
@@ -410,13 +443,37 @@ void registerSamplerTests(Catalog &catalog)
       })
       .simplified()
       .permute("filter", filter)
+      .expectDerived("filter",
+          "none",
+          "the linear image (the default filter)",
+          [](const Siblings &s) -> ExpectedImage { return s.at("linear"); })
       .permute("wrapMode1", wrap)
+      .expectDerived("wrapMode1",
+          "none",
+          "the clampToEdge image (the default wrap mode)",
+          [](const Siblings &s) -> ExpectedImage {
+            return s.at("clampToEdge");
+          })
       .permute("wrapMode2", wrap)
+      .expectDerived("wrapMode2",
+          "none",
+          "the clampToEdge image (the default wrap mode)",
+          [](const Siblings &s) -> ExpectedImage {
+            return s.at("clampToEdge");
+          })
       .permute("wrapMode3", wrap)
+      .expectDerived("wrapMode3",
+          "none",
+          "the clampToEdge image (the default wrap mode)",
+          [](const Siblings &s) -> ExpectedImage {
+            return s.at("clampToEdge");
+          })
       .permute("inTransform", xform)
       .permute("outTransform", outXform)
       .permute("inOffset", offset)
       .permute("outOffset", offset)
+      .groundTruth(
+          "a lit, filtered and wrapped texel colour has no analytic answer in the Test; effects alone would pass swapped wrap modes")
       .covers("ANARI_KHR_SAMPLER_IMAGE3D")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
@@ -449,6 +506,14 @@ void registerSamplerTests(Catalog &catalog)
       })
       .permute("inOffset", V{none(), Any(kPrimitiveOffset)})
       .permute("arrayDim", {"1", "2", "3", "4"})
+      // The sampler's output is a colour: a fourth component is alpha, which
+      // the colour ignores.
+      .expectDerived("arrayDim",
+          "4",
+          "the 3-component image (the fourth component is alpha)",
+          [](const Siblings &s) -> ExpectedImage { return s.at("3"); })
+      .groundTruth(
+          "a lit, filtered and wrapped texel colour has no analytic answer in the Test; effects alone would pass swapped wrap modes")
       .covers("ANARI_KHR_SAMPLER_PRIMITIVE")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
@@ -468,6 +533,8 @@ void registerSamplerTests(Catalog &catalog)
       })
       .permute("outTransform", outXform)
       .permute("outOffset", offset)
+      .groundTruth(
+          "a lit, filtered and wrapped texel colour has no analytic answer in the Test; effects alone would pass swapped wrap modes")
       .covers("ANARI_KHR_SAMPLER_TRANSFORM")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);

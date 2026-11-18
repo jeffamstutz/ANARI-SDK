@@ -542,9 +542,14 @@ void registerFrameTests(Catalog &catalog)
           .description(
               "Checks color channel output across supported buffer types.")
           .build([](BuildContext &ctx) {
-            return triangleSurfaceWorld(ctx, float3(0.55f, 0.82f, 0.78f), 16);
+            // Dim enough that the lit colour is not saturated, which would
+            // hide the sRGB encoding.
+            return triangleSurfaceWorld(
+                ctx, float3(0.4f, 0.5f, 0.45f), 16, 0.5f);
           })
-          .groundTruth("a lit colour has no analytic answer")
+          .expectExact("sRGB encoding visible",
+              [](ExactCheck &x) { hasMidtones(x, Channel::Color); })
+          .noGroundTruth()
           .channels({Channel::Color})
           .requireFeatures(kSupportMatteTriangle);
   frameTypeAxis(colorChannel,
