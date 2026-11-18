@@ -85,10 +85,15 @@ void setIntensityDistribution(
         "intensityDistribution",
         anari::newArray1D(d, a.data(), a.size()));
   } else if (id == "2d") {
-    std::vector<float> a = {
-        0.2f, 0.8f, 0.4f, 0.3f, 0.7f, 0.5f, 0.1f, 0.9f, 0.6f};
+    // A checker over the two axes (the angle from the light's axis and the
+    // angle around it), so that turning the C0 plane by a quarter turn
+    // (`c0`) moves which directions are bright.
+    std::vector<float> a;
+    for (int row = 0; row < 4; ++row)
+      for (int col = 0; col < 4; ++col)
+        a.push_back(((row + col) % 2) ? 1.f : 0.1f);
     anari::setAndReleaseParameter(
-        d, l, "intensityDistribution", anari::newArray2D(d, a.data(), 3, 3));
+        d, l, "intensityDistribution", anari::newArray2D(d, a.data(), 4, 4));
   }
 }
 
@@ -430,9 +435,9 @@ void registerLightTests(Catalog &catalog)
       .renderer(darkRenderer)
       .simplified()
       .permute("direction",
-          V{Any(float3(0.f, -0.242536f, -0.970143f)),
-              Any(float3(0.f, 0.f, -0.970143f))})
+          V{Any(float3(0.f, 0.f, -1.f)), Any(float3(0.f, -0.9f, -0.43589f))})
       .permute("irradiance", V{none(), Any(0.5f)})
+      .groundTruth("directional shading has no analytic answer in the Test")
       .covers("ANARI_KHR_LIGHT_DIRECTIONAL")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
@@ -452,10 +457,15 @@ void registerLightTests(Catalog &catalog)
       })
       .renderer(darkRenderer)
       .simplified()
+      // The baseline light is close enough to the grid, and the alternatives
+      // for intensity and power bright enough, that each changes the lit
+      // pixels by many 8-bit levels: a far, dim light is nearly black and
+      // hides a change of intensity.
       .permute("position",
-          V{Any(float3(0.5f, 0.5f, 10.f)), Any(float3(0.5f, 0.5f, 1.f))})
-      .permute("intensity", V{none(), Any(0.6f)})
-      .permute("power", V{none(), Any(0.4f)})
+          V{Any(float3(0.5f, 0.5f, 2.f)), Any(float3(0.5f, 0.5f, 1.f))})
+      .permute("intensity", V{none(), Any(4.f)})
+      .permute("power", V{none(), Any(40.f)})
+      .groundTruth("point light falloff has no analytic answer in the Test")
       .covers("ANARI_KHR_LIGHT_POINT")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
@@ -517,14 +527,29 @@ void registerLightTests(Catalog &catalog)
       })
       .renderer(darkRenderer)
       .simplified()
-      .permute("position", V{Any(float3(0.f, 0.f, 0.1f)), none()})
-      .permute("edge1", V{Any(float3(0.f, 0.1f, -1.f)), none()})
-      .permute("edge2", V{Any(float3(-0.1f, 1.f, 0.f)), none()})
-      .permute("intensity", V{none(), Any(0.6f)})
-      .permute("power", V{none(), Any(0.4f)})
+      // A quad above the grid facing it (edge1 x edge2 points down, so the
+      // front side lights the grid): the baseline covers most of the grid, and
+      // each alternative moves, shrinks or dims it enough to change the lit
+      // pixels by many 8-bit levels.
+      .permute("position",
+          V{Any(float3(0.1f, 0.1f, 0.5f)), Any(float3(0.5f, 0.5f, 0.5f))})
+      .permute(
+          "edge1", V{Any(float3(0.f, 0.8f, 0.f)), Any(float3(0.f, 0.3f, 0.f))})
+      .permute(
+          "edge2", V{Any(float3(0.8f, 0.f, 0.f)), Any(float3(0.3f, 0.f, 0.f))})
+      .permute("intensity", V{none(), Any(4.f)})
+      .permute("power", V{none(), Any(40.f)})
       .permute("radiance", V{none(), Any(0.2f)})
+      // The side facing the grid lights it; the back faces away (a dark
+      // grid); an unset side is the front (the spec's default).
       .permute("side", V{Any("both"), Any("front"), Any("back"), none()})
+      .expectDerived("side",
+          "none",
+          "the front side (the default)",
+          [](const Siblings &s) -> ExpectedImage { return s.at("front"); })
       .permute("intensityDistribution", {"none", "1d", "2d"})
+      .groundTruth(
+          "the falloff of an area light's shading has no analytic answer")
       .covers("ANARI_KHR_LIGHT_QUAD")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
@@ -553,17 +578,26 @@ void registerLightTests(Catalog &catalog)
       })
       .renderer(darkRenderer)
       .simplified()
-      .permute("position", V{Any(float3(0.2f, 0.2f, 0.1f)), none()})
-      .permute("direction", V{Any(float3(0.f, -0.20601f, -0.97855f)), none()})
-      .permute("radius", V{Any(0.3f), none()})
-      .permute("innerRadius", V{Any(0.15f), none()})
-      .permute("openingAngle", V{none(), Any(0.5f)})
-      .permute("falloffAngle", V{none(), Any(1.1f)})
-      .permute("intensity", V{none(), Any(0.6f)})
-      .permute("power", V{none(), Any(0.4f)})
+      // A ring above the grid facing down. The baseline opens wide enough to
+      // light the grid; each alternative moves, tilts, narrows or dims it
+      // enough to change the lit pixels by many 8-bit levels. The baseline
+      // intensity distribution is the 2D one, since `c0` (the reference
+      // direction of its azimuth) only matters with it.
+      .permute("position",
+          V{Any(float3(0.5f, 0.5f, 1.f)), Any(float3(0.2f, 0.2f, 1.f))})
+      .permute("direction",
+          V{Any(float3(0.f, 0.f, -1.f)), Any(float3(0.3f, 0.f, -0.954f))})
+      .permute("radius", V{Any(0.3f), Any(0.15f)})
+      .permute("innerRadius", V{none(), Any(0.28f)})
+      .permute("openingAngle", V{Any(1.4f), Any(0.7f)})
+      .permute("falloffAngle", V{none(), Any(1.0f)})
+      .permute("intensity", V{none(), Any(4.f)})
+      .permute("power", V{none(), Any(40.f)})
       .permute("radiance", V{none(), Any(0.2f)})
-      .permute("c0", V{none(), Any(float3(0.7071f, 0.7071f, 0.f))})
-      .permute("intensityDistribution", {"none", "1d", "2d"})
+      .permute("c0", V{none(), Any(float3(0.f, 1.f, 0.f))})
+      .permute("intensityDistribution", {"2d", "none", "1d"})
+      .groundTruth(
+          "the falloff of an area light's shading has no analytic answer")
       .covers("ANARI_KHR_LIGHT_RING")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
@@ -585,6 +619,7 @@ void registerLightTests(Catalog &catalog)
       .permute("up", V{none(), Any(float3(0.f, 1.f, 0.f))})
       .permute("direction", V{none(), Any(float3(0.f, -1.f, 0.f))})
       .permute("scale", V{none(), Any(0.4f)})
+      .groundTruth("environment lighting has no analytic answer")
       .covers("ANARI_KHR_LIGHT_HDRI")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
