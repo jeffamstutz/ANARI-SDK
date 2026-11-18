@@ -29,7 +29,9 @@ incidental light is not required. An extension only some of a Test's Cases need
 (such as an image sampler a material Case binds) is declared per axis value
 (`requireFeatureFor`), not for the Test: a device lacking it skips exactly the
 Cases holding the value, and they take no part in their Test's effect or
-equivalence checks.
+equivalence checks. An Assertion that needed such a skipped Case as its
+partner is recorded as not evaluated (not failed), so a Case left with nothing
+else to evaluate is skipped rather than read as discriminated.
 
 **Axis**:
 A named parameter dimension a Test is expanded over. Every Axis is either a
