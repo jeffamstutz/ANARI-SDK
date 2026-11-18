@@ -128,6 +128,7 @@ add_executable(anariCatalogTests
   test_cts_report.cpp
   test_cts_results.cpp
   test_cts_runner.cpp
+  test_cts_small_extensions.cpp
   test_cts_worldbuilder.cpp
 )
 

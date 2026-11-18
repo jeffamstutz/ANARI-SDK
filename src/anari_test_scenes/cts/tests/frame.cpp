@@ -16,6 +16,7 @@
 #include "../VolumeBuilder.h"
 #include "../WorldBuilder.h"
 #include "Categories.h"
+#include "ParameterQuery.h"
 // std
 #include <cstdint>
 #include <optional>
@@ -336,6 +337,24 @@ BehaviorResult checkProgressiveRendering(anari::Device d,
   return checkFrameAccumulation(target);
 }
 
+// KHR_DATA_PARALLEL_MPI adds `mpiCommunicator` (VOID_POINTER) to the frame.
+// Rendering with it takes MPI ranks rendering in lockstep, which anariCts
+// doesn't run (the ptc device's own tests, ptc_*, do under mpiexec), so this
+// checks only what a device says it accepts.
+BehaviorResult checkMpiCommunicatorParameter(anari::Device d,
+    anari::World,
+    anari::Camera,
+    anari::Renderer,
+    uint32_t,
+    uint32_t)
+{
+  const bool listed = listsParameter(
+      d, ANARI_FRAME, nullptr, "mpiCommunicator", ANARI_VOID_POINTER);
+  return {listed,
+      listed ? "the frame lists mpiCommunicator (VOID_POINTER)"
+             : "the frame does not list mpiCommunicator (VOID_POINTER)"};
+}
+
 } // namespace
 
 void registerFrameTests(Catalog &catalog)
@@ -537,6 +556,18 @@ void registerFrameTests(Catalog &catalog)
       })
       .behavior(checkProgressiveRendering)
       .covers("ANARI_KHR_FRAME_ACCUMULATION")
+      .requireFeatures(kSupportMatteTriangle)
+      .registerInto(catalog);
+
+  makeTest("frame", "frame_mpi_communicator_parameter")
+      .description(
+          "Checks that the device's introspection lists the frame's "
+          "mpiCommunicator parameter.")
+      .build([](BuildContext &ctx) {
+        return triangleSurfaceWorld(ctx, float3(0.7f, 0.5f, 0.3f), 1);
+      })
+      .behavior(checkMpiCommunicatorParameter)
+      .covers("ANARI_KHR_DATA_PARALLEL_MPI")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 }

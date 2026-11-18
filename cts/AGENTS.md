@@ -223,10 +223,18 @@ light, camera, frame, renderer, instance, volume, synchronization) each define a
 `register<Category>Tests(Catalog&)`. `BuiltinTests.cpp` wires them all into the
 catalog.
 
+Two header-only helpers sit beside them: `tests/ScreenScene.h` (triangles laid
+out in the screen camera's coordinates, and which pixels they cover) and
+`tests/ParameterQuery.h` (`listsParameter`, for a query-level check that a
+device's introspection lists a parameter; the denoise and MPI Tests use it, as
+`anariCts` does not run MPI ranks and no SDK device has a noisy setup to
+calibrate a denoise bound on).
+
 **Unit tests:** `tests/unit/test_cts_*.cpp` (catalog/expansion/filter/builder,
 metrics, relations, discrimination, frame accumulation, results/sidecar/workdir,
-report/html, runner, isolation; `anari12` judges the ANARI 1.2 Tests on
-synthetic images).
+report/html, runner, isolation; `anari12` and `small_extensions` judge the
+ANARI 1.2 Tests and the small extensions' Tests (array region, transform
+arrays, light primary visibility, denoise) on synthetic images).
 Pure tests are tagged `[cts]`; device-backed ones add `[helide]` and self-skip if
 no device loads. Images for pure tests are generated in code
 (`tests/unit/cts_test_images.h`: solid, gradient, rectangle, disc); never add
