@@ -134,6 +134,17 @@ enum class GroundTruthUse
   None,
 };
 
+// `.noEffectCheckOn`: an axis opted out of its effect check on the devices
+// whose library is `library` (and renderer subtype one of `renderers`, any
+// when empty), because they are known not to render the parameter.
+struct DeviceEffectOptOut
+{
+  std::string axis;
+  std::string library;
+  std::vector<std::string> renderers;
+  std::string reason;
+};
+
 // Per-axis overrides of the self-check tolerances (ADR-0010). They change the
 // numbers, never the metric (changed fraction).
 struct EquivalenceTolerance
@@ -203,6 +214,8 @@ struct TestDef
   // it is opted out here (axis -> reason); a Variant axis implies an
   // equivalence check.
   std::map<std::string, std::string> noEffectCheck;
+  // Opt-outs that hold only on some devices.
+  std::vector<DeviceEffectOptOut> noEffectCheckOn;
   // Per-axis minimum changed fraction for an effect (overrides the default).
   std::map<std::string, double> effectMargins;
   // Per-axis equivalence tolerance (overrides the default); it also applies

@@ -1311,6 +1311,81 @@ TEST_CASE("Runner applies ambientRadiance before Test renderer overrides",
   anari::unloadLibrary(lib);
 }
 
+TEST_CASE("A device-specific effect opt-out holds only on that device",
+    "[cts][runner][helide]")
+{
+  anari::Library lib = anari::loadLibrary("helide", statusFunc, nullptr);
+  if (!lib) {
+    WARN("helide library not available; skipping device opt-out test");
+    return;
+  }
+  anari::Device d = anari::newDevice(lib, "default");
+  REQUIRE(d != nullptr);
+  anari::commitParameters(d, d);
+
+  const auto root =
+      std::filesystem::temp_directory_path() / "cts_runner_deviceoptout_test";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+
+  // The build ignores its axis, so the effect check fails wherever it runs.
+  auto make = [](const char *name, const char *library) {
+    auto t = makeTest("demo", name);
+    t.build(buildTriangleWorld)
+        .permute("ignored", {"a", "b"})
+        .noEffectCheckOn(
+            "ignored", library, {}, "the device draws no such thing")
+        .noGroundTruth();
+    return t.take();
+  };
+
+  RunOptions opts;
+  opts.width = 64;
+  opts.height = 64;
+  opts.device = {"helide", "default", "default"};
+  const std::set<std::string> features;
+
+  auto verdictOf = [&](const TestDef &test) {
+    Catalog catalog;
+    catalog.add(test);
+    std::filesystem::remove_all(root, ec);
+    const Workdir wd(root);
+    Runner runner(d, wd, opts);
+    runner.run(catalog, Filter{test.name}, features);
+    CaseResult b;
+    REQUIRE(readSidecar(
+        wd.sidecarPath(caseOf(
+            "demo", test.name, {{"ignored", Any("b"), AxisKind::Permutation}})),
+        b));
+    return b;
+  };
+
+  SECTION("on the named device the axis is not evaluated")
+  {
+    const auto b = verdictOf(make("opted_out_here", "helide"));
+    // Nothing was evaluated, so the Case is skipped, not passed.
+    CHECK(b.verdict == Verdict::Skipped);
+    REQUIRE(b.assertions.size() == 1);
+    CHECK_FALSE(b.assertions[0].evaluated);
+    CHECK(b.assertions[0].detail.find("the device draws no such thing")
+        != std::string::npos);
+    CHECK(b.assertions[0].detail.find("helide") != std::string::npos);
+  }
+
+  SECTION("on another device the effect check still fails")
+  {
+    const auto b = verdictOf(make("opted_out_elsewhere", "halcyon"));
+    CHECK(b.verdict == Verdict::Failed);
+    REQUIRE(b.assertions.size() == 1);
+    CHECK(b.assertions[0].evaluated);
+    CHECK_FALSE(b.assertions[0].passed);
+  }
+
+  std::filesystem::remove_all(root, ec);
+  anari::release(d, d);
+  anari::unloadLibrary(lib);
+}
+
 TEST_CASE("Runner sets a Test's optional renderer parameters only when listed",
     "[cts][runner][helide]")
 {

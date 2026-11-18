@@ -374,6 +374,24 @@ void Runner::applyRendererParams(anari::Renderer renderer)
   setRendererParams(renderer, m_options.rendererParams);
 }
 
+TestDef Runner::forRunDevice(const TestDef &test) const
+{
+  TestDef out = test;
+  const DeviceSpec &dev = m_options.device;
+  for (const auto &opt : test.noEffectCheckOn) {
+    if (opt.library != dev.library)
+      continue;
+    if (!opt.renderers.empty()
+        && std::find(opt.renderers.begin(), opt.renderers.end(), dev.renderer)
+            == opt.renderers.end())
+      continue;
+    // A reason the Test gave for every device wins: it is the more general.
+    out.noEffectCheck.emplace(opt.axis,
+        dev.library + " (" + dev.renderer + ") doesn't render it: " + opt.reason);
+  }
+  return out;
+}
+
 CaseFrameSize Runner::frameSizeOf(const TestDef &test, const Case &c) const
 {
   return resolveFrameSize(
@@ -884,7 +902,8 @@ void Runner::runRenderTest(const TestDef &test,
   // Phase 2, per Test: the pure relational pass over the Candidate's images,
   // merged into the selected Cases' Sidecars.
   std::vector<bool> participated(cases.size(), false);
-  auto relational = evaluateRelations(test, cases, renders, m_selfChecks);
+  auto relational =
+      evaluateRelations(forRunDevice(test), cases, renders, m_selfChecks);
   // The guard: relational assertions need a converged Candidate (ADR-0010).
   // It is recorded on the baseline Case, or on the first selected Case when
   // the filter excludes it, and a failure fails every relational assertion.

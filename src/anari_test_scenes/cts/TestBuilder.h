@@ -82,6 +82,16 @@ struct TestBuilder
   // can't be judged by image difference. The reason is recorded in the
   // Sidecar. An axis whose values must *not* change the image is a Variant.
   TestBuilder &noEffectCheck(std::string axis, std::string reason);
+  // The same, only on the devices whose library is `library` and whose
+  // renderer subtype is one of `renderers` (any when empty): a device known
+  // not to render the parameter (a renderer that doesn't shade a PBR lobe).
+  // The Runner applies it from the run's device; a Candidate that does render
+  // the parameter is held to the effect check. `reason` says what the device
+  // doesn't render.
+  TestBuilder &noEffectCheckOn(std::string axis,
+      std::string library,
+      std::vector<std::string> renderers,
+      std::string reason);
   // The minimum changed fraction an effect of this axis must reach.
   TestBuilder &effectMargin(std::string axis, double minFraction);
   // The maximum changed fraction (and per-pixel tolerance, in 8-bit levels)

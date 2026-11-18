@@ -93,6 +93,18 @@ TestBuilder &TestBuilder::simplified(bool on)
   return *this;
 }
 
+TestBuilder &TestBuilder::noEffectCheckOn(std::string axis,
+    std::string library,
+    std::vector<std::string> renderers,
+    std::string reason)
+{
+  m_def.noEffectCheckOn.push_back({std::move(axis),
+      std::move(library),
+      std::move(renderers),
+      std::move(reason)});
+  return *this;
+}
+
 TestBuilder &TestBuilder::noEffectCheck(std::string axis, std::string reason)
 {
   m_def.noEffectCheck[std::move(axis)] = std::move(reason);
