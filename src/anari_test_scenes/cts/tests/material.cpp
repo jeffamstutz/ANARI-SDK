@@ -29,6 +29,11 @@ using anari::math::float3;
 using anari::math::float4;
 using V = std::vector<Any>;
 
+// Why the Tests below keep a Ground-truth comparison (repeated verbatim).
+constexpr const char *kBindingGroundTruth =
+    "the lit colour of a material binding has no analytic answer in the Test; "
+    "effects alone would pass swapped bindings";
+
 template <typename T>
 ParameterBinding constant(T value)
 {
@@ -444,8 +449,7 @@ void registerMaterialTests(Catalog &catalog)
               attribute("attribute0"),
               sampler(0)})
       .requireFeatureFor("color", sampler(0), "ANARI_KHR_SAMPLER_IMAGE2D")
-      .groundTruth(
-          "the lit colour of a material binding has no analytic answer in the Test; effects alone would pass swapped bindings")
+      .groundTruth(kBindingGroundTruth)
       .covers(kMatte)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -472,8 +476,7 @@ void registerMaterialTests(Catalog &catalog)
               attribute("attribute2"),
               sampler(0)})
       .requireFeatureFor("opacity", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
-      .groundTruth(
-          "the lit colour of a material binding has no analytic answer in the Test; effects alone would pass swapped bindings")
+      .groundTruth(kBindingGroundTruth)
       .covers(kMatte)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -502,8 +505,7 @@ void registerMaterialTests(Catalog &catalog)
               attribute("attribute0"),
               sampler(0)})
       .requireFeatureFor("baseColor", sampler(0), "ANARI_KHR_SAMPLER_IMAGE2D")
-      .groundTruth(
-          "the lit colour of a material binding has no analytic answer in the Test; effects alone would pass swapped bindings")
+      .groundTruth(kBindingGroundTruth)
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -561,7 +563,8 @@ void registerMaterialTests(Catalog &catalog)
   {
     auto test = makeTest("material", "pbr_emissive");
     test.description(
-            "Checks PBR emissive color from constants, attributes, and samplers.")
+            "Checks PBR emissive color from constants, attributes, and "
+            "samplers.")
         .build([](BuildContext &ctx) {
           return materialWorld(ctx,
               "physicallyBased",
@@ -581,8 +584,7 @@ void registerMaterialTests(Catalog &catalog)
                 sampler(0)})
         .requireFeatureFor("emissive", sampler(0), "ANARI_KHR_SAMPLER_IMAGE2D");
     notShadedByHelide(test, {"emissive"});
-    test.groundTruth(
-            "the lit colour of a material binding has no analytic answer in the Test; effects alone would pass swapped bindings")
+    test.groundTruth(kBindingGroundTruth)
         .covers(kPbr)
         .requireFeatures(kSupportTriangle)
         .registerInto(catalog);
@@ -739,8 +741,7 @@ void registerMaterialTests(Catalog &catalog)
               attribute("attribute2"),
               sampler(0)})
       .requireFeatureFor("opacity", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
-      .groundTruth(
-          "the lit colour of a material binding has no analytic answer in the Test; effects alone would pass swapped bindings")
+      .groundTruth(kBindingGroundTruth)
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);

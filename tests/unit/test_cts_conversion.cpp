@@ -1,9 +1,9 @@
 // Copyright 2021-2026 The Khronos Group
 // SPDX-License-Identifier: Apache-2.0
 
-// The checks ticket 04 added to the existing Tests, judged through the
-// evaluation seam with images generated in code (ADR-0010): what a device
-// that follows the spec renders passes, what one that ignores it renders
+// The checks the conversion to self-checks added to the existing Tests, judged
+// through the evaluation seam with images generated in code (ADR-0010): what a
+// device that follows the spec renders passes, what one that ignores it renders
 // fails. No SDK device implements all of them.
 
 #include "catch.hpp"

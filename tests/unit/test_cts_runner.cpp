@@ -1311,6 +1311,44 @@ TEST_CASE("Runner applies ambientRadiance before Test renderer overrides",
   anari::unloadLibrary(lib);
 }
 
+TEST_CASE("The default renderer resolves to the device's first subtype",
+    "[cts][runner][halcyon]")
+{
+  anari::Library lib = anari::loadLibrary("halcyon", statusFunc, nullptr);
+  if (!lib) {
+    WARN("halcyon library not available; skipping default renderer test");
+    return;
+  }
+  anari::Device d = anari::newDevice(lib, "default");
+  REQUIRE(d != nullptr);
+  anari::commitParameters(d, d);
+
+  // halcyon lists `preview` and `quality`, not `default`; its default renderer
+  // is the first. The preview renderer has ignoreAmbientLighting, the quality
+  // one resolutionDivider.
+  auto builder = makeTest("demo", "optional_params_halcyon");
+  builder.build(buildTriangleWorld)
+      .rendererParam("ignoreAmbientLighting", "false")
+      .rendererParam("resolutionDivider", "1");
+  const TestDef test = builder.take();
+
+  auto applied = [&](const char *renderer) {
+    RunOptions opts;
+    opts.device = {"halcyon", "default", renderer};
+    Runner runner(d, Workdir(std::filesystem::path{}), opts);
+    std::set<std::string> names;
+    for (const auto &p : runner.appliedRendererParams(test))
+      names.insert(p.name);
+    return names;
+  };
+  CHECK(applied("default").count("ignoreAmbientLighting") == 1);
+  CHECK(applied("preview").count("ignoreAmbientLighting") == 1);
+  CHECK(applied("quality").count("resolutionDivider") == 1);
+
+  anari::release(d, d);
+  anari::unloadLibrary(lib);
+}
+
 TEST_CASE("A device-specific effect opt-out holds only on that device",
     "[cts][runner][helide]")
 {

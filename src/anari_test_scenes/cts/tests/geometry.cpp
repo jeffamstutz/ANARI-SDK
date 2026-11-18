@@ -780,11 +780,23 @@ BehaviorResult checkRegionRecommit(anari::Device d,
           "matches a fresh render ("
           + percent(off) + " differ)"};
 }
+// Cone and cylinder end caps: neither helide nor halcyon reads the geometry's
+// `caps` or `vertex.cap`; their cones and cylinders are always closed (halcyon
+// builds them as Embree linear cone curves). No device ticket: the axes keep
+// their effect check on every other device.
+constexpr const char *kCapsNotRead =
+    "neither helide nor halcyon reads the geometry's `caps` or `vertex.cap`; "
+    "their cones and cylinders are always closed";
+
 } // namespace
 
 void registerGeometryTests(Catalog &catalog)
 {
   using V = std::vector<Any>;
+
+  // Why the Tests below keep a Ground-truth comparison (repeated verbatim).
+  constexpr const char *kDrawnGroundTruth =
+      "the lit image of the primitives that stay drawn has no analytic answer";
 
   // ---- triangle -------------------------------------------------------------
   registerShape(catalog,
@@ -806,7 +818,9 @@ void registerGeometryTests(Catalog &catalog)
       true,
       [](TestBuilder &b) {
         b.groundTruth(
-            "a mesh of triangles shaded across shared edges has no analytic answer; its soup and indexed forms are also checked against each other");
+            "a mesh of triangles shaded across shared edges has no analytic "
+            "answer; its soup and indexed forms are also checked against each "
+            "other");
       });
   registerShape(catalog,
       "triangle_cube",
@@ -816,7 +830,8 @@ void registerGeometryTests(Catalog &catalog)
       true,
       [](TestBuilder &b) {
         b.groundTruth(
-            "a lit cube of triangles has no analytic answer; its soup and indexed forms are also checked against each other");
+            "a lit cube of triangles has no analytic answer; its soup and "
+            "indexed forms are also checked against each other");
       });
 
   makeTest("geometry", "triangle_colors")
@@ -875,8 +890,7 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
-      .groundTruth(
-          "the lit image of the primitives that stay drawn has no analytic answer")
+      .groundTruth(kDrawnGroundTruth)
       .covers("ANARI_KHR_GEOMETRY_TRIANGLE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -901,7 +915,8 @@ void registerGeometryTests(Catalog &catalog)
       true,
       [](TestBuilder &b) {
         b.groundTruth(
-            "a lit cube of quads has no analytic answer; its soup and indexed forms are also checked against each other");
+            "a lit cube of quads has no analytic answer; its soup and indexed "
+            "forms are also checked against each other");
       });
 
   makeTest("geometry", "quad_colors")
@@ -958,8 +973,7 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
-      .groundTruth(
-          "the lit image of the primitives that stay drawn has no analytic answer")
+      .groundTruth(kDrawnGroundTruth)
       .covers("ANARI_KHR_GEOMETRY_QUAD")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -1035,8 +1049,7 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
-      .groundTruth(
-          "the lit image of the primitives that stay drawn has no analytic answer")
+      .groundTruth(kDrawnGroundTruth)
       .covers("ANARI_KHR_GEOMETRY_SPHERE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -1050,7 +1063,8 @@ void registerGeometryTests(Catalog &catalog)
       true,
       [](TestBuilder &b) {
         b.groundTruth(
-            "a lit cone has no analytic answer; its soup and indexed forms are also checked against each other");
+            "a lit cone has no analytic answer; its soup and indexed forms are "
+            "also checked against each other");
       });
 
   makeTest("geometry", "cone_colors")
@@ -1090,6 +1104,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, cone(16)));
       })
       .permute("globalCaps", {"none", "first", "second", "both"})
+      .noEffectCheckOn("globalCaps", "helide", {}, kCapsNotRead)
+      .noEffectCheckOn("globalCaps", "halcyon", {}, kCapsNotRead)
       .channels(kColorDepth)
       .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_CONE")
@@ -1102,6 +1118,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, cone(16)));
       })
       .permute("vertexCaps", V{Any(true), Any(false)})
+      .noEffectCheckOn("vertexCaps", "helide", {}, kCapsNotRead)
+      .noEffectCheckOn("vertexCaps", "halcyon", {}, kCapsNotRead)
       .channels(kColorDepth)
       .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_CONE")
@@ -1117,8 +1135,7 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
-      .groundTruth(
-          "the lit image of the primitives that stay drawn has no analytic answer")
+      .groundTruth(kDrawnGroundTruth)
       .covers("ANARI_KHR_GEOMETRY_CONE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -1132,7 +1149,8 @@ void registerGeometryTests(Catalog &catalog)
       true,
       [](TestBuilder &b) {
         b.groundTruth(
-            "a lit cylinder has no analytic answer; its soup and indexed forms are also checked against each other");
+            "a lit cylinder has no analytic answer; its soup and indexed forms "
+            "are also checked against each other");
       });
 
   makeTest("geometry", "cylinder_colors")
@@ -1172,6 +1190,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, cylinder(16)));
       })
       .permute("globalCaps", {"none", "first", "second", "both"})
+      .noEffectCheckOn("globalCaps", "helide", {}, kCapsNotRead)
+      .noEffectCheckOn("globalCaps", "halcyon", {}, kCapsNotRead)
       .channels(kColorDepth)
       .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_CYLINDER")
@@ -1197,6 +1217,8 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, cylinder(16)));
       })
       .permute("vertexCaps", V{Any(true), Any(false)})
+      .noEffectCheckOn("vertexCaps", "helide", {}, kCapsNotRead)
+      .noEffectCheckOn("vertexCaps", "halcyon", {}, kCapsNotRead)
       .channels(kColorDepth)
       .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_CYLINDER")
@@ -1213,8 +1235,7 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
-      .groundTruth(
-          "the lit image of the primitives that stay drawn has no analytic answer")
+      .groundTruth(kDrawnGroundTruth)
       .covers("ANARI_KHR_GEOMETRY_CYLINDER")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -1249,7 +1270,8 @@ void registerGeometryTests(Catalog &catalog)
       })
       .channels(kDepthOnly)
       .groundTruth(
-          "the interior-wall depth of this scene has no closed form in the Test")
+          "the interior-wall depth of this scene has no closed form in the "
+          "Test")
       .covers("ANARI_KHR_GEOMETRY_SPHERE")
       .requireFeatures(kSupportMatte)
       .requireFeature(kPerspective)
@@ -1285,6 +1307,8 @@ void registerGeometryTests(Catalog &catalog)
             0.01f);
       })
       .permute("caps", {"none", "first", "second", "both"})
+      .noEffectCheckOn("caps", "helide", {}, kCapsNotRead)
+      .noEffectCheckOn("caps", "halcyon", {}, kCapsNotRead)
       .channels(kColorDepth)
       .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_CYLINDER")
@@ -1315,6 +1339,8 @@ void registerGeometryTests(Catalog &catalog)
             ctx.device(), float3(0.f), float3(0.f, 0.f, -1.f), 1.2f, 0.001f);
       })
       .permute("caps", {"none", "first", "second", "both"})
+      .noEffectCheckOn("caps", "helide", {}, kCapsNotRead)
+      .noEffectCheckOn("caps", "halcyon", {}, kCapsNotRead)
       .channels(kDepthOnly)
       .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_CYLINDER")
@@ -1349,6 +1375,8 @@ void registerGeometryTests(Catalog &catalog)
             0.01f);
       })
       .permute("caps", {"none", "first", "second", "both"})
+      .noEffectCheckOn("caps", "helide", {}, kCapsNotRead)
+      .noEffectCheckOn("caps", "halcyon", {}, kCapsNotRead)
       .channels(kColorDepth)
       .noGroundTruth()
       .covers("ANARI_KHR_GEOMETRY_CONE")
@@ -1475,8 +1503,7 @@ void registerGeometryTests(Catalog &catalog)
         return surfaceWorld(ctx, withAxes(ctx, spec));
       })
       .channels(kColorDepth)
-      .groundTruth(
-          "the lit image of the primitives that stay drawn has no analytic answer")
+      .groundTruth(kDrawnGroundTruth)
       .covers("ANARI_KHR_GEOMETRY_CURVE")
       .requireFeatures(kSupportMatte)
       .registerInto(catalog);
@@ -1488,7 +1515,8 @@ void registerGeometryTests(Catalog &catalog)
       .build([](BuildContext &ctx) { return isosurfaceWorld(ctx); })
       .channels(kColorDepth)
       .groundTruth(
-          "an extracted isosurface of the Test field has no closed form in the Test")
+          "an extracted isosurface of the Test field has no closed form in the "
+          "Test")
       .covers("ANARI_KHR_GEOMETRY_ISOSURFACE")
       .requireFeature("ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR")
       .requireFeatures(kSupportMatte)

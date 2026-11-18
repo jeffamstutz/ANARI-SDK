@@ -28,6 +28,11 @@ using anari::math::mat4;
 using anari::math::uint3;
 using V = std::vector<Any>;
 
+// Why the Tests below keep a Ground-truth comparison (repeated verbatim).
+constexpr const char *kWrapGroundTruth =
+    "a lit, filtered and wrapped texel colour has no analytic answer in the "
+    "Test; effects alone would pass swapped wrap modes";
+
 // The transform/offset constants the JSON scenes reused (column-major: each
 // argument is a matrix column; the last column is the translation).
 const mat4 kInTransform = mat4(float4(-0.5f, -1.f, 0.f, 0.f),
@@ -263,7 +268,9 @@ void registerClampToBorderTest(Catalog &catalog, int dims)
   test.description("Checks that " + subtype
           + " clampToBorder shows borderColor (by default (0, 0, 0, 0))"
             " outside [0, 1] on its own dimension only, and the image inside.")
-      .build([dims](BuildContext &ctx) { return clampToBorderWorld(ctx, dims); })
+      .build([dims](BuildContext &ctx) {
+        return clampToBorderWorld(ctx, dims);
+      })
       .camera([](BuildContext &ctx, const scenes::Bounds &) {
         return makeScreenQuadCamera(ctx.device());
       })
@@ -348,8 +355,7 @@ void registerSamplerTests(Catalog &catalog)
       .permute("outTransform", outXform)
       .permute("inOffset", offset)
       .permute("outOffset", offset)
-      .groundTruth(
-          "a lit, filtered and wrapped texel colour has no analytic answer in the Test; effects alone would pass swapped wrap modes")
+      .groundTruth(kWrapGroundTruth)
       .covers("ANARI_KHR_SAMPLER_IMAGE1D")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
@@ -405,8 +411,7 @@ void registerSamplerTests(Catalog &catalog)
       .permute("outTransform", outXform)
       .permute("inOffset", offset)
       .permute("outOffset", offset)
-      .groundTruth(
-          "a lit, filtered and wrapped texel colour has no analytic answer in the Test; effects alone would pass swapped wrap modes")
+      .groundTruth(kWrapGroundTruth)
       .covers("ANARI_KHR_SAMPLER_IMAGE2D")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
@@ -472,8 +477,7 @@ void registerSamplerTests(Catalog &catalog)
       .permute("outTransform", outXform)
       .permute("inOffset", offset)
       .permute("outOffset", offset)
-      .groundTruth(
-          "a lit, filtered and wrapped texel colour has no analytic answer in the Test; effects alone would pass swapped wrap modes")
+      .groundTruth(kWrapGroundTruth)
       .covers("ANARI_KHR_SAMPLER_IMAGE3D")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
@@ -512,8 +516,7 @@ void registerSamplerTests(Catalog &catalog)
           "4",
           "the 3-component image (the fourth component is alpha)",
           [](const Siblings &s) -> ExpectedImage { return s.at("3"); })
-      .groundTruth(
-          "a lit, filtered and wrapped texel colour has no analytic answer in the Test; effects alone would pass swapped wrap modes")
+      .groundTruth(kWrapGroundTruth)
       .covers("ANARI_KHR_SAMPLER_PRIMITIVE")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
@@ -533,8 +536,7 @@ void registerSamplerTests(Catalog &catalog)
       })
       .permute("outTransform", outXform)
       .permute("outOffset", offset)
-      .groundTruth(
-          "a lit, filtered and wrapped texel colour has no analytic answer in the Test; effects alone would pass swapped wrap modes")
+      .groundTruth(kWrapGroundTruth)
       .covers("ANARI_KHR_SAMPLER_TRANSFORM")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);

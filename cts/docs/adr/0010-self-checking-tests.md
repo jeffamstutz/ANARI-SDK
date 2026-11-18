@@ -73,9 +73,9 @@ where appearance has no analytic answer.
 
 7. **Ground truth is declared.** `.groundTruth("reason")` says the Test needs a
    Reference device comparison and why; `.noGroundTruth()` says it is fully
-   self-checked. A Test that says neither is self-checked only: ticket 04
-   flipped this default, which compared such a Test against Ground truth
-   until every Test had been through the conversion. `generate` skips every
+   self-checked. A Test that says neither is self-checked only (the
+   conversion of the existing Tests flipped this default; before it such a
+   Test was compared against Ground truth). `generate` skips every
    Test without `.groundTruth`, as it skips behaviour Tests. The SSIM/PSNR
    comparison and its thresholds are untouched.
 
@@ -156,11 +156,12 @@ were not moved: no legitimate pair lands in or near the gap.
   scored, `passed, Ground truth not evaluated` when some passed on self-checks
   alone, and `advertised, partly scored` when some passed and some were
   skipped.
-- Until ticket 04 converts them, many existing Permutations fail their effect
-  checks (113 Cases on halcyon, 115 on helide). That is the finding the audit
-  made, now visible per Case; the defaults are not loosened and no axis is
-  opted out to hide it. CI runs only `synchronization/` and the unit tests, so
-  it stays green.
+- When the harness landed, many existing Permutations failed their effect
+  checks (113 Cases on halcyon, 115 on helide). That was the finding the audit
+  made, visible per Case; the defaults were not loosened and no axis was opted
+  out to hide it. The conversion (below) fixed the Tests; what still fails is
+  a device's. CI runs only `synchronization/` and the unit tests, so it
+  stays green.
 - A run renders a Test's Cases even when its Ground truth is missing, if the
   Test has relations; a Test without relations and without Ground truth is
   still skipped without rendering.
@@ -516,10 +517,15 @@ declares what it compares against Ground truth. What the conversion decided:
 39. **`camera_general`'s region is asymmetric** `(0, 0.5)-(0.5, 1)`, named once
     (`kRegion`), so a device that mirrors or flips it fails. Its edges are
     whole pixels at a run size that is a multiple of 4.
-40. **Default `aspect` with an `imageRegion`** (`*_region_default_aspect`)
-    assumes aspect = frame aspect x region width / region height (the 1.2
-    text gives no formula), with a region whose width (0.5) and height (0.75)
-    differ. `perspective_default_fovy` equals pi/3.
+40. **Default `aspect` with an `imageRegion` has no Test.** The 1.2 text says
+    an unset `aspect` is the Frame's width over height and that "a potentially
+    set image region needs to be regarded as well", but gives no formula. The
+    first Tests assumed aspect = frame aspect x region width / region height;
+    helide, halcyon and visrtx all ignore the region there, so the Tests
+    failed every device on the Test's assumption, not on a spec statement.
+    They were deleted (`*_region_default_aspect`); the formula is not in the
+    spec and is to be raised with the working group. `perspective_default_fovy`
+    equals pi/3.
 41. **The allow-list is documentation of the Reference devices' limits.** What
     stays on it (153 pairs, none seeded) is what helide, and halcyon's default
     preview renderer, can't show: a light under halcyon's headlight blend, a PBR
