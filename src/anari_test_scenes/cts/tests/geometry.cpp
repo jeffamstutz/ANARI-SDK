@@ -14,9 +14,11 @@
 #include "../WorldBuilder.h"
 #include "Categories.h"
 #include "ScreenScene.h"
+
 #include "generators/ColorPalette.h"
 // std
 #include <array>
+#include <cmath>
 #include <cstdio>
 #include <initializer_list>
 #include <optional>
@@ -172,8 +174,10 @@ CurveSpec curve(int count)
 }
 
 // A single-primitive world with explicit normals/tangents (the *_normal_tangent
-// tests). normalMode in {set, unset}; tangentMode in {unset, vec3, vec4}. Matte
-// ignores them, so all combinations must render identically (Variant axes).
+// tests). normal in {set, unset}; tangent in {unset, vec3, vec4}. Matte
+// ignores tangents, and the supplied normals equal the primitive's geometric
+// normal, so all combinations must render identically (Variant axes). Normals
+// that differ from the geometric one legitimately change the shading.
 anari::World normalTangentWorld(BuildContext &ctx, bool quad)
 {
   auto d = ctx.device();
@@ -194,9 +198,15 @@ anari::World normalTangentWorld(BuildContext &ctx, bool quad)
       d, geom, "vertex.color", anari::newArray1D(d, cols.data(), cols.size()));
 
   if (ctx.getString("normal", "set") == "set") {
-    std::vector<float3> n(pos.size(), float3(0.f, 0.f, 1.f));
-    n[0] = float3(1.f, 0.f, 0.f);
-    n[1] = float3(0.f, 1.f, 0.f);
+    // Geometric normal of the (planar) primitive, same winding as the
+    // positions, so a device that shades from it agrees with one that doesn't.
+    const float3 e1 = pos[1] - pos[0];
+    const float3 e2 = pos[2] - pos[0];
+    const float3 c(e1.y * e2.z - e1.z * e2.y,
+        e1.z * e2.x - e1.x * e2.z,
+        e1.x * e2.y - e1.y * e2.x);
+    const float len = std::sqrt(c.x * c.x + c.y * c.y + c.z * c.z);
+    std::vector<float3> n(pos.size(), c / len);
     anari::setAndReleaseParameter(
         d, geom, "vertex.normal", anari::newArray1D(d, n.data(), n.size()));
   }
