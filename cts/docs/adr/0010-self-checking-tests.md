@@ -466,3 +466,86 @@ passes it on all 68 guarded Tests (0.00 % changed). Wall time, default
 `quality` renderer fails the guard on 66 Cases at `--accumulation 1` (about 10
 to 13 % of pixels change in the next frame), 60 at 16, 26 at 64, 1 at 128 and
 none at 256, which is the count that passes it on every Test.
+
+## Converting the existing Tests (ticket 04)
+
+Every Permutation of the catalog now has its effect check judged, and a Test
+declares what it compares against Ground truth. What the conversion decided:
+
+34. **The default is flipped.** A Test that declares neither
+    `.groundTruth(reason)` nor `.noGroundTruth()` is self-checked only
+    (`TestDef::usesGroundTruth()`); one with nothing to evaluate is skipped.
+    Ground truth stays, with a reason, on 54 of the 115 Tests whose appearance has no
+    analytic answer in the Test (lit sampler, material and light shading,
+    volumes, the shape layouts that aren't a plain triangle or quad).
+35. **An unset value that the spec defines is not a Permutation value of its
+    own.** `filter` (default linear), `wrapMode*` (clampToEdge) and `side`
+    (front) left unset render like the explicit default; the unset value is a
+    derived expectation of it, so the pair is judged for equality instead of
+    failing an effect check, and the default is the baseline. `omnidirectional`
+    `layout` (equirectangular) is a Variant. The same holds for `sampler/
+    primitive`: a 4-component array's alpha is ignored by a colour, so
+    `arrayDim` 4 is derived from 3.
+36. **A frame buffer type axis is a Permutation whose float and sRGB values are
+    derived.** The float type's 8-bit comparison image equals the linear one's;
+    the sRGB type's is the linear colours encoded with the sRGB transfer
+    function (the readback copies the buffer's bytes undecoded), so
+    `tests/FrameTypeAxis.h` derives both from the linear value. Making these
+    Variants would have failed a conforming device. `frame_color_channel` also
+    requires mid-tone pixels (its scene is dim), since a saturated frame hides
+    the encoding.
+37. **Exact checks replace Ground truth where the answer is analytic:** depth
+    (the distance to the camera) and albedo at each triangle's centre, object
+    and instance IDs (a set id, and `-1u` where none is set, per appendix D),
+    volume object IDs (each id covers the frame, id 1 on the left), the
+    background colour (sRGB-encoded, with its alpha), `near`/`far` clipping
+    (a Case that removes the subject shows one flat colour, one that doesn't
+    shows the subject), depth of every triangle and quad at its centre, and
+    that attribute colours show on primitives at all. Samples avoid a quad's
+    diagonal, where helide and halcyon let a ray through.
+38. **Scenes reworked so an axis shows:** directional light directions with
+    different cosines, point and area lights close enough and bright enough
+    that intensity and power move many levels, quad and ring lights placed to
+    face the grid, a ring's baseline opening narrower than the grid (so
+    `falloffAngle` and `openingAngle` have an edge to move) and a 2D
+    intensity distribution with azimuthal contrast (so `c0` can); the volume
+    Test uses a ramp across a fixed orthographic view (the default camera
+    re-frames the world's bounds, which hides `origin`); and `volume/volume`'s
+    `valueRange` is set as FLOAT32_BOX1: it was a FLOAT32_VEC2, which a device
+    reads as no range at all (a Test bug the effect check exposed).
+39. **`camera_general`'s region is asymmetric** `(0, 0.5)-(0.5, 1)`, named once
+    (`kRegion`), so a device that mirrors or flips it fails. Its edges are
+    whole pixels at a run size that is a multiple of 4.
+40. **Default `aspect` with an `imageRegion`** (`*_region_default_aspect`)
+    assumes aspect = frame aspect x region width / region height (the 1.2
+    text gives no formula), with a region whose width (0.5) and height (0.75)
+    differ. `perspective_default_fovy` equals pi/3.
+41. **The allow-list is documentation of the Reference devices' limits.** What
+    stays on it (153 pairs, none seeded) is what helide, and halcyon's default
+    preview renderer, can't show: a light under halcyon's headlight blend, a PBR
+    lobe neither shades, opacity without `alphaCutoff`, ambient light,
+    the spatial field's `filter`, and changes within SSIM 0.7 / PSNR 20 on a
+    washed-out lit colour. Each entry names which; none is a Test that can't
+    tell its values apart on the Candidate.
+
+Measured on 2026-11-17 (256x256, `--accumulation 16`; helide doesn't advertise
+`KHR_FRAME_ACCUMULATION`). 393 Cases.
+
+| Run | Passed | Failed | Skipped | Wall time |
+| --- | ---: | ---: | ---: | ---: |
+| halcyon, no Ground truth | 258 | 81 | 54 | 7.2 s |
+| halcyon vs halcyon Ground truth | 274 | 80 | 39 | 14.1 s |
+| helide, no Ground truth | 192 | 86 | 115 | 4.9 s |
+| helide vs helide Ground truth | 207 | 86 | 100 | 11.2 s |
+
+Failures by kind on halcyon vs its own Ground truth: effect 74, equivalence
+6, exact 4, one crash in `synchronization/different_objects_concurrently`
+(cts-device-findings 01); no Ground-truth failure. They are the devices'
+(clip planes, `caps`, the field `filter`, ambient light by default, PBR
+lobes, the image region in the default aspect), not Tests that can't judge,
+with the caveat that no installed device implements the PBR lobes the Tests
+exercise, so the PBR scenes themselves are unvalidated on a device (visrtx and
+OSPRay fail the same axes, halcyon's quality renderer too). halcyon's
+`quality` renderer (`-r quality --accumulation 128`) passes 54 of the 55 light
+Cases, which is what validates the reworked light scenes; its ring `c0` stays
+unvalidated.
