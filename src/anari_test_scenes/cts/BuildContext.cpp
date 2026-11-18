@@ -44,6 +44,15 @@ const ParameterBinding &BuildContext::binding(const std::string &name) const
   return it->second;
 }
 
+std::set<size_t> BuildContext::boundSamplerSlots() const
+{
+  std::set<size_t> slots;
+  for (const auto &entry : m_bindings)
+    if (const auto *s = std::get_if<SamplerParameter>(&entry.second.value()))
+      slots.insert(s->index);
+  return slots;
+}
+
 void BuildContext::set(const std::string &name, const Any &value)
 {
   if (value.isBinding()) {

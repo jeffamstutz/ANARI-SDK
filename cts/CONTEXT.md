@@ -26,8 +26,10 @@ An extension a Test needs only to build and render its scene, required but not
 covered: the geometry and material its surface is made of, and the camera it
 renders with (perspective, unless the Test brings its own camera). An
 incidental light is not required. An extension only some of a Test's Cases need
-(such as an image sampler a material Case binds) is not required yet: gating is
-per Test, and per-Case gating is pending (ticket 22).
+(such as an image sampler a material Case binds) is declared per axis value
+(`requireFeatureFor`), not for the Test: a device lacking it skips exactly the
+Cases holding the value, and they take no part in their Test's effect or
+equivalence checks.
 
 **Axis**:
 A named parameter dimension a Test is expanded over. Every Axis is either a

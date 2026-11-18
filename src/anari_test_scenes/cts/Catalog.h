@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "Case.h"
 #include "Filter.h"
 #include "TestDef.h"
 // std
@@ -23,6 +24,21 @@ bool isSupported(
 // order. Empty exactly when isSupported().
 std::vector<std::string> missingFeatures(
     const TestDef &test, const std::set<std::string> &deviceFeatures);
+
+// The features one Case needs: the Test's requiredFeatures, then those the
+// Test requires of the values the Case holds (`requireFeatureFor`), without
+// repeats.
+std::vector<std::string> requiredFeaturesOf(const TestDef &test, const Case &c);
+
+// isSupported() and missingFeatures() for one Case: they also count the
+// features its axis values require, so a device lacking such an extension
+// skips that Case and not its siblings.
+bool isSupported(const TestDef &test,
+    const Case &c,
+    const std::set<std::string> &deviceFeatures);
+std::vector<std::string> missingFeatures(const TestDef &test,
+    const Case &c,
+    const std::set<std::string> &deviceFeatures);
 
 // The in-C++ registry of all Tests. `cts list` enumerates it; `cts run`
 // expands and executes a filtered slice of it. Distinct from the pre-existing

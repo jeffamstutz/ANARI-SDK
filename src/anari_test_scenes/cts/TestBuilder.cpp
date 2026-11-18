@@ -180,6 +180,31 @@ TestBuilder &TestBuilder::requireFeature(std::string feature)
   return *this;
 }
 
+TestBuilder &TestBuilder::requireFeatureFor(
+    std::string axis, const Any &value, std::string feature)
+{
+  const std::string text = anyToString(value);
+  const std::string where = "test `" + m_def.id() + "`: requireFeatureFor(`"
+      + axis + "`, `" + text + "`): ";
+  const auto a = std::find_if(m_def.axes.begin(),
+      m_def.axes.end(),
+      [&](const Axis &x) { return x.name == axis; });
+  if (a == m_def.axes.end())
+    throw std::invalid_argument(where + "no such axis (declare it first)");
+  if (std::none_of(a->values.begin(), a->values.end(), [&](const Any &v) {
+        return anyToString(v) == text;
+      }))
+    throw std::invalid_argument(where + "the axis has no such value");
+  if (feature.empty())
+    throw std::invalid_argument(where + "needs a feature");
+  for (const auto &r : m_def.valueRequirements)
+    if (r.axis == axis && r.value == text && r.feature == feature)
+      return *this;
+  m_def.valueRequirements.push_back(
+      {std::move(axis), text, std::move(feature)});
+  return *this;
+}
+
 TestBuilder &TestBuilder::covers(std::string feature)
 {
   auto &covered = m_def.coveredFeatures;

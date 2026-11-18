@@ -2193,3 +2193,166 @@ TEST_CASE("A run whose device renders the probe clears an earlier record",
   delete device;
   std::filesystem::remove_all(root, ec);
 }
+
+// Per-Case feature gating (ticket 22) /////////////////////////////////////////
+
+TEST_CASE("Runner skips only the Cases whose value needs a missing extension",
+    "[cts][runner][features][helide]")
+{
+  anari::Library lib = anari::loadLibrary("helide", statusFunc, nullptr);
+  if (!lib) {
+    WARN("helide library not available; skipping per-Case gating test");
+    return;
+  }
+  anari::Device d = anari::newDevice(lib, "default");
+  REQUIRE(d != nullptr);
+  anari::commitParameters(d, d);
+
+  const auto root =
+      std::filesystem::temp_directory_path() / "cts_runner_gating_test";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+
+  Catalog catalog;
+  // The build ignores the axis, so every pair fails its effect: what matters
+  // is which pairs exist.
+  makeTest("demo", "gated")
+      .description("Value b of the axis needs an extension.")
+      .build(buildTriangleWorld)
+      .permute("ignored", {"a", "b", "c"})
+      .requireFeatureFor("ignored", Any("b"), "ANARI_KHR_TEST_B")
+      .noGroundTruth()
+      .registerInto(catalog);
+
+  RunOptions opts;
+  opts.width = 64;
+  opts.height = 64;
+  opts.device = {"helide", "default", "default"};
+  const Workdir wd(root);
+  const auto at = [](const char *v) {
+    return caseOf(
+        "demo", "gated", {{"ignored", Any(v), AxisKind::Permutation}});
+  };
+
+  SECTION("a device without it skips exactly that Case")
+  {
+    Runner runner(d, wd, opts);
+    const auto summary = runner.run(catalog, Filter{"demo/gated"}, {});
+    CHECK(summary.total == 3);
+    CHECK(summary.skipped == 1);
+
+    CaseResult ra, rb, rc;
+    REQUIRE(readSidecar(wd.sidecarPath(at("a")), ra));
+    REQUIRE(readSidecar(wd.sidecarPath(at("b")), rb));
+    REQUIRE(readSidecar(wd.sidecarPath(at("c")), rc));
+    CHECK(rb.verdict == Verdict::Skipped);
+    CHECK(rb.missingFeatures == std::vector<std::string>{"ANARI_KHR_TEST_B"});
+    CHECK(rb.skipReason
+        == "device is missing a required feature: ANARI_KHR_TEST_B");
+    CHECK(rb.requiredFeatures == std::vector<std::string>{"ANARI_KHR_TEST_B"});
+    CHECK(ra.missingFeatures.empty());
+    CHECK(ra.requiredFeatures.empty());
+    CHECK(rc.missingFeatures.empty());
+    CHECK_FALSE(
+        std::filesystem::exists(wd.resultImagePath(at("b"), Channel::Color)));
+
+    // The skipped Case is no one's partner: c is compared with a alone, and
+    // nothing is failed for b's absence.
+    CHECK(ra.verdict == Verdict::Passed);
+    REQUIRE(rc.assertions.size() == 1);
+    CHECK(rc.assertions[0].relatedCases == std::vector<std::string>{"a"});
+    CHECK(rc.assertions[0].detail.find("skipped") == std::string::npos);
+
+    CHECK(summary.failed == 1); // c fails its effect (the axis is ignored)
+  }
+
+  SECTION("a device with it runs every Case")
+  {
+    Runner runner(d, wd, opts);
+    const auto summary =
+        runner.run(catalog, Filter{"demo/gated"}, {"ANARI_KHR_TEST_B"});
+    CHECK(summary.total == 3);
+    CHECK(summary.skipped == 0);
+    CaseResult rc;
+    REQUIRE(readSidecar(wd.sidecarPath(at("c")), rc));
+    CHECK(rc.assertions.size() == 2);
+  }
+
+  SECTION("a filtered run on a device without it neither renders nor fails it")
+  {
+    Runner runner(d, wd, opts);
+    const auto summary = runner.run(catalog, Filter{"demo/gated/c"}, {});
+    CHECK(summary.total == 1);
+    CaseResult rc;
+    REQUIRE(readSidecar(wd.sidecarPath(at("c")), rc));
+    REQUIRE(rc.assertions.size() == 1);
+    CHECK(rc.assertions[0].relatedCases == std::vector<std::string>{"a"});
+    // b is a skipped partner: it is not written as a support render.
+    CHECK_FALSE(
+        std::filesystem::exists(wd.resultImagePath(at("b"), Channel::Color)));
+  }
+
+  std::filesystem::remove_all(root, ec);
+  anari::release(d, d);
+  anari::unloadLibrary(lib);
+}
+
+TEST_CASE("The material Tests' non-sampler Cases run without image samplers",
+    "[cts][runner][features][helide]")
+{
+  anari::Library lib = anari::loadLibrary("helide", statusFunc, nullptr);
+  if (!lib) {
+    WARN("helide library not available; skipping material gating test");
+    return;
+  }
+  anari::Device d = anari::newDevice(lib, "default");
+  REQUIRE(d != nullptr);
+  anari::commitParameters(d, d);
+
+  const auto root =
+      std::filesystem::temp_directory_path() / "cts_runner_material_gating";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+
+  Catalog catalog;
+  registerBuiltinTests(catalog);
+  RunOptions opts;
+  opts.width = 64;
+  opts.height = 64;
+  opts.device = {"helide", "default", "default"};
+  const Workdir wd(root);
+  Runner runner(d, wd, opts);
+  // A device with the matte scene but no image sampler at all.
+  const std::set<std::string> features = {"ANARI_KHR_GEOMETRY_TRIANGLE",
+      "ANARI_KHR_MATERIAL_MATTE",
+      "ANARI_KHR_CAMERA_PERSPECTIVE"};
+  const auto summary =
+      runner.run(catalog, Filter{"material/matte_color"}, features);
+  CHECK(summary.total == 4);
+  CHECK(summary.skipped == 1);
+
+  const auto *test = &catalog.tests().front();
+  for (const auto &t : catalog.tests())
+    if (t.id() == "material/matte_color")
+      test = &t;
+  int skipped = 0, ran = 0;
+  for (const Case &c : expand(*test)) {
+    CaseResult r;
+    REQUIRE(readSidecar(wd.sidecarPath(c), r));
+    if (r.verdict == Verdict::Skipped && !r.missingFeatures.empty()) {
+      ++skipped;
+      CHECK(r.missingFeatures
+          == std::vector<std::string>{"ANARI_KHR_SAMPLER_IMAGE2D"});
+    } else {
+      ++ran;
+      CHECK(r.missingFeatures.empty());
+      CHECK(std::filesystem::exists(wd.resultImagePath(c, Channel::Color)));
+    }
+  }
+  CHECK(skipped == 1);
+  CHECK(ran == 3);
+
+  std::filesystem::remove_all(root, ec);
+  anari::release(d, d);
+  anari::unloadLibrary(lib);
+}

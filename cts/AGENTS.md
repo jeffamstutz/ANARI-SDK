@@ -127,6 +127,9 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   primary extension (the Test is evidence for it; also required);
   `requireFeatures()` alone declares support extensions. The shared support
   sets are in `cts/tests/Categories.h`.
+  `requireFeatureFor(axis, value, ext)` gates one axis value: a device
+  lacking `ext` skips exactly the Cases holding it (they take no part in
+  effect or equivalence checks); use it for an extension only some Cases need.
 - `Axis.h` / `Case.{h,cpp}` / `Expansion.{h,cpp}` — axes expand into Cases
   (cartesian, or one-factor-at-a-time when `simplified`); variants share a
   ground-truth key, permutations get distinct ones.

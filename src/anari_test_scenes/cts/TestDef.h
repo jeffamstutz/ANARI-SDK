@@ -141,6 +141,15 @@ struct EquivalenceTolerance
   int tau{0}; // per-pixel tolerance, in 8-bit levels
 };
 
+// An extension only some Cases of a Test need: those holding `value` (its
+// anyToString() form) on `axis` (`.requireFeatureFor`).
+struct ValueRequirement
+{
+  std::string axis;
+  std::string value;
+  std::string feature;
+};
+
 // A single registered definition in the Catalog: a human-readable description,
 // world-build function, axes, required features, thresholds, and bounds
 // tolerance. A Test expands into one or more Cases.
@@ -164,6 +173,9 @@ struct TestDef
   std::vector<Axis> axes;
   // Every extension the Test needs; the skip gate (isSupported).
   std::vector<std::string> requiredFeatures;
+  // Extensions only some Cases need, in declaration order. A device lacking
+  // one skips exactly the Cases holding the value; see requiredFeaturesOf().
+  std::vector<ValueRequirement> valueRequirements;
   // The primary extensions: those the Test is evidence for, a subset of
   // requiredFeatures. The rest of requiredFeatures are support extensions it
   // merely needs to build a scene (a triangle to light, a matte material to

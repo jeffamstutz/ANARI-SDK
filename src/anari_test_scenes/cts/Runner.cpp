@@ -190,7 +190,7 @@ CaseResult baseResult(const TestDef &test,
   if (r.usesGroundTruth)
     r.groundTruthKey = c.groundTruthKey();
   r.device = device;
-  r.requiredFeatures = test.requiredFeatures;
+  r.requiredFeatures = requiredFeaturesOf(test, c);
   r.coveredFeatures = test.coveredFeatures;
   r.catalogCoveredFeatures = catalogCovered;
   for (const auto &cv : c.values)
@@ -399,6 +399,14 @@ Runner::SceneObjects Runner::buildScene(
   return scene;
 }
 
+static std::string featureSkipReason(const std::vector<std::string> &missing)
+{
+  std::string reason = "device is missing a required feature:";
+  for (size_t i = 0; i < missing.size(); ++i)
+    reason += (i ? ", " : " ") + missing[i];
+  return reason;
+}
+
 void Runner::writeFeatureSkip(const TestDef &test,
     const Case &c,
     const std::set<std::string> &features,
@@ -406,10 +414,8 @@ void Runner::writeFeatureSkip(const TestDef &test,
 {
   CaseResult result = baseResult(test, c, m_options.device, m_catalogCovered);
   result.verdict = Verdict::Skipped;
-  result.missingFeatures = missingFeatures(test, features);
-  result.skipReason = "device is missing a required feature:";
-  for (size_t i = 0; i < result.missingFeatures.size(); ++i)
-    result.skipReason += (i ? ", " : " ") + result.missingFeatures[i];
+  result.missingFeatures = missingFeatures(test, c, features);
+  result.skipReason = featureSkipReason(result.missingFeatures);
   recordResult(c, result, summary);
 }
 
@@ -828,6 +834,18 @@ void Runner::runRenderTest(const TestDef &test,
   }
   std::vector<CaseOutcome> outcomes(cases.size());
   std::vector<CaseRender> renders(cases.size());
+  // A Case needing an extension the device lacks (`requireFeatureFor`) is
+  // neither rendered nor related, as a selected Case or as a partner.
+  std::vector<bool> gated(cases.size(), false);
+  for (size_t i = 0; i < cases.size(); ++i) {
+    if (!toRender[i] || isSupported(test, cases[i], candidateFeatures))
+      continue;
+    gated[i] = true;
+    toRender[i] = false;
+    renders[i].state = CaseRender::State::Unsupported;
+    renders[i].error =
+        featureSkipReason(missingFeatures(test, cases[i], candidateFeatures));
+  }
   for (size_t i = 0; i < cases.size(); ++i) {
     if (!toRender[i])
       continue;
@@ -898,7 +916,10 @@ void Runner::runRenderTest(const TestDef &test,
   }
 
   for (size_t i = 0; i < cases.size(); ++i) {
-    if (chosen[i]) {
+    if (chosen[i] && gated[i]) {
+      summary.total++;
+      writeFeatureSkip(test, cases[i], candidateFeatures, summary);
+    } else if (chosen[i]) {
       summary.total++;
       m_scored.insert(cases[i].qualifiedId());
       settleVerdict(outcomes[i].result, participated[i]);
@@ -979,6 +1000,14 @@ void Runner::generateTest(const TestDef &test,
   for (size_t i = 0; i < cases.size(); ++i) {
     if (!toRender[i])
       continue;
+    // A Case needing an extension the Reference device lacks has no Ground
+    // truth (and the Candidate's run skips it, or fails it).
+    if (!isSupported(test, cases[i], referenceFeatures)) {
+      renders[i].state = CaseRender::State::Unsupported;
+      renders[i].error =
+          featureSkipReason(missingFeatures(test, cases[i], referenceFeatures));
+      continue;
+    }
     const CaseFrameSize size = frameSizeOf(test, cases[i]);
     if (!size.resolved()) {
       renders[i].state = CaseRender::State::Skipped;
@@ -1011,7 +1040,8 @@ void Runner::generateTest(const TestDef &test,
     if (!chosen[i])
       continue;
     const size_t w = writerOf(i);
-    if (renders[w].state == CaseRender::State::Skipped) {
+    if (renders[w].state == CaseRender::State::Skipped
+        || renders[w].state == CaseRender::State::Unsupported) {
       summary.skipped++;
       continue;
     }
@@ -1063,7 +1093,7 @@ void Runner::runBehaviorTest(const TestDef &test,
       continue;
     summary.total++;
 
-    if (!isSupported(test, candidateFeatures)) {
+    if (!isSupported(test, c, candidateFeatures)) {
       writeFeatureSkip(test, c, candidateFeatures, summary);
       continue;
     }

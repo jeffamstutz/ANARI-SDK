@@ -44,6 +44,8 @@ std::string partnerProblem(
     return "partner `" + partner.id() + "` did not render: " + render.error;
   case CaseRender::State::Skipped:
     return "partner `" + partner.id() + "` was skipped: " + render.error;
+  case CaseRender::State::Unsupported:
+    return "partner `" + partner.id() + "` was skipped: " + render.error;
   case CaseRender::State::Absent:
     return "partner `" + partner.id() + "` was not rendered";
   }
@@ -225,6 +227,12 @@ struct SiblingUnavailable : std::runtime_error
   using std::runtime_error::runtime_error;
 };
 
+// A sibling the device skipped for lack of an extension.
+struct SiblingUnsupported : SiblingUnavailable
+{
+  using SiblingUnavailable::SiblingUnavailable;
+};
+
 RelationOutcome equivalence(const TestDef &test,
     const RelationGroup &group,
     size_t k,
@@ -260,6 +268,8 @@ RelationOutcome equivalence(const TestDef &test,
         used.push_back(sibling);
       const std::string problem =
           partnerProblem(test, cases[sibling], renders[sibling]);
+      if (renders[sibling].state == CaseRender::State::Unsupported)
+        throw SiblingUnsupported(problem);
       if (!problem.empty())
         throw SiblingUnavailable(problem);
       return renders[sibling].images[channelIndex];
@@ -278,13 +288,18 @@ RelationOutcome equivalence(const TestDef &test,
   std::vector<ExpectedImage> expected(test.channels.size());
   try {
     for (channelIndex = 0; channelIndex < test.channels.size();
-        ++channelIndex) {
+         ++channelIndex) {
       channel = test.channels[channelIndex];
       expected[channelIndex] = fn(Siblings(channel, lookup));
       if (!expected[channelIndex].image.valid())
         throw SiblingUnavailable(std::string("the expectation gave no ")
             + channelName(channel) + " image");
     }
+  } catch (const SiblingUnsupported &e) {
+    // A sibling the device can't render: nothing to compare with.
+    out.assertion.evaluated = false;
+    out.assertion.passed = false;
+    out.assertion.detail = std::string("not evaluated: ") + e.what();
   } catch (const SiblingUnavailable &e) {
     notCompared(out, e.what());
   } catch (const std::exception &e) {
@@ -515,7 +530,9 @@ std::vector<RelationOutcome> evaluateRelations(const TestDef &test,
         // Effect pairs with every earlier Case, among those taking part.
         std::vector<size_t> partners;
         for (size_t p = 0; p < k; ++p)
-          if (inEffectPairs(test, group, p))
+          if (inEffectPairs(test, group, p)
+              && renders[group.cases[p]].state
+                  != CaseRender::State::Unsupported)
             partners.push_back(group.cases[p]);
         if (partners.empty())
           return;

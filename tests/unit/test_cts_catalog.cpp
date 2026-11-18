@@ -475,7 +475,7 @@ TEST_CASE("missingFeatures names the absent required features in order",
       {"ANARI_KHR_LIGHT_POINT",
           "ANARI_KHR_GEOMETRY_TRIANGLE",
           "ANARI_KHR_MATERIAL_MATTE"})
-          .empty());
+            .empty());
 }
 
 // Builder /////////////////////////////////////////////////////////////////////
@@ -646,4 +646,86 @@ TEST_CASE("a filter naming a Case selects Cases; a Test pattern does not",
   CHECK(matches(one, spot, cases[0]));
   CHECK_FALSE(matches(one, spot, cases[1]));
   CHECK(matches(Filter{"light/spot/*"}, spot, cases[1]));
+}
+
+TEST_CASE("a value's required feature gates only the Cases holding it",
+    "[cts][features]")
+{
+  auto t = makeTest("material", "matte_color")
+               .covers("ANARI_KHR_MATERIAL_MATTE")
+               .permute("color", {"none", "red", "sampled"})
+               .variant("layout", {"soup", "indexed"})
+               .requireFeatureFor(
+                   "color", Any("sampled"), "ANARI_KHR_SAMPLER_IMAGE2D")
+               .take();
+  const std::set<std::string> device = {"ANARI_KHR_MATERIAL_MATTE"};
+  const auto cases = expand(t);
+  REQUIRE(cases.size() == 6);
+
+  int gated = 0;
+  for (const auto &c : cases) {
+    const bool sampled = c.id().find("sampled") != std::string::npos;
+    CHECK(isSupported(t, c, device) == !sampled);
+    CHECK(missingFeatures(t, c, device).empty() == !sampled);
+    gated += sampled;
+    if (sampled) {
+      CHECK(missingFeatures(t, c, device)
+          == std::vector<std::string>{"ANARI_KHR_SAMPLER_IMAGE2D"});
+      CHECK(requiredFeaturesOf(t, c)
+          == std::vector<std::string>{
+              "ANARI_KHR_MATERIAL_MATTE", "ANARI_KHR_SAMPLER_IMAGE2D"});
+    } else {
+      CHECK(requiredFeaturesOf(t, c)
+          == std::vector<std::string>{"ANARI_KHR_MATERIAL_MATTE"});
+    }
+  }
+  CHECK(gated == 2);
+  // The Test-level gate is unchanged: the Test itself is supported.
+  CHECK(isSupported(t, device));
+  CHECK(isSupported(t,
+      cases.back(),
+      {"ANARI_KHR_MATERIAL_MATTE", "ANARI_KHR_SAMPLER_IMAGE2D"}));
+}
+
+TEST_CASE(
+    "requireFeatureFor rejects an undeclared axis or value", "[cts][features]")
+{
+  auto b = makeTest("material", "x").permute("color", {"a", "b"});
+  CHECK_THROWS_AS(
+      b.requireFeatureFor("nope", Any("a"), "EXT"), std::invalid_argument);
+  CHECK_THROWS_AS(
+      b.requireFeatureFor("color", Any("z"), "EXT"), std::invalid_argument);
+  CHECK_THROWS_AS(
+      b.requireFeatureFor("color", Any("a"), ""), std::invalid_argument);
+  b.requireFeatureFor("color", Any("a"), "EXT");
+  b.requireFeatureFor("color", Any("a"), "EXT"); // repeated: recorded once
+  CHECK(b.def().valueRequirements.size() == 1);
+}
+
+TEST_CASE("the material Tests gate their sampler-bound Cases per value",
+    "[cts][features]")
+{
+  Catalog catalog;
+  registerBuiltinTests(catalog);
+  const std::set<std::string> noSamplers = {"ANARI_KHR_GEOMETRY_TRIANGLE",
+      "ANARI_KHR_MATERIAL_MATTE",
+      "ANARI_KHR_MATERIAL_PHYSICALLY_BASED",
+      "ANARI_KHR_CAMERA_PERSPECTIVE"};
+  int total = 0, gated = 0;
+  for (const auto &t : catalog.tests()) {
+    if (t.category != "material")
+      continue;
+    for (const auto &c : expand(t)) {
+      ++total;
+      const bool binds = std::any_of(
+          c.values.begin(), c.values.end(), [](const CaseValue &cv) {
+            return anyToString(cv.value).rfind("ref_sampler_", 0) == 0;
+          });
+      // Exactly the Cases binding a sampler need one.
+      CHECK(isSupported(t, c, noSamplers) == !binds);
+      gated += binds;
+    }
+  }
+  CHECK(total > gated);
+  CHECK(gated > 0);
 }
