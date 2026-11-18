@@ -41,6 +41,8 @@ struct TriangleSpec
   PrimitiveMode mode{PrimitiveMode::Soup};
   int primitiveCount{1};
   bool unusedVertices{false};
+  // Give primitive.index 64-bit elements (it needs the indexed mode).
+  bool wideIndices{false};
   GeometryAttributes attributes;
 };
 
@@ -50,6 +52,8 @@ struct QuadSpec
   PrimitiveMode mode{PrimitiveMode::Soup};
   int primitiveCount{1};
   bool unusedVertices{false};
+  // Give primitive.index 64-bit elements (it needs the indexed mode).
+  bool wideIndices{false};
   GeometryAttributes attributes;
 };
 
@@ -59,6 +63,8 @@ struct SphereSpec
   int primitiveCount{1};
   bool unusedVertices{false};
   std::optional<float> globalRadius;
+  // Give primitive.index 64-bit elements (it needs the indexed mode).
+  bool wideIndices{false};
   GeometryAttributes attributes;
 };
 
@@ -68,6 +74,8 @@ struct CurveSpec
   int primitiveCount{1};
   bool unusedVertices{false};
   std::optional<float> globalRadius;
+  // Give primitive.index 64-bit elements (it needs the indexed mode).
+  bool wideIndices{false};
   GeometryAttributes attributes;
 };
 
@@ -78,6 +86,8 @@ struct ConeSpec
   bool unusedVertices{false};
   std::optional<bool> vertexCaps;
   CapsMode caps{CapsMode::None};
+  // Give primitive.index 64-bit elements (it needs the indexed mode).
+  bool wideIndices{false};
   GeometryAttributes attributes;
 };
 
@@ -89,6 +99,8 @@ struct CylinderSpec
   std::optional<float> globalRadius;
   std::optional<bool> vertexCaps;
   CapsMode caps{CapsMode::None};
+  // Give primitive.index 64-bit elements (it needs the indexed mode).
+  bool wideIndices{false};
   GeometryAttributes attributes;
 };
 

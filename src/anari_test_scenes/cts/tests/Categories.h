@@ -38,6 +38,7 @@ inline const std::vector<std::string> kSupportMatteTriangle = {
     kSupportPerspective};
 
 void registerGeometryTests(Catalog &catalog);
+void registerAttributeTests(Catalog &catalog);
 void registerMaterialTests(Catalog &catalog);
 void registerSamplerTests(Catalog &catalog);
 void registerLightTests(Catalog &catalog);

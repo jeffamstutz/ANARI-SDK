@@ -10,6 +10,7 @@ namespace cts {
 void registerBuiltinTests(Catalog &catalog)
 {
   registerGeometryTests(catalog);
+  registerAttributeTests(catalog);
   registerMaterialTests(catalog);
   registerSamplerTests(catalog);
   registerLightTests(catalog);
