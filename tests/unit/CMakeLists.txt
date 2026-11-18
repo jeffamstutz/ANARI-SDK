@@ -118,6 +118,7 @@ add_executable(anariCatalogTests
   test_cts_anari12.cpp
   test_cts_builtin_truths.cpp
   test_cts_catalog.cpp
+  test_cts_conversion.cpp
   test_cts_convergence.cpp
   test_cts_deviceinfo.cpp
   test_cts_discrimination.cpp

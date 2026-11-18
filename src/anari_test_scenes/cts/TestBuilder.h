@@ -44,10 +44,12 @@ struct TestBuilder
   TestBuilder &timeout(std::chrono::milliseconds limit);
   TestBuilder &failOnDeviceErrors();
 
-  // Permutation axis: values must produce different output. Each value gets
-  // its own Ground truth, and Cases differing only in this axis must render
-  // differently on the Candidate itself: an effect check, on by default
-  // (ADR-0010).
+  // Permutation axis: values must produce different output. Cases differing
+  // only in this axis must render differently on the Candidate itself: an
+  // effect check, on by default (ADR-0010). A value the spec says renders like
+  // another (an unset `filter`, which is the default `linear`) is a derived
+  // expectation (expectDerived), not a Permutation value of its own. A Test
+  // that declares `.groundTruth()` gives each value its own Ground truth.
   TestBuilder &permute(std::string axis, std::vector<Any> values);
   template <typename T>
   TestBuilder &permute(std::string axis, std::initializer_list<T> values)

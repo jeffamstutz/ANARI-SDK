@@ -64,6 +64,7 @@ TEST_CASE("cartesian Tests pair all values of an axis within each group",
   const auto test = makeTest("demo", "cartesian")
                         .permute("a", {"a0", "a1"})
                         .permute("b", {"b0", "b1", "b2"})
+                        .groundTruth("a unit test of the Discrimination check")
                         .take();
   CHECK(pairNames(test)
       == std::set<std::string>{
@@ -86,6 +87,7 @@ TEST_CASE("simplified Tests pair each axis's values around the baseline",
                         .simplified()
                         .permute("a", {"a0", "a1", "a2"})
                         .permute("b", {"b0", "b1"})
+                        .groundTruth("a unit test of the Discrimination check")
                         .take();
   CHECK(pairNames(test)
       == std::set<std::string>{
@@ -104,6 +106,7 @@ TEST_CASE(
   const auto test = makeTest("demo", "variants")
                         .permute("a", {"a0", "a1"})
                         .variant("v", {"soup", "indexed"})
+                        .groundTruth("a unit test of the Discrimination check")
                         .take();
   // Cartesian: axis a has a group per v value, but both compare a0 with a1.
   const auto pairs = pairNames(test);
@@ -125,6 +128,7 @@ TEST_CASE("frame type axes and opted-out axes are not pairing axes",
           .permute("filter", {"nearest", "linear"})
           .permute("a", {"a0", "a1"})
           .noEffectCheck("filter", "too subtle to judge")
+          .groundTruth("a unit test of the Discrimination check")
           .take();
   // The opt-out's reason already says the image can't show `filter`, so only
   // `a` pairs remain: one per frame type x filter.
@@ -144,7 +148,9 @@ TEST_CASE("a Test with one Case has no pairs", "[cts][discrimination]")
 TEST_CASE("a pair is indistinguishable when one passes as the other",
     "[cts][discrimination]")
 {
-  const auto test = makeTest("demo", "score").take();
+  const auto test = makeTest("demo", "score")
+                        .groundTruth("a unit test of the Discrimination check")
+                        .take();
   const auto same =
       scoreGroundTruthPair(test, {subject(0)}, {subject(0)}, kDefaults);
   CHECK(same.indistinguishable);
@@ -163,8 +169,14 @@ TEST_CASE("scoring uses the Test's own thresholds", "[cts][discrimination]")
   Image b = a;
   for (size_t x = 0; x < 20; ++x) // a row inside the square
     b.rgba[(20 * kSize + x) * 4] = 0;
-  const auto strict = makeTest("demo", "strict").threshold("psnr", 60.0).take();
-  const auto lax = makeTest("demo", "lax").take();
+  const auto strict =
+      makeTest("demo", "strict")
+          .threshold("psnr", 60.0)
+          .groundTruth("a unit test of the Discrimination check")
+          .take();
+  const auto lax = makeTest("demo", "lax")
+                       .groundTruth("a unit test of the Discrimination check")
+                       .take();
   CHECK_FALSE(
       scoreGroundTruthPair(strict, {a}, {b}, kDefaults).indistinguishable);
   CHECK(scoreGroundTruthPair(lax, {a}, {b}, kDefaults).indistinguishable);
@@ -175,12 +187,15 @@ TEST_CASE("every Channel must pass for a pair to be indistinguishable",
 {
   const auto test = makeTest("demo", "channels")
                         .channels({Channel::Color, Channel::Depth})
+                        .groundTruth("a unit test of the Discrimination check")
+                        .groundTruth("a unit test of the Discrimination check")
+                        .groundTruth("a unit test of the Discrimination check")
                         .take();
   CHECK_FALSE(scoreGroundTruthPair(
       test, {subject(0), subject(0)}, {subject(0), subject(2)}, kDefaults)
-          .indistinguishable);
+                  .indistinguishable);
   CHECK_FALSE(scoreGroundTruthPair(test, {subject(0)}, {subject(0)}, kDefaults)
-          .indistinguishable);
+                  .indistinguishable);
 }
 
 // The check //////////////////////////////////////////////////////////////////
@@ -211,6 +226,7 @@ TEST_CASE(
   const auto test = makeTest("demo", "check")
                         .permute("a", {"a0", "a1", "a2"})
                         .permute("b", {"b0", "b1"})
+                        .groundTruth("a unit test of the Discrimination check")
                         .take();
   // a0 and a1 render alike; a2 differs; b changes nothing (both b values
   // render alike too).
@@ -242,8 +258,10 @@ TEST_CASE(
     "entries that no longer apply",
     "[cts][discrimination]")
 {
-  const auto test =
-      makeTest("demo", "allow").permute("a", {"a0", "a1", "a2"}).take();
+  const auto test = makeTest("demo", "allow")
+                        .permute("a", {"a0", "a1", "a2"})
+                        .groundTruth("a unit test of the Discrimination check")
+                        .take();
   const std::vector<Allowance> allow{
       {"demo/allow", "a", "a1", "a0", "renders alike by design"},
       {"demo/allow", "a", "a0", "a2", "used to render alike"},
@@ -261,8 +279,10 @@ TEST_CASE(
 TEST_CASE("pairs without Ground truth are counted, not compared",
     "[cts][discrimination]")
 {
-  const auto test =
-      makeTest("demo", "missing").permute("a", {"a0", "a1", "a2"}).take();
+  const auto test = makeTest("demo", "missing")
+                        .permute("a", {"a0", "a1", "a2"})
+                        .groundTruth("a unit test of the Discrimination check")
+                        .take();
   const auto result = checkDiscrimination({&test},
       {},
       kDefaults,
@@ -288,7 +308,10 @@ TEST_CASE("Tests without Ground truth are not checked", "[cts][discrimination]")
 TEST_CASE("the report names the Test, axis and values of a finding",
     "[cts][discrimination]")
 {
-  const auto test = makeTest("demo", "text").permute("a", {"a0", "a1"}).take();
+  const auto test = makeTest("demo", "text")
+                        .permute("a", {"a0", "a1"})
+                        .groundTruth("a unit test of the Discrimination check")
+                        .take();
   const auto result = checkDiscrimination(
       {&test}, {}, kDefaults, loader({{"a0", 0}, {"a1", 0}}));
   std::ostringstream os;

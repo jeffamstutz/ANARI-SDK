@@ -125,18 +125,21 @@ Catalog makeCatalog()
       .build(buildTriangleWorld)
       .permute("primitiveCount", {4, 8})
       .variant("primitiveMode", {"soup", "indexed"})
+      .groundTruth("a unit test of the Ground-truth path")
       .registerInto(cat);
   // Single case, two channels.
   makeTest("geometry", "sphere")
       .description("Checks sphere color and depth rendering.")
       .build(buildSphereWorld)
       .channels({Channel::Color, Channel::Depth})
+      .groundTruth("a unit test of the Ground-truth path")
       .registerInto(cat);
   // Requires a feature no device has -> always skipped.
   makeTest("demo", "needs_bogus")
       .description("Checks feature-gated Test reporting.")
       .build(buildSphereWorld)
       .covers("ANARI_KHR_BOGUS_FEATURE")
+      .groundTruth("a unit test of the Ground-truth path")
       .registerInto(cat);
   return cat;
 }
@@ -811,6 +814,7 @@ TEST_CASE("Runner fails the effect of an axis the build ignores",
   makeTest("demo", "bad_variant")
       .build(buildTriangleWorld)
       .variant("primitiveCount", {4, 9})
+      .groundTruth("a unit test of the Ground-truth path")
       .registerInto(catalog);
 
   RunOptions opts;
@@ -1078,6 +1082,7 @@ TEST_CASE("Runner runs exact checks on raw values and records them",
                 "< 0",
                 [](uint32_t, uint32_t, float v) { return v < 0.f; });
           })
+      .groundTruth("a unit test of the Ground-truth path")
       .registerInto(catalog);
 
   RunOptions opts;
@@ -1256,6 +1261,7 @@ TEST_CASE("Runner applies ambientRadiance before Test renderer overrides",
   anari::commitParameters(d, d);
 
   auto rendererTestBuilder = makeTest("renderer", "defaults");
+  rendererTestBuilder.groundTruth("a unit test of the Ground-truth path");
   rendererTestBuilder.build(buildAmbientWorld)
       .renderer([](BuildContext &ctx, anari::Renderer renderer) {
         // Helide's implementation-specific switch allows the standard ambient
@@ -1285,6 +1291,7 @@ TEST_CASE("Runner applies ambientRadiance before Test renderer overrides",
   CHECK(imageEnergy(bright.front()) > imageEnergy(dark.front()));
 
   auto overrideTestBuilder = makeTest("renderer", "ambient_override");
+  overrideTestBuilder.groundTruth("a unit test of the Ground-truth path");
   overrideTestBuilder.build(buildAmbientWorld)
       .renderer([](BuildContext &ctx, anari::Renderer renderer) {
         auto d = ctx.device();
@@ -1324,7 +1331,10 @@ TEST_CASE(
   std::filesystem::remove_all(root, ec);
 
   Catalog cat;
-  makeTest("geometry", "sphere").build(buildSphereWorld).registerInto(cat);
+  makeTest("geometry", "sphere")
+      .build(buildSphereWorld)
+      .groundTruth("a unit test of the Ground-truth path")
+      .registerInto(cat);
 
   // Request accumulation + denoise, but helide advertises neither extension.
   const std::set<std::string> features; // helide: no accumulation, no denoise
@@ -1381,15 +1391,22 @@ TEST_CASE("Runner isolates a throwing case and completes the rest",
   // generate clean ground truth first and then make the same Case explode.
   auto shouldThrow = std::make_shared<bool>(false);
   Catalog cat;
-  makeTest("geometry", "triangle").build(buildTriangleWorld).registerInto(cat);
+  makeTest("geometry", "triangle")
+      .build(buildTriangleWorld)
+      .groundTruth("a unit test of the Ground-truth path")
+      .registerInto(cat);
   makeTest("geometry", "explodes")
       .build([shouldThrow](BuildContext &ctx) -> anari::World {
         if (*shouldThrow)
           throw std::runtime_error("boom during build");
         return buildSphereWorld(ctx);
       })
+      .groundTruth("a unit test of the Ground-truth path")
       .registerInto(cat);
-  makeTest("geometry", "sphere").build(buildSphereWorld).registerInto(cat);
+  makeTest("geometry", "sphere")
+      .build(buildSphereWorld)
+      .groundTruth("a unit test of the Ground-truth path")
+      .registerInto(cat);
 
   const std::set<std::string> features;
   RunOptions opts;
@@ -2046,6 +2063,7 @@ Catalog probeCatalog(std::shared_ptr<int> builds)
         ++*builds;
         return nullptr;
       })
+      .groundTruth("a unit test of the Ground-truth path")
       .registerInto(cat);
   return cat;
 }

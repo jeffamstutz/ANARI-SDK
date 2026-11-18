@@ -319,10 +319,23 @@ synthetic positive and negative is the validation; say so in the ticket's
 answer.
 
 Declare `.groundTruth(reason)` when
-appearance has no analytic answer, or `.noGroundTruth()` when the self-checks
-say everything. A Test with Ground truth must also pass `check-discrimination`:
-its Permutation values' Ground truth must fail as each other's. Don't add a
-new Test to the allow-list; its seeded entries only shrink.
+appearance has no analytic answer; a Test that declares neither it nor
+`.noGroundTruth()` is self-checked only (as `.noGroundTruth()` says explicitly,
+which is the clearer form for a Test whose checks are complete), and one with
+nothing to evaluate is skipped. A Test with Ground truth must also pass
+`check-discrimination`: its Permutation values' Ground truth must fail as each
+other's. An allow-list entry needs a specific reason (what the Reference
+device can't show, or how little of the frame the change touches), never a
+bare "indistinguishable".
+
+An axis whose unset value is the spec's default for another value (a `filter`
+or `wrapMode` left unset, `side` unset, `layout` unset) is not a second
+Permutation value: declare the unset value with `.expectDerived` from the
+explicit default (so the pair is judged for equality, not effect), or make the
+axis a Variant. A frame buffer type axis (`frame_color_type`, ...) is a
+Permutation whose float and sRGB values are derived expectations of the linear
+one (`tests/FrameTypeAxis.h`): the sRGB buffer's bytes are the encoded colours,
+and the 8-bit comparison image is the buffer, undecoded.
 
 **New synchronization rule** (or any check a device fails by hanging): a
 behaviour Test in `cts/tests/synchronization.cpp` with `.timeout(...)` and
