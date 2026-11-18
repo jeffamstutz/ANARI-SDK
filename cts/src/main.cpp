@@ -140,8 +140,11 @@ options:
                        (repeatable; device-agnostic). VALUE is parsed into the
                        renderer's device-declared type, else inferred as bool/
                        int/float/float-vector/string. e.g. -p ambientSample=4
-  --accumulation <n>   progressive color-channel frames when the device supports
-                       ANARI_KHR_FRAME_ACCUMULATION (default: 16; <=1 disables)
+  --accumulation <n>   cap on progressive color-channel frames when the device
+                       supports ANARI_KHR_FRAME_ACCUMULATION (default: 16; <=1
+                       renders once; refinementProgress 1 stops earlier).
+                       Relational checks fail "not converged" if the image is
+                       still refining: raise it until they pass
   --no-accumulation    render each channel once (equivalent to --accumulation 1)
   --denoise            set the renderer "denoise" parameter (warns, but still
                        sets it, if the device lacks ANARI_KHR_RENDERER_DENOISE)

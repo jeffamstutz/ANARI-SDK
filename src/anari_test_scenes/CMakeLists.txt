@@ -97,6 +97,7 @@ if (BUILD_CTS OR BUILD_TESTING)
     cts/DeviceErrorLog.cpp
     cts/DeviceFailure.cpp
     cts/DeviceProbe.cpp
+    cts/ConvergenceGuard.cpp
     cts/Discrimination.cpp
     cts/ExactCheck.cpp
     cts/Expansion.cpp

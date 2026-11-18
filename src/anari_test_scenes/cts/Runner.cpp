@@ -3,6 +3,7 @@
 
 #include "Runner.h"
 #include "BuildContext.h"
+#include "ConvergenceGuard.h"
 #include "DeviceFailure.h"
 #include "DeviceProbe.h"
 #include "ExactCheck.h"
@@ -53,6 +54,37 @@ const char *channelFrameParam(Channel ch)
   return "channel.color";
 }
 
+// Render `f` up to `cap` times, waiting after each, stopping early when the
+// frame reports refinementProgress 1 (accumulationDone()). Returns the frames
+// rendered and the last progress reported, if any. A device that doesn't
+// report refinementProgress is asked once; the frame renders exactly `cap`
+// times.
+struct AccumulationResult
+{
+  uint32_t frames{0};
+  std::optional<float> progress;
+};
+
+AccumulationResult accumulateFrame(
+    anari::Device d, anari::Frame f, uint32_t cap)
+{
+  AccumulationResult r;
+  bool reported = true;
+  while (!accumulationDone(r.frames, std::max(cap, 1u), r.progress)) {
+    anari::render(d, f);
+    anari::wait(d, f);
+    ++r.frames;
+    if (reported) {
+      float p = 0.f;
+      if (anari::getProperty(d, f, "refinementProgress", p, ANARI_WAIT))
+        r.progress = p;
+      else
+        reported = false;
+    }
+  }
+  return r;
+}
+
 // Render one channel of an already-assembled world with a caller-owned camera
 // and renderer. chFmt is the buffer format the Case requested for this channel
 // (the comparison image is always 8-bit RGBA; depth and IDs also keep their
@@ -93,10 +125,7 @@ ChannelValues renderChannel(anari::Device d,
   // rendering the same frame N times refines the image (matches
   // tests/frame.cpp's progressive-rendering check).
   if (accumulate) {
-    for (uint32_t i = 0; i < accumulationFrames; ++i) {
-      anari::render(d, f);
-      anari::wait(d, f);
-    }
+    accumulateFrame(d, f, accumulationFrames);
   } else {
     anari::render(d, f);
     anari::wait(d, f);
@@ -279,6 +308,7 @@ void Runner::resolveCapabilities(const std::set<std::string> &features)
           && features.count("ANARI_KHR_FRAME_ACCUMULATION"))
       ? m_options.accumulationFrames
       : 1;
+  m_accumulationSupported = features.count("ANARI_KHR_FRAME_ACCUMULATION") > 0;
   m_denoiseEnabled = m_options.denoise;
   // Every sidecar records what the device advertised (schema v3), so the
   // report can tell "not advertised" from "advertised, but failed".
@@ -470,6 +500,73 @@ Runner::RenderedChannels Runner::renderChannels(
         m_effectiveAccumulationFrames));
   }
   return out;
+}
+
+ConvergenceMeasurement Runner::measureConvergence(
+    const TestDef &test, const Case &c)
+{
+  ConvergenceMeasurement m;
+  try {
+    const CaseFrameSize frameSize = frameSizeOf(test, c);
+    if (!frameSize.resolved()) {
+      m.error = frameSize.skipReason;
+      return m;
+    }
+    const FrameSize size = frameSize.size;
+    SceneObjects scene = buildScene(test, c, size);
+    if (!scene.valid()) {
+      m.error = "world/camera/renderer build failed";
+      return m;
+    }
+    const float depthScale =
+        2.0f * anari::math::length(scene.bounds[1] - scene.bounds[0]);
+
+    UniqueAnariObject<anari::Frame> frame(
+        m_device, anari::newObject<anari::Frame>(m_device));
+    const auto f = frame.get();
+    anari::setParameter(m_device,
+        f,
+        "size",
+        anari::math::vec<uint32_t, 2>(size.width, size.height));
+    anari::setParameter(
+        m_device, f, "channel.color", caseChannelFormat(c, Channel::Color));
+    anari::setParameter(m_device, f, "renderer", scene.renderer.get());
+    anari::setParameter(m_device, f, "camera", scene.camera.get());
+    anari::setParameter(m_device, f, "world", scene.world.get());
+    // Accumulation is on even when the run renders once: the guard needs a
+    // frame it can keep refining.
+    anari::setParameter(m_device, f, "accumulation", true);
+    anari::commitParameters(m_device, f);
+
+    const auto first =
+        accumulateFrame(m_device, f, m_effectiveAccumulationFrames);
+    auto before = readFrameChannel(
+        m_device, f, Channel::Color, size.width, size.height, depthScale);
+    if (!before) {
+      m.error = before.detail;
+      return m;
+    }
+    m.frames = first.frames;
+    m.extraFrames = first.frames;
+    m.refinementProgress = first.progress;
+    for (uint32_t i = 0; i < m.extraFrames; ++i) {
+      anari::render(m_device, f);
+      anari::wait(m_device, f);
+    }
+    auto after = readFrameChannel(
+        m_device, f, Channel::Color, size.width, size.height, depthScale);
+    if (!after) {
+      m.error = after.detail;
+      return m;
+    }
+    m.before = std::move(before.image);
+    m.after = std::move(after.image);
+  } catch (const std::exception &e) {
+    m.error = e.what();
+  } catch (...) {
+    m.error = "unknown exception";
+  }
+  return m;
 }
 
 std::optional<FrameSize> Runner::sizeOrSkip(
@@ -742,7 +839,25 @@ void Runner::runRenderTest(const TestDef &test,
   // Phase 2, per Test: the pure relational pass over the Candidate's images,
   // merged into the selected Cases' Sidecars.
   std::vector<bool> participated(cases.size(), false);
-  for (auto &rel : evaluateRelations(test, cases, renders, m_selfChecks)) {
+  auto relational = evaluateRelations(test, cases, renders, m_selfChecks);
+  // The guard: relational assertions need a converged Candidate (ADR-0010).
+  // It is recorded on the baseline Case, or on the first selected Case when
+  // the filter excludes it, and a failure fails every relational assertion.
+  // Exact checks carry their own tolerances and are not guarded.
+  std::optional<Assertion> convergence;
+  size_t convergenceCase = 0;
+  if (m_accumulationSupported && hasEvaluatedRelation(relational)
+      && std::find(test.channels.begin(), test.channels.end(), Channel::Color)
+          != test.channels.end()) {
+    convergence =
+        judgeConvergence(measureConvergence(test, cases.front()), m_selfChecks);
+    failRelationsNotConverged(relational, *convergence);
+    while (!chosen[convergenceCase])
+      ++convergenceCase;
+    if (chosen[0])
+      convergenceCase = 0;
+  }
+  for (auto &rel : relational) {
     if (rel.assertion.evaluated)
       for (size_t p : rel.partners)
         participated[p] = true;
@@ -776,16 +891,26 @@ void Runner::runRenderTest(const TestDef &test,
     }
     outcome.result.assertions.push_back(std::move(a));
   }
+  if (convergence) {
+    outcomes[convergenceCase].result.assertions.push_back(
+        std::move(*convergence));
+    participated[convergenceCase] = true;
+  }
 
   for (size_t i = 0; i < cases.size(); ++i) {
     if (chosen[i]) {
       summary.total++;
+      m_scored.insert(cases[i].qualifiedId());
       settleVerdict(outcomes[i].result, participated[i]);
       recordResult(
           cases[i], outcomes[i].result, summary, outcomes[i].artifacts);
-    } else if (toRender[i] && renders[i].state == CaseRender::State::Rendered) {
+    } else if (toRender[i] && renders[i].state == CaseRender::State::Rendered
+        && !m_scored.count(cases[i].qualifiedId())) {
       // A support render: its images are written so a report can show the
-      // partner; it is neither scored nor counted.
+      // partner; it is neither scored nor counted. A Case scored earlier by
+      // this Runner (a previous --stdin line) keeps its scored images: a
+      // fresh render of a non-deterministic device would no longer match its
+      // Sidecar.
       std::vector<ImageArtifact> images;
       for (size_t k = 0; k < test.channels.size(); ++k)
         images.push_back({m_workdir.resultImagePath(cases[i], test.channels[k]),

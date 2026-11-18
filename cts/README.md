@@ -79,8 +79,12 @@ options:
                        (repeatable; device-agnostic). VALUE parses into the
                        renderer's device-declared type, else inferred as bool/
                        int/float/float-vector/string. e.g. -p ambientSample=4
-  --accumulation <n>   progressive color-channel frames when supported (default: 16)
-  --no-accumulation    render each channel once
+  --accumulation <n>   cap on progressive color-channel frames when supported
+                       (default: 16); a device's refinementProgress of 1 stops
+                       earlier. Effect and equivalence checks need a converged
+                       image: a Test fails with "not converged" until the
+                       count is high enough (convergence guard, ADR-0010)
+  --no-accumulation    render each channel once (the guard still runs)
   --denoise            set the renderer denoise parameter
   --stdin              read newline-separated filter patterns from stdin (run)
   --verbose            print ANARI warnings
