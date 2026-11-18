@@ -64,20 +64,28 @@ constexpr uint32_t kCells = 4; // per axis
 const float3 kCellOrigin(-1.f);
 const float kCellSpacing = 0.5f; // bounds [-1, 1]
 
-// The cell values: smooth, and different along x and y, so a field that is
+// The axis the Case's camera looks down: "z" or "x". Each view checks the
+// field across it, so between them the two check all three axes.
+bool viewsDownX(BuildContext &ctx)
+{
+  return ctx.getString("view", "z") == "x";
+}
+
+// The cell values: smooth, and different along the two axes across the view
+// (x and y looking down z; z and y looking down x), so a field that is
 // shifted, mirrored or scaled across the view renders differently. Constant
-// along z, the view direction: where a ray march first samples the field
-// (devices step by the spacing, and jitter) then doesn't change its colour.
-float cellValue(uint32_t i, uint32_t j, uint32_t /*k*/)
+// along the view axis: where a ray march first samples the field (devices
+// step by the spacing, and jitter) then doesn't change its colour.
+float cellValue(bool downX, uint32_t i, uint32_t j, uint32_t k)
 {
   const float n = float(kCells - 1);
-  const float x = i / n, y = j / n;
-  return (x + y * y) / 2.f;
+  const float u = (downX ? k : i) / n, v = j / n;
+  return (u + v * v) / 2.f;
 }
 
 // The cell-centered field at continuous cell index c (cell i's centre is
 // c = i): trilinear between centres, clamped to the edge cells outside them.
-float cellCenteredAt(std::array<float, 3> c)
+float cellCenteredAt(bool downX, std::array<float, 3> c)
 {
   std::array<uint32_t, 3> i0;
   std::array<float, 3> f;
@@ -95,14 +103,15 @@ float cellCenteredAt(std::array<float, 3> c)
       i[a] = i0[a] + (hi ? 1 : 0);
       w *= hi ? f[a] : 1.f - f[a];
     }
-    v += w * cellValue(i[0], i[1], i[2]);
+    v += w * cellValue(downX, i[0], i[1], i[2]);
   }
   return v;
 }
 
 // The Case's field: "cellCentered" (kCells^3 cells) or its vertex-centered
 // equal (2 kCells + 1 vertices per axis at half the spacing).
-anari::SpatialField cellCenteredCaseField(anari::Device d, bool cellCentered)
+anari::SpatialField cellCenteredCaseField(
+    anari::Device d, bool cellCentered, bool downX)
 {
   auto field = anari::newObject<anari::SpatialField>(d, "structuredRegular");
   anari::setParameter(d, field, "origin", kCellOrigin);
@@ -114,7 +123,7 @@ anari::SpatialField cellCenteredCaseField(anari::Device d, bool cellCentered)
     for (uint32_t k = 0; k < n; ++k)
       for (uint32_t j = 0; j < n; ++j)
         for (uint32_t i = 0; i < n; ++i)
-          data.push_back(cellValue(i, j, k));
+          data.push_back(cellValue(downX, i, j, k));
     anari::setParameter(d, field, "cellCentered", true);
     anari::setParameter(d, field, "spacing", float3(kCellSpacing));
   } else {
@@ -124,7 +133,7 @@ anari::SpatialField cellCenteredCaseField(anari::Device d, bool cellCentered)
       for (uint32_t j = 0; j < n; ++j)
         for (uint32_t i = 0; i < n; ++i)
           data.push_back(cellCenteredAt(
-              {0.5f * i - 0.5f, 0.5f * j - 0.5f, 0.5f * k - 0.5f}));
+              downX, {0.5f * i - 0.5f, 0.5f * j - 0.5f, 0.5f * k - 0.5f}));
     anari::setParameter(d, field, "spacing", float3(0.5f * kCellSpacing));
   }
   anari::setParameterArray3D(d, field, "data", data.data(), n, n, n);
@@ -135,8 +144,9 @@ anari::SpatialField cellCenteredCaseField(anari::Device d, bool cellCentered)
 anari::World cellCenteredWorld(BuildContext &ctx)
 {
   auto d = ctx.device();
-  auto field = cellCenteredCaseField(
-      d, ctx.getString("grid", "cellCentered") == "cellCentered");
+  auto field = cellCenteredCaseField(d,
+      ctx.getString("grid", "cellCentered") == "cellCentered",
+      viewsDownX(ctx));
   auto vol = anari::newObject<anari::Volume>(d, "transferFunction1D");
   anari::setParameter(d, vol, "value", field);
   std::vector<float3> colors = {
@@ -158,19 +168,21 @@ anari::World cellCenteredWorld(BuildContext &ctx)
   return world;
 }
 
-// Orthographic, looking straight down -z at the field's +z face, so every
-// pixel shows the field on that face and no pixel sees a side face. The view
-// is kCellCenteredViewHeight tall: the bounds' edges (+-1) fall at 1/2 +- 3/8
-// of the frame, on whole pixels for a square frame whose size is a multiple
-// of 8.
+// Orthographic, looking straight down -z at the field's +z face (or down -x
+// at its +x face), so every pixel shows the field on that face and no pixel
+// sees a side face. The view is kCellCenteredViewHeight tall: the bounds'
+// edges (+-1) fall at 1/2 +- 3/8 of the frame, on whole pixels for a square
+// frame whose size is a multiple of 8.
 constexpr float kCellCenteredViewHeight = 8.f / 3.f;
 
 anari::Camera cellCenteredCamera(BuildContext &ctx, const scenes::Bounds &)
 {
   auto d = ctx.device();
+  const float3 dir =
+      viewsDownX(ctx) ? float3(-1.f, 0.f, 0.f) : float3(0.f, 0.f, -1.f);
   auto c = anari::newObject<anari::Camera>(d, "orthographic");
-  anari::setParameter(d, c, "position", float3(0.f, 0.f, 3.f));
-  anari::setParameter(d, c, "direction", float3(0.f, 0.f, -1.f));
+  anari::setParameter(d, c, "position", -3.f * dir);
+  anari::setParameter(d, c, "direction", dir);
   anari::setParameter(d, c, "up", float3(0.f, 1.f, 0.f));
   anari::setParameter(d, c, "height", kCellCenteredViewHeight);
   anari::commitParameters(d, c);
@@ -227,10 +239,15 @@ void registerVolumeTests(Catalog &catalog)
           "Checks that a cell-centered structured regular field renders as "
           "the vertex-centered field the spec defines it to equal.")
       .build(cellCenteredWorld)
-      // A fixed orthographic camera looking down -z, not one framing the
-      // world's bounds: a field whose bounds are wrong then renders at the
-      // wrong size. See cellCenteredCamera() for the framing.
+      // A fixed orthographic camera looking down -z or -x, not one framing
+      // the world's bounds: a field whose bounds are wrong then renders at
+      // the wrong size. See cellCenteredCamera() for the framing.
       .camera(cellCenteredCamera)
+      // Each view leaves the axis along it unchecked; the other covers it.
+      .permute("view", {"z", "x"})
+      .noEffectCheck("view",
+          "the views look down different axes at differently laid out "
+          "fields; nothing relates their images")
       // The first value is the reference: the vertex-centered equal.
       // Framed this way, the default tolerance holds on helide, halcyon and
       // visrtx (measurements in ADR-0010, volume equivalence).
