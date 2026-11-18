@@ -367,10 +367,15 @@ default tolerance holds.
 - **Opaque at once:** opacity 1 and a small `unitDistance` (0.001), so the
   image is the first samples' colour.
 - **Constant along the view axis:** the field varies only across the view, so
-  where along the ray the first samples land doesn't change the colour. The
-  Test then checks the field's extent and layout across the view; the axis
-  along the view is not checked by that Test (a second Test looking down
-  another axis would).
+  where along the ray the first samples land doesn't change the colour. A view
+  then checks the field's extent and layout across it, not along it.
+- **A second view down another axis:** a volume equivalence Test must cover
+  the axis along the view, so it also runs looking straight down another axis,
+  with the field laid out to be constant along that axis and vary in the other
+  two. Between them the two views check all three axes. Nothing is compared
+  across views. The example is `volume/structured_regular_cell_centered`: a
+  Permutation axis `view` (`z`, `x`) with `.noEffectCheck`, so each view's
+  Cases hold their own equivalence.
 - **Silhouette edges on whole pixels:** the orthographic `height` puts the
   bounds' edges on pixel boundaries at the default frame size (the
   cell-centered Test uses `height` 8/3 for bounds [-1, 1], edges at 1/2 ± 3/8
@@ -383,13 +388,17 @@ default tolerance holds.
   with the measured spread on at least two devices stated beside it and a
   stated margin below the failure the Test targets.
 
-Measured on 2026-11-17 at 256x256 with the default tolerance (0.2 %, τ = 8),
-gating removed on helide and halcyon, which don't implement the extension:
-a 17³ grid of the same function in place of the cell-centered field renders
-identically to the 9³ vertex-centered one on helide and halcyon (0 pixels
-differ at all) and within 8 levels on visrtx (1.5 % of pixels differ by 1-8
-levels); the cell-centered field read as vertex-centered (helide, halcyon)
-changes 56 % of pixels. visrtx, which implements the extension, passes at
-256, 200 and 512. Ticket 11's cross-representation equivalences
-(structuredRegular, unstructured, nanovdb; filters; element types) build on
-this framing.
+Measured on 2026-11-17 with the default tolerance (0.2 %, τ = 8), each view
+on its own, gating removed on helide and halcyon, which don't implement the
+extension: a 17³ grid of the same function in place of the cell-centered
+field renders identically to the 9³ vertex-centered one on helide and halcyon
+(0 pixels differ at all, at 200, 256 and 512, in both views) and within 1
+level on visrtx (1.4-1.7 % of pixels); the cell-centered field read as
+vertex-centered (helide, halcyon) changes 56 % of pixels in both views at
+256. visrtx, which implements the extension, passes both views at 256, 200
+and 512 (2.0-2.4 % of pixels differ, by 1 level). An earlier measurement of
+the single view on visrtx saw differences up to 8 levels, exactly τ.
+
+Ticket 11's cross-representation equivalences (structuredRegular,
+unstructured, nanovdb; filters; element types) build on this framing,
+second view included.

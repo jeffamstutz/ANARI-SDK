@@ -48,11 +48,21 @@ struct Fixture
     cases = expand(*test);
   }
 
-  // The Case holding `value` on the Test's only axis.
+  // The Case's values in axis order, joined by '/': its value on a Test
+  // with one axis.
+  static std::string key(const Case &c)
+  {
+    std::string out;
+    for (const auto &cv : c.values)
+      out += (out.empty() ? "" : "/") + anyToString(cv.value);
+    return out;
+  }
+
+  // The Case whose key() is `value`.
   size_t index(const std::string &value) const
   {
     for (size_t i = 0; i < cases.size(); ++i)
-      if (anyToString(cases[i].values.front().value) == value)
+      if (key(cases[i]) == value)
         return i;
     FAIL("no Case " << value);
     return 0;
@@ -65,7 +75,7 @@ struct Fixture
   {
     std::vector<CaseRender> renders(cases.size());
     for (size_t i = 0; i < cases.size(); ++i) {
-      const auto it = images.find(anyToString(cases[i].values.front().value));
+      const auto it = images.find(key(cases[i]));
       REQUIRE(it != images.end());
       renders[i].state = CaseRender::State::Rendered;
       renders[i].images = {it->second};
@@ -77,18 +87,21 @@ struct Fixture
     return out;
   }
 
+  // Whether the Case holding `value` has an evaluated relation and every
+  // evaluated one passes (an effect check opted out is not evaluated).
   bool passes(
       const std::map<std::string, Image> &images, const std::string &value)
   {
-    const auto outcomes = judge(images, value);
-    if (outcomes.empty())
-      return false;
-    for (const auto &o : outcomes) {
+    bool evaluated = false;
+    for (const auto &o : judge(images, value)) {
+      if (!o.assertion.evaluated)
+        continue;
+      evaluated = true;
       INFO(value << ": " << o.assertion.detail);
       if (!o.assertion.passed)
         return false;
     }
-    return true;
+    return evaluated;
   }
 };
 
@@ -282,15 +295,38 @@ TEST_CASE("structured_regular_cell_centered compares with its vertex equal",
       cts_test::rectangle(kSize, kSize, 16, 16, 48, 48, Rgba{90, 200, 90, 255});
   const Image smaller =
       cts_test::rectangle(kSize, kSize, 20, 20, 44, 44, Rgba{90, 200, 90, 255});
-  CHECK(f.passes(
-      {{"vertexCentered", cube}, {"cellCentered", cube}}, "cellCentered"));
-  CHECK_FALSE(f.passes(
-      {{"vertexCentered", cube}, {"cellCentered", smaller}}, "cellCentered"));
   // The default equivalence tolerance, not a loosened one: a silhouette one
   // pixel off (1.6 % of the frame here, which a 4 % tolerance would
   // pass) fails.
   const Image shifted =
       cts_test::rectangle(kSize, kSize, 17, 16, 49, 48, Rgba{90, 200, 90, 255});
-  CHECK_FALSE(f.passes(
-      {{"vertexCentered", cube}, {"cellCentered", shifted}}, "cellCentered"));
+  const Image other =
+      cts_test::rectangle(kSize, kSize, 16, 16, 48, 48, Rgba{200, 90, 90, 255});
+
+  // Two views, down z and down x, each compared on its own: between them
+  // they check all three axes of the field.
+  for (const std::string view : {"z", "x"}) {
+    INFO("view " << view);
+    const std::string otherView = view == "z" ? "x" : "z";
+    const auto images = [&](const Image &cellCentered) {
+      return std::map<std::string, Image>{{view + "/vertexCentered", cube},
+          {view + "/cellCentered", cellCentered},
+          {otherView + "/vertexCentered", other},
+          {otherView + "/cellCentered", other}};
+    };
+    CHECK(f.passes(images(cube), view + "/cellCentered"));
+    CHECK_FALSE(f.passes(images(smaller), view + "/cellCentered"));
+    CHECK_FALSE(f.passes(images(shifted), view + "/cellCentered"));
+  }
+
+  // Nothing is compared across views: the views' images differ, and the
+  // only relation between them is the effect check's opt-out.
+  const auto acrossViews = f.judge({{"z/vertexCentered", cube},
+                                       {"z/cellCentered", cube},
+                                       {"x/vertexCentered", other},
+                                       {"x/cellCentered", other}},
+      "x/vertexCentered");
+  REQUIRE_FALSE(acrossViews.empty());
+  for (const auto &o : acrossViews)
+    CHECK_FALSE(o.assertion.evaluated);
 }
