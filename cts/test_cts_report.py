@@ -30,6 +30,7 @@ def make_sidecar(
     duration_ms=10.0,
     device_library="helide",
     description="Checks triangle geometry rendering.",
+    assertions=None,
 ):
     return {
         "schemaVersion": 4,
@@ -52,7 +53,7 @@ def make_sidecar(
         "usesGroundTruth": True,
         "groundTruthEvaluated": True,
         "groundTruthReason": "",
-        "assertions": [],
+        "assertions": assertions or [],
         "channels": [
             {
                 "channel": "color",
@@ -192,6 +193,47 @@ class SidecarLoadingTests(unittest.TestCase):
         self.assertEqual(summary["skipped"], 1)
         self.assertEqual(summary["failures"], ["geometry/triangle/failed"])
 
+    def test_failed_assertions_read_as_text_whatever_their_kind(self):
+        data = make_sidecar(verdict="failed")
+        data["assertions"] = [
+            {
+                "kind": "effect",
+                "axis": "position",
+                "cases": ["base"],
+                "evaluated": True,
+                "passed": False,
+                "detail": "changed 0.00 % of color pixels",
+            },
+            {"kind": "effect", "axis": "power", "evaluated": False},
+            {"kind": "equivalence", "passed": True},
+            {"kind": "exact", "label": "ids", "passed": False, "detail": "3 offend"},
+            {"kind": "futurekind", "passed": False},
+            "not an object",
+        ]
+        self.assertEqual(
+            ctsReport.failed_assertion_lines(data),
+            [
+                "effect failed (axis position) vs base: changed 0.00 % of color pixels",
+                'exact failed (check "ids"): 3 offend',
+                "futurekind failed",
+            ],
+        )
+        self.assertEqual(ctsReport.failed_assertion_lines(make_sidecar()), [])
+
+    def test_schema_v4_sidecar_with_assertions_reads_without_warning(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workdir = Path(temp) / "candidate"
+            write_sidecar(
+                workdir,
+                case="asserted",
+                assertions=[{"kind": "futurekind", "passed": False}],
+            )
+            errors = io.StringIO()
+            with contextlib.redirect_stderr(errors):
+                results = ctsReport.load_results(workdir)
+        self.assertEqual(errors.getvalue(), "")
+        self.assertEqual(len(results), 1)
+
 
 class PdfReportTests(unittest.TestCase):
     def test_pdf_report_includes_descriptions_for_itemized_cases(self):
@@ -224,6 +266,46 @@ class PdfReportTests(unittest.TestCase):
 
         self.assertIn(
             "Description: Checks triangle geometry rendering.", paragraphs
+        )
+
+    def test_pdf_report_prints_failed_assertions_as_text(self):
+        try:
+            from reportlab.platypus import Paragraph as real_paragraph
+        except ImportError:
+            self.skipTest("reportlab is not installed")
+
+        results = {
+            "geometry/triangle/default": make_sidecar(
+                verdict="failed",
+                assertions=[
+                    {
+                        "kind": "effect",
+                        "axis": "position",
+                        "cases": ["base"],
+                        "passed": False,
+                        "detail": "changed 0.00 % of color pixels",
+                    }
+                ],
+            )
+        }
+        paragraphs = []
+
+        def capture_paragraph(text, style, *args, **kwargs):
+            paragraphs.append(text)
+            return real_paragraph(text, style, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as temp:
+            with mock.patch(
+                "reportlab.platypus.Paragraph", side_effect=capture_paragraph
+            ):
+                self.assertTrue(
+                    ctsReport.generate_pdf(
+                        temp, results, Path(temp) / "r.pdf"
+                    )
+                )
+        self.assertIn(
+            "effect failed (axis position) vs base: changed 0.00 % of color pixels",
+            paragraphs,
         )
 
     def test_pdf_image_comparison_tables_fit_page(self):

@@ -19,8 +19,9 @@ The sidecar schema is versioned (schemaVersion); this reader targets version 4
 requiredFeatures, coveredFeatures, missingFeatures, device.extensions and
 catalogCoveredFeatures, the last only for the C++ report's per-extension
 matrix; v4 the self-checks: an `assertions` array, `resultImages`, and
-usesGroundTruth/groundTruthEvaluated/groundTruthReason, which this reader
-does not yet show) and warns on a mismatch.
+usesGroundTruth/groundTruthEvaluated/groundTruthReason) and warns on a
+mismatch. A failed assertion is printed as detail text, whatever its kind; no
+image layout is done for it.
 """
 
 import argparse
@@ -155,6 +156,36 @@ def case_features(data):
         strings(data.get("coveredFeatures")),
         strings(data.get("missingFeatures")),
     )
+
+
+def failed_assertion_lines(data):
+    """One line of text per failed (evaluated, not passed) assertion of a Case.
+
+    Reads every kind alike, so a kind a later schema adds still shows: its
+    kind, axis or label, partner Cases and detail. Entries that are not
+    objects are ignored.
+    """
+    lines = []
+    assertions = data.get("assertions")
+    if not isinstance(assertions, list):
+        return lines
+    for a in assertions:
+        if not isinstance(a, dict):
+            continue
+        if not a.get("evaluated", True) or a.get("passed", False):
+            continue
+        line = f"{a.get('kind') or 'assertion'} failed"
+        if a.get("axis"):
+            line += f" (axis {a['axis']})"
+        if a.get("label"):
+            line += f' (check "{a["label"]}")'
+        partners = a.get("cases")
+        if isinstance(partners, list) and partners:
+            line += " vs " + ", ".join(str(c) for c in partners)
+        if a.get("detail"):
+            line += f": {a['detail']}"
+        lines.append(line)
+    return lines
 
 
 def summarize(results):
@@ -304,6 +335,8 @@ def generate_pdf(
                 story.append(
                     Paragraph(f"Device lacks: {', '.join(missing)}", styles["Normal"])
                 )
+            for line in failed_assertion_lines(data):
+                story.append(Paragraph(html.escape(line), styles["Normal"]))
             # Cases with no channels (behavioral, or a failed render) carry a
             # reason note instead of channel images.
             if not data.get("channels"):

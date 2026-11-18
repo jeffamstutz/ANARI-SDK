@@ -975,3 +975,139 @@ TEST_CASE("an opted-out assertion keeps a row from reading plain passed",
   const auto rows = extensionCoverage(keyed({opted}), {}, {"A_OPTED"});
   CHECK(row(rows, "A_OPTED").state == CoverageState::PartlyScored);
 }
+
+// Self-checks in the HTML report (ticket 19) /////////////////////////////////
+
+TEST_CASE("generateHtml shows a failed effect with both images and the mask",
+    "[cts][html]")
+{
+  const auto root = std::filesystem::temp_directory_path() / "cts_htmlasrt_test";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+  const auto dir = root / "run" / "results" / "light" / "spot";
+  REQUIRE(std::filesystem::create_directories(dir));
+  for (const char *f : {"moved.color.png",
+           "base.color.png",
+           "x.effect-0.mask.png"})
+    std::ofstream(dir / f) << "png";
+
+  CaseResult moved = makeCase("light", "spot", "moved", Verdict::Failed);
+  moved.groundTruthEvaluated = false;
+  moved.resultImages = {{Channel::Color, "results/light/spot/moved.color.png"}};
+  moved.assertions = {failedEffect("position", "base")};
+  CaseResult base = makeCase("light", "spot", "base", Verdict::Passed);
+  base.groundTruthEvaluated = false;
+
+  const std::string doc =
+      generateHtml(root / "run", keyed({moved, base}), HtmlOptions{});
+  CHECK(doc.find("data-kind=\"effect\"") != std::string::npos);
+  CHECK(doc.find("axis <span class=\"kmono\">position</span>")
+      != std::string::npos);
+  // The partner is a link to its row, which carries the matching id.
+  CHECK(doc.find("data-target=\"case-light/spot/base\"") != std::string::npos);
+  CHECK(doc.find("id=\"case-light/spot/base\"") != std::string::npos);
+  // This Case's image, the partner's and the mask.
+  CHECK(doc.find("src=\"results/light/spot/moved.color.png\"")
+      != std::string::npos);
+  CHECK(doc.find("src=\"results/light/spot/base.color.png\"")
+      != std::string::npos);
+  CHECK(doc.find("src=\"results/light/spot/x.effect-0.mask.png\"")
+      != std::string::npos);
+  CHECK(doc.find("data-kinds=\"effect\"") != std::string::npos);
+  CHECK(doc.find("class=\"kindseg\" data-kind=\"effect\"") != std::string::npos);
+  CHECK(doc.find("Ground truth not evaluated") != std::string::npos);
+
+  std::filesystem::remove_all(root, ec);
+}
+
+TEST_CASE("generateHtml shows a failed equivalence with its expected image",
+    "[cts][html]")
+{
+  const auto root = std::filesystem::temp_directory_path() / "cts_htmleq_test";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+  const auto dir = root / "run" / "results" / "camera" / "g";
+  REQUIRE(std::filesystem::create_directories(dir));
+  for (const char *f : {"region.color.png", "region.exp.png", "region.mask.png"})
+    std::ofstream(dir / f) << "png";
+
+  CaseResult region = makeCase("camera", "g", "region", Verdict::Failed);
+  region.resultImages = {{Channel::Color, "results/camera/g/region.color.png"}};
+  Assertion eq;
+  eq.kind = kEquivalenceAssertion;
+  eq.axis = "imageRegion";
+  eq.relatedCases = {"none"};
+  eq.channel = "color";
+  eq.score = 0.05;
+  eq.threshold = 0.002;
+  eq.passed = false;
+  eq.expectation = "the region's crop of the full frame";
+  eq.detail = "changed 5.00 % of color pixels";
+  eq.expectedImage = "results/camera/g/region.exp.png";
+  eq.maskImage = "results/camera/g/region.mask.png";
+  region.assertions = {eq};
+
+  const std::string doc =
+      generateHtml(root / "run", keyed({region}), HtmlOptions{});
+  CHECK(doc.find("data-kind=\"equivalence\"") != std::string::npos);
+  CHECK(doc.find("the region&#39;s crop of the full frame") != std::string::npos);
+  CHECK(doc.find("<figcaption>expected</figcaption>") != std::string::npos);
+  CHECK(doc.find("src=\"results/camera/g/region.exp.png\"")
+      != std::string::npos);
+  CHECK(doc.find("src=\"results/camera/g/region.mask.png\"")
+      != std::string::npos);
+  // `none` is not a Case of the run (a support render): no link.
+  CHECK(doc.find("data-target=\"case-camera/g/none\"") == std::string::npos);
+
+  std::filesystem::remove_all(root, ec);
+}
+
+TEST_CASE("generateHtml shows an opted-out axis and an unknown kind",
+    "[cts][html]")
+{
+  CaseResult r = makeCase("light", "spot", "a", Verdict::Passed);
+  Assertion opted;
+  opted.kind = kEffectAssertion;
+  opted.axis = "power";
+  opted.evaluated = false;
+  opted.score = std::nan("");
+  opted.detail = "effect check opted out: power only scales an invisible term";
+  Assertion odd;
+  odd.kind = "futurekind";
+  odd.passed = false;
+  odd.detail = "something a later schema measures";
+  r.verdict = Verdict::Failed;
+  r.assertions = {opted, odd};
+
+  const std::string doc = generateHtml("/tmp/myrun", keyed({r}), HtmlOptions{});
+  CHECK(doc.find("opted out: power only scales an invisible term")
+      != std::string::npos);
+  CHECK(doc.find("<span class=\"res skip-fg\">opted out</span>")
+      != std::string::npos);
+  CHECK(doc.find("data-kind=\"futurekind\"") != std::string::npos);
+  CHECK(doc.find("something a later schema measures") != std::string::npos);
+  CHECK(doc.find("data-kinds=\"futurekind\"") != std::string::npos);
+}
+
+TEST_CASE("generateHtml shows exact and convergence findings", "[cts][html]")
+{
+  CaseResult r = makeCase("geometry", "quad", "a", Verdict::Failed);
+  Assertion ex;
+  ex.kind = kExactAssertion;
+  ex.label = "ids";
+  ex.passed = false;
+  ex.pixels = PixelCounts{3, 100, FirstOffender{4, 5, "7", "0"}};
+  Assertion conv;
+  conv.kind = kConvergenceAssertion;
+  conv.passed = false;
+  conv.score = 0.1;
+  conv.threshold = 0.002;
+  conv.framesRendered = 12;
+  conv.refinementProgress = 0.5;
+  r.assertions = {ex, conv};
+  const std::string doc = generateHtml("/tmp/myrun", keyed({r}), HtmlOptions{});
+  CHECK(doc.find("3 of 100 pixels offend; first at (4, 5): got 7, expected 0")
+      != std::string::npos);
+  CHECK(doc.find("frames rendered 12, refinementProgress 0.500")
+      != std::string::npos);
+}
