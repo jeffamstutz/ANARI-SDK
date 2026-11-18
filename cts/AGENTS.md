@@ -243,7 +243,17 @@ ctsReport.py              reads the results tree too; retained only for the PDF
 **Tests (the catalog):** `cts/tests/<category>.cpp` (geometry, material, sampler,
 light, camera, frame, renderer, instance, volume, synchronization) each define a
 `register<Category>Tests(Catalog&)`. `BuiltinTests.cpp` wires them all into the
-catalog.
+catalog. `tests/attributes.cpp` holds the parameter-depth Tests that cut across
+categories: geometry attribute slots, uniform attributes, precedence,
+face-varying normals, index and colour element types, surface `visible`, and
+the image sampler element types (its Tests are registered in their own
+categories). Its helpers are headers beside it: `AttributeColors.h` (the
+colours each attribute holds), `RawArray.h` (arrays of fixed-point, sRGB and
+64-bit element types, filled from bytes) and `SubjectShown.h` (the exact check
+that keeps an equivalence from passing on empty frames). A Test whose Cases a
+device may take the process down with (a device that throws on a valid
+parameter) is a timed behaviour Test so each Case runs in its own process; the
+`*_index_types` Tests do it by rendering both forms themselves.
 
 Two header-only helpers sit beside them: `tests/ScreenScene.h` (triangles laid
 out in the screen camera's coordinates, and which pixels they cover) and
@@ -262,6 +272,15 @@ metrics, relations, discrimination, frame accumulation, results/sidecar/workdir,
 report/html, runner, isolation; `anari12` and `small_extensions` judge the
 ANARI 1.2 Tests and the small extensions' Tests (array region, transform
 arrays, light primary visibility, denoise) on synthetic images).
+`test_cts_parameter_coverage.cpp` (tag `[parameter_coverage]`) runs every Case's
+build, camera and renderer hooks against a recording device and requires every
+parameter that the spec JSON (`code_gen/api/khr_*.json`) defines for an
+extension the Catalog covers to be set by some Test, or to be on its allow-list
+with a reason (a stale entry fails too); `name` is exempt, and a parameter of
+an object type without subtypes counts when set on any object of the type. Add
+a Test, or an allow-list entry saying what stops one, whenever the extension
+gains a parameter. Behaviour checks are not run there, so a parameter only
+a behaviour check sets is allow-listed.
 Pure tests are tagged `[cts]`; device-backed ones add `[helide]` and self-skip if
 no device loads. Images for pure tests are generated in code
 (`tests/unit/cts_test_images.h`: solid, gradient, rectangle, disc); never add

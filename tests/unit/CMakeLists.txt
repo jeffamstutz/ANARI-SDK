@@ -125,6 +125,7 @@ add_executable(anariCatalogTests
   test_cts_exact.cpp
   test_cts_isolation.cpp
   test_cts_metrics.cpp
+  test_cts_parameter_coverage.cpp
   test_cts_relations.cpp
   test_cts_rendererparams.cpp
   test_cts_report.cpp
@@ -139,6 +140,10 @@ target_link_libraries(anariCatalogTests
 PRIVATE
   anari_cts_core
 )
+# The parameter-coverage test reads the spec JSON the frontend is generated
+# from.
+target_compile_definitions(anariCatalogTests PRIVATE
+  CTS_API_JSON_DIR="${CMAKE_SOURCE_DIR}/code_gen/api")
 
 # Pure harness/metrics/results tests run anywhere; the device-backed tests
 # (world-build smoke + runner integration) need helide and skip themselves if no
