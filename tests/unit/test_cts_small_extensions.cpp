@@ -167,34 +167,44 @@ TEST_CASE("quad_primary_visibility tells a hidden light from a visible one",
       light{255, 255, 255, 255};
   // The surface is [0.1, 0.9] x [0.05, 0.45] on screen, the light's footprint
   // [0.2, 0.8] x [0.7, 1].
-  auto frame = [&](bool lightShown, Rgba surfaceColor) {
-    Image im = solid(kSize, kSize, 0, 0, 0, 255);
+  auto frame = [&](Rgba background, bool lightShown, Rgba surfaceColor) {
+    Image im =
+        solid(kSize, kSize, background.r, background.g, background.b, 255);
     paintScreenRect(im, 0.1f, 0.05f, 0.9f, 0.45f, surfaceColor);
     if (lightShown)
       paintScreenRect(im, 0.2f, 0.7f, 0.8f, 1.f, light);
     return im;
   };
-  // What a device renders: whether it shows the light when visible is true or
-  // unset, whether it shows it when visible is false, and the surface's colour
-  // when visible is false.
-  auto render = [&](bool visibleShown, bool hiddenShown, Rgba hiddenSurface) {
+  // What a device renders over `background`: whether it shows the light when
+  // visible is true or unset, whether it shows it when visible is false, and
+  // the surface's colour when visible is false. The scene without the light
+  // (`absent`) leaves the surface unlit.
+  auto render = [&](Rgba background,
+                    bool visibleShown,
+                    bool hiddenShown,
+                    Rgba hiddenSurface) {
     return [=](const std::map<std::string, std::string> &v) {
-      const bool hidden = v.at("visible") == "false";
-      return std::vector<ChannelValues>{colorChannel(frame(
-          hidden ? hiddenShown : visibleShown, hidden ? hiddenSurface : lit))};
+      const auto &visible = v.at("visible");
+      Image im = visible == "absent" ? frame(background, false, unlit)
+          : visible == "false" ? frame(background, hiddenShown, hiddenSurface)
+                               : frame(background, visibleShown, lit);
+      return std::vector<ChannelValues>{colorChannel(im)};
     };
   };
+  const Rgba black{0, 0, 0, 255}, grey{40, 60, 90, 255};
 
-  SECTION("a device implementing it")
+  SECTION("a device implementing it, whatever its background")
   {
-    const auto r = f.judge(render(true, false, lit));
-    for (const char *v : {"none", "false", "true"})
-      CHECK(Fixture::passes(r, f, {{"visible", v}}));
+    for (const Rgba background : {black, grey}) {
+      const auto r = f.judge(render(background, true, false, lit));
+      for (const char *v : {"none", "false", "true", "absent"})
+        CHECK(Fixture::passes(r, f, {{"visible", v}}));
+    }
   }
 
   SECTION("a device that ignores visible")
   {
-    const auto r = f.judge(render(true, true, lit));
+    const auto r = f.judge(render(black, true, true, lit));
     CHECK(Fixture::passes(r, f, {{"visible", "none"}}));
     CHECK_FALSE(Fixture::passes(r, f, {{"visible", "false"}}));
     CHECK(Fixture::passes(r, f, {{"visible", "true"}}));
@@ -202,22 +212,25 @@ TEST_CASE("quad_primary_visibility tells a hidden light from a visible one",
 
   SECTION("a device whose lights are hidden by default")
   {
-    const auto r = f.judge(render(false, false, lit));
+    const auto r = f.judge(render(black, false, false, lit));
     CHECK_FALSE(Fixture::passes(r, f, {{"visible", "none"}}));
     CHECK_FALSE(Fixture::passes(r, f, {{"visible", "true"}}));
   }
 
   SECTION("a device whose hidden light stops lighting the surface")
   {
-    const auto r = f.judge(render(true, false, unlit));
+    const auto r = f.judge(render(grey, true, false, unlit));
     CHECK_FALSE(Fixture::passes(r, f, {{"visible", "false"}}));
   }
 
-  SECTION("a device that shows a hidden light's footprint in another colour")
+  SECTION("a device that shows a hidden light's footprint as something else")
   {
-    // Not background: black is what the Test's renderer sets.
+    // Not what the scene without the light renders there.
     auto wrong = [&](const std::map<std::string, std::string> &v) {
-      Image im = frame(v.at("visible") != "false", lit);
+      Image im = frame(
+          grey, v.at("visible") != "false" && v.at("visible") != "absent", lit);
+      if (v.at("visible") == "absent")
+        im = frame(grey, false, unlit);
       if (v.at("visible") == "false")
         paintScreenRect(im, 0.2f, 0.7f, 0.8f, 1.f, Rgba{30, 30, 30, 255});
       return std::vector<ChannelValues>{colorChannel(im)};
@@ -231,24 +244,30 @@ TEST_CASE("hdri_primary_visibility's footprint is everywhere but the surface",
 {
   Fixture f("light/hdri_primary_visibility");
   const Rgba environment{255, 128, 26, 255};
-  auto frame = [&](bool shown) {
-    Image im = solid(kSize, kSize, 0, 0, 0, 255);
+  auto frame = [&](Rgba background, bool shown) {
+    Image im =
+        solid(kSize, kSize, background.r, background.g, background.b, 255);
     if (shown)
       paintScreenRect(im, 0.f, 0.f, 1.f, 1.f, environment);
     paintScreenRect(im, 0.1f, 0.05f, 0.9f, 0.45f, Rgba{200, 200, 160, 255});
     return im;
   };
-  auto render = [&](bool hiddenShown) {
+  auto render = [&](Rgba background, bool hiddenShown) {
     return [=](const std::map<std::string, std::string> &v) {
-      const bool shown = v.at("visible") != "false" || hiddenShown;
-      return std::vector<ChannelValues>{colorChannel(frame(shown))};
+      const bool shown =
+          (v.at("visible") != "false" && v.at("visible") != "absent")
+          || (v.at("visible") == "false" && hiddenShown);
+      return std::vector<ChannelValues>{colorChannel(frame(background, shown))};
     };
   };
-  const auto good = f.judge(render(false));
-  for (const char *v : {"none", "false", "true"})
-    CHECK(Fixture::passes(good, f, {{"visible", v}}));
-  CHECK_FALSE(
-      Fixture::passes(f.judge(render(true)), f, {{"visible", "false"}}));
+  // A hidden light leaves the renderer's background, whatever it is.
+  for (const Rgba background : {Rgba{0, 0, 0, 255}, Rgba{40, 60, 90, 255}}) {
+    const auto good = f.judge(render(background, false));
+    for (const char *v : {"none", "false", "true", "absent"})
+      CHECK(Fixture::passes(good, f, {{"visible", v}}));
+  }
+  CHECK_FALSE(Fixture::passes(
+      f.judge(render(Rgba{0, 0, 0, 255}, true)), f, {{"visible", "false"}}));
 }
 
 // Transform arrays ///////////////////////////////////////////////////////////

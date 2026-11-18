@@ -99,8 +99,10 @@ void setIntensityDistribution(
 // only meaningful for area lights. The Test seen by the screen camera
 // (ScreenQuad.h, at (0, 0, 1) looking down -z, fovy pi/2): a lit surface in the
 // lower part of the frame and, above it, an area light facing the camera,
-// whose footprint is background where the light isn't visible. The renderer's
-// background is black, so a hidden light's footprint is black.
+// whose footprint is background where the light isn't visible. The Test does
+// not assume what the background is: a `visible` value `absent` leaves the
+// light out of the scene, and the hidden light's footprint must match that
+// render there.
 
 using Footprint = std::function<bool(float2 screen)>;
 
@@ -208,28 +210,24 @@ bool pixelOnFootprint(const Footprint &footprint,
 
 constexpr float kFootprintMargin = 3.f;
 
-// The pixels wholly outside the footprint (the margin grown around it), as a
-// derived expectation's mask.
-Image outsideFootprintMask(const Footprint &footprint, uint32_t w, uint32_t h)
+// The `visible` value that leaves the light out of the scene.
+constexpr const char *kLightAbsent = "absent";
+
+bool lightAbsent(const BuildContext &values)
 {
-  Image mask;
-  mask.width = w;
-  mask.height = h;
-  mask.rgba.assign(size_t(w) * h * 4, 0);
-  for (uint32_t y = 0; y < h; ++y)
-    for (uint32_t x = 0; x < w; ++x)
-      if (pixelOnFootprint(footprint, x, y, w, h, false, kFootprintMargin))
-        for (int c = 0; c < 4; ++c)
-          mask.rgba[(size_t(y) * w + x) * 4 + c] = 255;
-  return mask;
+  return values.getString("visible", "") == kLightAbsent;
 }
 
-// The light's footprint shows the light when it is visible (unset or true)
-// and the background when it isn't.
-void footprintShowsVisibility(ExactCheck &x, const Footprint &footprint)
+// The light's footprint shows the light when it is visible (unset or true).
+// What a hidden light must render there is the derived expectation's to
+// judge; here a hidden or absent light's footprint must only be one flat
+// colour (the Test's renderer sets a uniform background), so the Case is not
+// a render of a light nobody turned off.
+void footprintShowsLight(ExactCheck &x, const Footprint &footprint)
 {
   const auto color = x.rgba(Channel::Color);
   PixelMask inside(color.width, color.height);
+  std::optional<Rgba8> first;
   for (uint32_t y = 0; y < color.height; ++y)
     for (uint32_t px = 0; px < color.width; ++px)
       if (pixelOnFootprint(footprint,
@@ -238,25 +236,65 @@ void footprintShowsVisibility(ExactCheck &x, const Footprint &footprint)
               color.width,
               color.height,
               true,
-              kFootprintMargin))
+              kFootprintMargin)) {
         inside.set(px, y);
+        if (!first)
+          first = color.at(px, y);
+      }
 
-  auto brightest = [](const Rgba8 &c) { return std::max({c[0], c[1], c[2]}); };
-  if (x.get<bool>("visible", true)) {
+  if (!lightAbsent(x.values()) && x.get<bool>("visible", true)) {
     x.allPixels(
         "the footprint of a visible light shows the light",
         color,
         "the light (some colour channel at least 32)",
-        [&](uint32_t, uint32_t, const Rgba8 &c) { return brightest(c) >= 32; },
+        [&](uint32_t, uint32_t, const Rgba8 &c) {
+          return std::max({c[0], c[1], c[2]}) >= 32;
+        },
         &inside);
-  } else {
-    x.allPixels(
-        "the footprint of a light that isn't visible shows the background",
-        color,
-        "the background (black)",
-        [&](uint32_t, uint32_t, const Rgba8 &c) { return brightest(c) <= 2; },
-        &inside);
+    return;
   }
+  const Rgba8 flat = first.value_or(Rgba8{});
+  x.allPixels(
+      "the footprint without a visible light is one flat colour",
+      color,
+      "the colour of the footprint's first pixel (within 2 levels)",
+      [&](uint32_t, uint32_t, const Rgba8 &c) {
+        for (int k = 0; k < 3; ++k)
+          if (std::abs(int(c[k]) - int(flat[k])) > 2)
+            return false;
+        return true;
+      },
+      &inside);
+}
+
+// What a hidden light must render: the render without the light inside its
+// footprint (whatever the background is), the default render everywhere else
+// (the light still lights the surface). Pixels near the footprint's edge are
+// not compared.
+ExpectedImage hiddenLightExpectation(const Image &withLight,
+    const Image &withoutLight,
+    const Footprint &footprint)
+{
+  Image image = withLight;
+  Image mask;
+  mask.width = withLight.width;
+  mask.height = withLight.height;
+  mask.rgba.assign(size_t(mask.width) * mask.height * 4, 0);
+  for (uint32_t y = 0; y < mask.height; ++y)
+    for (uint32_t x = 0; x < mask.width; ++x) {
+      const bool in = pixelOnFootprint(
+          footprint, x, y, mask.width, mask.height, true, kFootprintMargin);
+      const bool out = pixelOnFootprint(
+          footprint, x, y, mask.width, mask.height, false, kFootprintMargin);
+      const size_t i = (size_t(y) * mask.width + x) * 4;
+      for (int c = 0; c < 4; ++c) {
+        if (in)
+          image.rgba[i + c] = withoutLight.rgba[i + c];
+        if (in || out)
+          mask.rgba[i + c] = 255;
+      }
+    }
+  return maskedBy(std::move(image), std::move(mask));
 }
 
 // One light of the visibility Tests.
@@ -276,19 +314,22 @@ anari::World visibilityWorld(BuildContext &ctx, const VisibleLight &l)
   auto mat = makeMatteMaterial(d, float3(0.8f, 0.8f, 0.8f));
   auto surface = makeSurface(d, geom, mat);
 
-  auto light = newLight(d, l.subtype);
-  l.configure(d, light);
-  lp(ctx, d, light, "visible");
-  anari::commitParameters(d, light);
-
   WorldContents wc;
   wc.surfaces = {surface};
-  wc.lights = {light};
+  anari::Light light = nullptr;
+  if (!lightAbsent(ctx)) {
+    light = newLight(d, l.subtype);
+    l.configure(d, light);
+    lp(ctx, d, light, "visible");
+    anari::commitParameters(d, light);
+    wc.lights = {light};
+  }
   auto world = assembleWorld(d, wc);
   anari::release(d, geom);
   anari::release(d, mat);
   anari::release(d, surface);
-  anari::release(d, light);
+  if (light)
+    anari::release(d, light);
   return world;
 }
 
@@ -299,31 +340,34 @@ void registerVisibilityTest(Catalog &catalog, const VisibleLight &l)
   const Footprint footprint = l.footprint;
   makeTest("light", l.name)
       .description(std::string("Checks that a ") + l.subtype
-          + " light with visible false leaves its footprint as background "
-            "and the lit surface unchanged, and that it is visible by "
-            "default.")
+          + " light with visible false leaves its footprint as it is "
+            "without the light and the lit surface unchanged, and that it "
+            "is visible by default.")
       .build([l](BuildContext &ctx) { return visibilityWorld(ctx, l); })
       .camera([](BuildContext &ctx, const scenes::Bounds &) {
         return makeScreenQuadCamera(ctx.device());
       })
       .renderer(darkRenderer)
-      .permute("visible", V{none(), Any(false), Any(true)})
+      // `absent` renders the scene without the light.
+      .permute("visible", V{none(), Any(false), Any(true), Any(kLightAbsent)})
       // Lights are visible unless said otherwise.
       .expectDerived("visible",
           "true",
           "the default image: a light is visible by default",
           [](const Siblings &s) -> ExpectedImage { return s.at("none"); })
-      // Hiding the light changes only where it is: the rest of the frame,
-      // the lit surface included, is the default image.
+      // Hiding the light changes only where it is: its footprint looks like
+      // the scene without the light (whatever the background), and the rest of
+      // the frame, the lit surface included, is the default image.
       .expectDerived("visible",
           "false",
-          "the default image outside the light's footprint",
+          "the scene without the light inside the light's footprint, the "
+          "default image outside it",
           [footprint](const Siblings &s) {
-            const Image &def = s.at("none");
-            return maskedBy(def, outsideFootprintMask(footprint, def.width, def.height));
+            return hiddenLightExpectation(
+                s.at("none"), s.at(kLightAbsent), footprint);
           })
       .expectExact("the light's footprint",
-          [footprint](ExactCheck &x) { footprintShowsVisibility(x, footprint); })
+          [footprint](ExactCheck &x) { footprintShowsLight(x, footprint); })
       .noGroundTruth()
       .covers("ANARI_KHR_LIGHT_PRIMARY_VISIBILITY")
       .requireFeatures(required)
