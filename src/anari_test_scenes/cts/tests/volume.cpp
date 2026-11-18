@@ -22,6 +22,14 @@ using anari::math::float3;
 using anari::math::float4;
 using V = std::vector<Any>;
 
+// A valueRange (box1) axis value: stored with its ANARI type, FLOAT32_BOX1,
+// since a plain float2 is a VEC2 that a device doesn't read as the range.
+Any box1(float lower, float upper)
+{
+  const float v[2] = {lower, upper};
+  return Any(ANARI_FLOAT32_BOX1, v);
+}
+
 void setVolumeColor(BuildContext &ctx, anari::Device d, anari::Volume vol)
 {
   const std::string c = ctx.getString("color", "array");
@@ -157,7 +165,8 @@ anari::World cellCenteredWorld(BuildContext &ctx, ViewAxis view)
   // its bounds, which is the least noisy a ray-marched volume renders.
   anari::setParameter(d, vol, "opacity", 1.f);
   anari::setParameter(d, vol, "unitDistance", 0.001f);
-  anari::setParameter(d, vol, "valueRange", anari::math::float2(0.f, 1.f));
+  const float range[2] = {0.f, 1.f};
+  anariSetParameter(d, vol, "valueRange", ANARI_FLOAT32_BOX1, range);
   anari::commitParameters(d, vol);
 
   WorldContents wc;
@@ -198,7 +207,12 @@ void registerVolumeTests(Catalog &catalog)
           "Checks structured volume sampling and transfer-function parameters.")
       .build([](BuildContext &ctx) {
         auto d = ctx.device();
-        auto field = newStructuredRegularField(d, {3, 3, 3});
+        // A ramp along x only, over the field: a view down -z sees it across
+        // the frame, nearest filtering shows three bands where linear shows a
+        // ramp, and `valueRange` re-maps its colours.
+        auto field = newStructuredRegularField(d,
+            {3, 3, 3},
+            [](anari::math::float3 p) { return (p.x + 1.f) / 2.f; });
         applyParameterValue(d, field, "filter", ctx.value("filter").raw());
         applyParameterValue(d, field, "origin", ctx.value("origin").raw());
         applyParameterValue(d, field, "spacing", ctx.value("spacing").raw());
@@ -221,18 +235,40 @@ void registerVolumeTests(Catalog &catalog)
         anari::release(d, vol);
         return world;
       })
+      // A fixed orthographic camera looking down -z: the default one frames
+      // the world's bounds, which would re-centre a field moved by `origin`
+      // and hide the move, and the ramp doesn't vary along the view.
+      .camera([](BuildContext &ctx, const scenes::Bounds &) {
+        auto d = ctx.device();
+        auto c = anari::newObject<anari::Camera>(d, "orthographic");
+        anari::setParameter(d, c, "position", float3(0.f, 0.f, 5.f));
+        anari::setParameter(d, c, "direction", float3(0.f, 0.f, -1.f));
+        anari::setParameter(d, c, "up", float3(0.f, 1.f, 0.f));
+        anari::setParameter(d, c, "height", 3.f);
+        anari::commitParameters(d, c);
+        return c;
+      })
       .simplified()
-      .permute("filter", V{none(), Any("nearest"), Any("linear")})
-      .permute("origin", V{Any(float3(-1.f, -1.f, -1.f)), none()})
+      // `filter` defaults to linear (the spec): an unset filter renders like
+      // it.
+      .permute("filter", V{Any("nearest"), Any("linear"), none()})
+      .expectDerived("filter",
+          "none",
+          "the linear image (the default filter)",
+          [](const Siblings &s) -> ExpectedImage { return s.at("linear"); })
+      // The builder's field starts at (-1, -1, -1), so `origin` moves it.
+      .permute("origin",
+          V{Any(float3(-1.f, -1.f, -1.f)), Any(float3(-0.5f, -1.f, -1.f))})
       .permute("spacing", V{none(), Any(float3(0.01f, 0.02f, 0.5f))})
-      .permute("valueRange", V{none(), Any(anari::math::float2(0.25f, 0.75f))})
+      .permute("valueRange", V{none(), box1(0.25f, 0.75f)})
       .permute("color", {"array", "vec3", "vec4"})
       .permute("opacity", {"array", "scalar"})
       .permute("unitDistance", V{none(), Any(0.1f)})
       .channels({Channel::Color, Channel::Depth})
+      .groundTruth("a ray-marched volume has no analytic answer in the Test")
       .covers("ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR")
       .covers("ANARI_KHR_VOLUME_TRANSFER_FUNCTION1D")
-      .requireFeature(kSupportPerspective)
+      .requireFeature("ANARI_KHR_CAMERA_ORTHOGRAPHIC")
       .registerInto(catalog);
   // A volume equivalence covers the axis along its view with a second view
   // down another axis (ADR-0010, volume equivalence); nothing relates the two

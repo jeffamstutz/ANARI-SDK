@@ -287,6 +287,8 @@ void registerMaterialTests(Catalog &catalog)
               attribute("attribute0"),
               sampler(0)})
       .requireFeatureFor("color", sampler(0), "ANARI_KHR_SAMPLER_IMAGE2D")
+      .groundTruth(
+          "the lit colour of a material binding has no analytic answer in the Test; effects alone would pass swapped bindings")
       .covers(kMatte)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -313,6 +315,8 @@ void registerMaterialTests(Catalog &catalog)
               attribute("attribute2"),
               sampler(0)})
       .requireFeatureFor("opacity", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
+      .groundTruth(
+          "the lit colour of a material binding has no analytic answer in the Test; effects alone would pass swapped bindings")
       .covers(kMatte)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -341,6 +345,8 @@ void registerMaterialTests(Catalog &catalog)
               attribute("attribute0"),
               sampler(0)})
       .requireFeatureFor("baseColor", sampler(0), "ANARI_KHR_SAMPLER_IMAGE2D")
+      .groundTruth(
+          "the lit colour of a material binding has no analytic answer in the Test; effects alone would pass swapped bindings")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -379,6 +385,7 @@ void registerMaterialTests(Catalog &catalog)
       .permute("clearcoatNormal", V{unsetBinding(), sampler(1)})
       .requireFeatureFor(
           "clearcoatNormal", sampler(1), "ANARI_KHR_SAMPLER_IMAGE2D")
+      .groundTruth("the shading of a PBR lobe has no analytic answer")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -404,6 +411,8 @@ void registerMaterialTests(Catalog &catalog)
               attribute("attribute0"),
               sampler(0)})
       .requireFeatureFor("emissive", sampler(0), "ANARI_KHR_SAMPLER_IMAGE2D")
+      .groundTruth(
+          "the lit colour of a material binding has no analytic answer in the Test; effects alone would pass swapped bindings")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -425,6 +434,7 @@ void registerMaterialTests(Catalog &catalog)
             });
       })
       .permute("ior", V{unsetBinding(), constant(2.42f)})
+      .groundTruth("the shading of a PBR lobe has no analytic answer")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -461,6 +471,7 @@ void registerMaterialTests(Catalog &catalog)
               sampler(0)})
       .requireFeatureFor(
           "iridescenceThickness", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
+      .groundTruth("the shading of a PBR lobe has no analytic answer")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -496,6 +507,7 @@ void registerMaterialTests(Catalog &catalog)
       .requireFeatureFor("roughness", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
       .permute("normal", V{unsetBinding(), sampler(1)})
       .requireFeatureFor("normal", sampler(1), "ANARI_KHR_SAMPLER_IMAGE2D")
+      .groundTruth("the shading of a PBR lobe has no analytic answer")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -522,6 +534,8 @@ void registerMaterialTests(Catalog &catalog)
               attribute("attribute2"),
               sampler(0)})
       .requireFeatureFor("opacity", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
+      .groundTruth(
+          "the lit colour of a material binding has no analytic answer in the Test; effects alone would pass swapped bindings")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -556,6 +570,7 @@ void registerMaterialTests(Catalog &catalog)
               sampler(1)})
       .requireFeatureFor(
           "sheenRoughness", sampler(1), "ANARI_KHR_SAMPLER_IMAGE1D")
+      .groundTruth("the shading of a PBR lobe has no analytic answer")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -590,6 +605,7 @@ void registerMaterialTests(Catalog &catalog)
               sampler(0)})
       .requireFeatureFor(
           "specularColor", sampler(0), "ANARI_KHR_SAMPLER_IMAGE2D")
+      .groundTruth("the shading of a PBR lobe has no analytic answer")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -621,6 +637,7 @@ void registerMaterialTests(Catalog &catalog)
       .permute("attenuationDistance", V{constant(0.5f), unsetBinding()})
       .permute("attenuationColor",
           V{constant(float3(0.98f, 0.5f, 0.44f)), unsetBinding()})
+      .groundTruth("the shading of a PBR lobe has no analytic answer")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);
@@ -647,6 +664,7 @@ void registerMaterialTests(Catalog &catalog)
               sampler(0)})
       .requireFeatureFor(
           "transmission", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D")
+      .groundTruth("the shading of a PBR lobe has no analytic answer")
       .covers(kPbr)
       .requireFeatures(kSupportTriangle)
       .registerInto(catalog);

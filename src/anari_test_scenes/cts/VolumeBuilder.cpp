@@ -77,7 +77,8 @@ anari::Volume makeVolume(anari::Device d, anari::SpatialField field)
       volume,
       "opacity",
       anari::newArray1D(d, opacities.data(), opacities.size()));
-  anari::setParameter(d, volume, "valueRange", math::float2(0.f, 1.f));
+  const float range[2] = {0.f, 1.f};
+  anariSetParameter(d, volume, "valueRange", ANARI_FLOAT32_BOX1, range);
   anari::commitParameters(d, volume);
   return volume;
 }

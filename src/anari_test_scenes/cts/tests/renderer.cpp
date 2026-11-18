@@ -9,10 +9,12 @@
 #include "../TestBuilder.h"
 #include "../WorldBuilder.h"
 #include "Categories.h"
+#include "FrameTypeAxis.h"
 #include "ParameterQuery.h"
 #include "generators/TextureGenerator.h"
 // std
 #include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -41,6 +43,28 @@ anari::World ambientSubject(BuildContext &ctx)
   anari::release(d, mat);
   anari::release(d, surface);
   return world;
+}
+
+// The background colour is what the Case set: every pixel of an empty world
+// shows it, sRGB-encoded (the colour Channel's default format is sRGB), with
+// the alpha the background has.
+void backgroundIsWhatWasSet(ExactCheck &x)
+{
+  const auto color = x.rgba(Channel::Color);
+  const float4 bg = x.get<float4>("background", float4(0.f, 0.f, 0.f, 1.f));
+  const Rgba8 expected = {
+      uint8_t(
+          std::lround(std::clamp(srgbEncodedValue(bg.x), 0.f, 1.f) * 255.f)),
+      uint8_t(
+          std::lround(std::clamp(srgbEncodedValue(bg.y), 0.f, 1.f) * 255.f)),
+      uint8_t(
+          std::lround(std::clamp(srgbEncodedValue(bg.z), 0.f, 1.f) * 255.f)),
+      uint8_t(std::lround(std::clamp(bg.w, 0.f, 1.f) * 255.f))};
+  x.matches(
+      "every pixel shows the background colour (sRGB-encoded)",
+      color,
+      [&](uint32_t, uint32_t) { return expected; },
+      3.0);
 }
 
 // An empty world: the background-only tests render no geometry.
@@ -127,6 +151,8 @@ void registerRendererTests(Catalog &catalog)
               Any(float3(0.f, 0.f, 0.f)),
               Any(float3(1.f, 1.f, 1.f))})
       .permute("ambientRadiance", V{Any(0.5f), Any(4.0f), Any(0.0f)})
+      .groundTruth(
+          "the ambient-lit appearance has no analytic answer in the Test")
       .covers("ANARI_KHR_RENDERER_AMBIENT_LIGHT")
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
@@ -143,6 +169,8 @@ void registerRendererTests(Catalog &catalog)
               Any(float4(0.5f, 0.5f, 0.5f, 1.f)),
               Any(float4(0.f, 0.f, 1.f, 1.f)),
               Any(float4(0.f, 0.f, 1.f, 0.5f))})
+      .expectExact("the background colour", backgroundIsWhatWasSet)
+      .noGroundTruth()
       .covers("ANARI_KHR_RENDERER_BACKGROUND_COLOR")
       .requireFeature(kSupportPerspective)
       .registerInto(catalog);
@@ -157,6 +185,8 @@ void registerRendererTests(Catalog &catalog)
         anari::setAndReleaseParameter(
             d, r, "background", anari::newArray2D(d, img.data(), res, res));
       })
+      .groundTruth(
+          "the image the background shows (its orientation and sampling) has no analytic answer in the Test")
       .covers("ANARI_KHR_RENDERER_BACKGROUND_IMAGE")
       .requireFeature(kSupportPerspective)
       .registerInto(catalog);
