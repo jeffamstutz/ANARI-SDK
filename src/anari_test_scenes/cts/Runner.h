@@ -223,6 +223,10 @@ struct Runner
   // nothing.
   const std::map<std::string, ANARIDataType> &rendererParamTypes();
 
+  // `test` with the effect-check opt-outs that hold on this run's device
+  // (`TestBuilder::noEffectCheckOn`) added to its `noEffectCheck`.
+  TestDef forRunDevice(const TestDef &test) const;
+
   // Apply the CLI renderer parameter overrides to `renderer` (does not commit).
   // Each value parses into its device-declared type, falling back to inference
   // when the device does not report the parameter; a value that cannot be
