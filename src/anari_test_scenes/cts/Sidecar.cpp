@@ -79,6 +79,9 @@ std::string toJson(const CaseResult &result)
   j["usesGroundTruth"] = result.usesGroundTruth;
   j["groundTruthEvaluated"] = result.groundTruthEvaluated;
   j["groundTruthReason"] = result.groundTruthReason;
+  j["rendererParams"] = json::array();
+  for (const auto &[name, value] : result.rendererParams)
+    j["rendererParams"].push_back({{"name", name}, {"value", value}});
 
   // Ordered array so axis declaration order survives the round-trip.
   j["axes"] = json::array();
@@ -251,6 +254,10 @@ bool fromJson(const std::string &text, CaseResult &out, bool *schemaMismatch)
   out.groundTruthEvaluated =
       j.value("groundTruthEvaluated", !out.channels.empty());
   out.groundTruthReason = j.value("groundTruthReason", "");
+  if (const auto rp = j.find("rendererParams"); rp != j.end() && rp->is_array())
+    for (const auto &p : *rp)
+      out.rendererParams.emplace_back(
+          p.value("name", ""), p.value("value", ""));
   if (const auto ri = j.find("resultImages");
       ri != j.end() && ri->is_object()) {
     for (const auto &[name, path] : ri->items())

@@ -1311,6 +1311,75 @@ TEST_CASE("Runner applies ambientRadiance before Test renderer overrides",
   anari::unloadLibrary(lib);
 }
 
+TEST_CASE("Runner sets a Test's optional renderer parameters only when listed",
+    "[cts][runner][helide]")
+{
+  anari::Library lib = anari::loadLibrary("helide", statusFunc, nullptr);
+  if (!lib) {
+    WARN("helide library not available; skipping optional parameter test");
+    return;
+  }
+  anari::Device d = anari::newDevice(lib, "default");
+  REQUIRE(d != nullptr);
+  anari::commitParameters(d, d);
+
+  // Without the optional parameter helide pins the ambient radiance, so a
+  // dark and a bright run render alike; with it set they differ. A parameter
+  // helide does not list is not set (and must not make the Case fail).
+  auto builder = makeTest("renderer", "optional_params");
+  builder.build(buildAmbientWorld)
+      .rendererParam("ignoreAmbientLighting", "false")
+      .rendererParam("noSuchRendererSwitch", "1");
+  const TestDef withParams = builder.take();
+  auto plain = makeTest("renderer", "no_optional_params");
+  plain.build(buildAmbientWorld);
+  const TestDef withoutParams = plain.take();
+
+  Case c;
+  c.category = withParams.category;
+  c.testName = withParams.name;
+
+  RunOptions dark;
+  dark.width = 32;
+  dark.height = 32;
+  dark.ambientRadiance = 0.f;
+  RunOptions bright = dark;
+  bright.ambientRadiance = 4.f;
+  Runner darkRunner(d, Workdir(std::filesystem::path{}), dark);
+  Runner brightRunner(d, Workdir(std::filesystem::path{}), bright);
+
+  const auto applied = darkRunner.appliedRendererParams(withParams);
+  REQUIRE(applied.size() == 1);
+  CHECK(applied.front().name == "ignoreAmbientLighting");
+  CHECK(applied.front().value == "false");
+  CHECK(darkRunner.appliedRendererParams(withoutParams).empty());
+
+  const auto lo = darkRunner.renderCase(withParams, c);
+  const auto hi = brightRunner.renderCase(withParams, c);
+  REQUIRE(lo.size() == 1);
+  REQUIRE(hi.size() == 1);
+  CHECK(imageEnergy(hi.front()) > imageEnergy(lo.front()));
+
+  c.testName = withoutParams.name;
+  const auto pinnedLo = darkRunner.renderCase(withoutParams, c);
+  const auto pinnedHi = brightRunner.renderCase(withoutParams, c);
+  REQUIRE(pinnedLo.size() == 1);
+  REQUIRE(pinnedHi.size() == 1);
+  CHECK(pinnedLo.front().rgba == pinnedHi.front().rgba);
+
+  // The command line's overrides still come after the Test's parameters.
+  RunOptions overridden = bright;
+  overridden.rendererParams.push_back({"ignoreAmbientLighting", "true"});
+  Runner overriddenRunner(d, Workdir(std::filesystem::path{}), overridden);
+  c.testName = withParams.name;
+  const auto pinnedAgain = overriddenRunner.renderCase(withParams, c);
+  REQUIRE(pinnedAgain.size() == 1);
+  CHECK(pinnedAgain.front().rgba == pinnedLo.front().rgba);
+
+  anari::release(d, d);
+  anari::unloadLibrary(lib);
+}
+
 TEST_CASE(
     "accumulation gates off when unsupported but denoise is applied "
     "unconditionally; the sidecar records the effective settings",

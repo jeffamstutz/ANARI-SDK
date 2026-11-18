@@ -8,6 +8,7 @@
 #include "Channel.h"
 #include "FrameSize.h"
 #include "Image.h"
+#include "RendererParams.h"
 #include "anari_test_scenes.h" // anari::scenes::Bounds / Camera
 // anari
 #include "anari/anari_cpp.hpp"
@@ -161,6 +162,9 @@ struct TestDef
   BuildFn build;
   CameraFn cameraBuild; // empty -> runner frames camera from world bounds
   RendererFn rendererConfig; // empty -> runner keeps its renderer baseline
+  // Optional renderer parameters (`.rendererParam`): set on the Case's
+  // renderer only when the renderer subtype lists the parameter.
+  std::vector<RendererParam> rendererParams;
   FrameSizeFn frameSize; // empty -> every Case renders at the run's size
   BehaviorFn behaviorCheck; // set -> verify behavior instead of render+compare
   // For a behavior check that may hang the device: when non-zero, `anariCts

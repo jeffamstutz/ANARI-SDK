@@ -177,7 +177,8 @@ anari::Renderer configuredRenderer(
 CaseResult baseResult(const TestDef &test,
     const Case &c,
     const DeviceSpec &device,
-    const std::vector<std::string> &catalogCovered)
+    const std::vector<std::string> &catalogCovered,
+    const std::vector<RendererParam> &rendererParams)
 {
   CaseResult r;
   r.category = c.category;
@@ -193,6 +194,8 @@ CaseResult baseResult(const TestDef &test,
   r.requiredFeatures = requiredFeaturesOf(test, c);
   r.coveredFeatures = test.coveredFeatures;
   r.catalogCoveredFeatures = catalogCovered;
+  for (const auto &p : rendererParams)
+    r.rendererParams.emplace_back(p.name, p.value);
   for (const auto &cv : c.values)
     r.axisValues.emplace_back(cv.axisName, anyToString(cv.value));
   return r;
@@ -313,14 +316,17 @@ void Runner::resolveCapabilities(const std::set<std::string> &features)
   // Every sidecar records what the device advertised (schema v3), so the
   // report can tell "not advertised" from "advertised, but failed".
   m_options.device.extensions.assign(features.begin(), features.end());
-  resolveRendererParamTypes();
+  m_rendererParamTypesResolved = false;
 }
 
-void Runner::resolveRendererParamTypes()
+const std::map<std::string, ANARIDataType> &Runner::rendererParamTypes()
 {
+  if (m_rendererParamTypesResolved)
+    return m_rendererParamTypes;
+  m_rendererParamTypesResolved = true;
   m_rendererParamTypes.clear();
-  if (m_options.rendererParams.empty())
-    return;
+  if (!m_device)
+    return m_rendererParamTypes;
 
   introspection::QueryOptions qo;
   qo.typeFilter = "RENDERER";
@@ -332,14 +338,26 @@ void Runner::resolveRendererParamTypes()
     for (const auto &p : obj.parameters)
       m_rendererParamTypes[p.name] = p.type;
   }
+  return m_rendererParamTypes;
 }
 
-void Runner::applyRendererParams(anari::Renderer renderer)
+std::vector<RendererParam> Runner::appliedRendererParams(const TestDef &test)
 {
-  for (const auto &param : m_options.rendererParams) {
-    const auto it = m_rendererParamTypes.find(param.name);
+  if (test.rendererParams.empty())
+    return {};
+  return supportedRendererParams(test.rendererParams, rendererParamTypes());
+}
+
+void Runner::setRendererParams(
+    anari::Renderer renderer, const std::vector<RendererParam> &params)
+{
+  if (params.empty())
+    return;
+  const auto &types = rendererParamTypes();
+  for (const auto &param : params) {
+    const auto it = types.find(param.name);
     const ANARIDataType declared =
-        it != m_rendererParamTypes.end() ? it->second : ANARI_UNKNOWN;
+        it != types.end() ? it->second : ANARI_UNKNOWN;
     const auto parsed = parseParamValue(declared, param.value);
     if (!parsed) {
       std::cerr << "warning: could not parse renderer parameter '" << param.name
@@ -349,6 +367,11 @@ void Runner::applyRendererParams(anari::Renderer renderer)
     anariSetParameter(
         m_device, renderer, param.name.c_str(), parsed->type, parsed->data());
   }
+}
+
+void Runner::applyRendererParams(anari::Renderer renderer)
+{
+  setRendererParams(renderer, m_options.rendererParams);
 }
 
 CaseFrameSize Runner::frameSizeOf(const TestDef &test, const Case &c) const
@@ -389,6 +412,7 @@ Runner::SceneObjects Runner::buildScene(
       configuredRenderer(
           m_device, m_options.device.renderer, m_options.ambientRadiance));
   if (scene.renderer) {
+    setRendererParams(scene.renderer.get(), appliedRendererParams(test));
     applyRendererParams(scene.renderer.get());
     if (test.rendererConfig)
       test.rendererConfig(ctx, scene.renderer.get());
@@ -412,7 +436,8 @@ void Runner::writeFeatureSkip(const TestDef &test,
     const std::set<std::string> &features,
     RunSummary &summary)
 {
-  CaseResult result = baseResult(test, c, m_options.device, m_catalogCovered);
+  CaseResult result = baseResult(
+      test, c, m_options.device, m_catalogCovered, appliedRendererParams(test));
   result.verdict = Verdict::Skipped;
   result.missingFeatures = missingFeatures(test, c, features);
   result.skipReason = featureSkipReason(result.missingFeatures);
@@ -453,7 +478,8 @@ void Runner::writeCaseFailure(const TestDef &test,
     const std::string &detail,
     RunSummary &summary)
 {
-  CaseResult result = baseResult(test, c, m_options.device, m_catalogCovered);
+  CaseResult result = baseResult(
+      test, c, m_options.device, m_catalogCovered, appliedRendererParams(test));
   result.verdict = Verdict::Failed;
   result.detail = detail;
   recordResult(c, result, summary);
@@ -643,7 +669,8 @@ Runner::CaseOutcome Runner::runCase(
 {
   CaseOutcome out;
   CaseResult &result = out.result;
-  result = baseResult(test, c, m_options.device, m_catalogCovered);
+  result = baseResult(
+      test, c, m_options.device, m_catalogCovered, appliedRendererParams(test));
 
   // Per-case crash isolation (ADR-0003): a throwing build helper or fatal
   // fails this Case and the run continues. Handles built mid-case are
@@ -1107,8 +1134,11 @@ void Runner::runBehaviorTest(const TestDef &test,
     // check becomes a failed sidecar and the run continues; SceneObjects owns
     // every handle and releases partial or complete builds on scope exit.
     try {
-      CaseResult result =
-          baseResult(test, c, m_options.device, m_catalogCovered);
+      CaseResult result = baseResult(test,
+          c,
+          m_options.device,
+          m_catalogCovered,
+          appliedRendererParams(test));
 
       const auto size = sizeOrSkip(test, c, result);
       if (!size) {
@@ -1201,9 +1231,12 @@ void Runner::runIsolatedCase(
     break;
   }
 
-  CaseResult result = haveResult
-      ? written
-      : baseResult(test, c, m_options.device, m_catalogCovered);
+  CaseResult result = haveResult ? written
+                                 : baseResult(test,
+                                       c,
+                                       m_options.device,
+                                       m_catalogCovered,
+                                       appliedRendererParams(test));
   if (haveResult) {
     why += std::string("; before that, its check had ")
         + verdictName(written.verdict)

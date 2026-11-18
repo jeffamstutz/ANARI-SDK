@@ -169,6 +169,32 @@ TEST_CASE("sidecar JSON carries the contract fields", "[cts][sidecar]")
   CHECK(text.find("1_soup.color.threshold.png") != std::string::npos);
 }
 
+TEST_CASE("the renderer parameters a Case set round-trip", "[cts][sidecar]")
+{
+  CaseResult r;
+  r.verdict = Verdict::Passed;
+  r.rendererParams = {
+      {"ignoreAmbientLighting", "false"}, {"resolutionDivider", "1"}};
+
+  CaseResult back;
+  REQUIRE(fromJson(toJson(r), back));
+  REQUIRE(back.rendererParams.size() == 2);
+  CHECK(back.rendererParams[0].first == "ignoreAmbientLighting");
+  CHECK(back.rendererParams[0].second == "false");
+  CHECK(back.rendererParams[1].first == "resolutionDivider");
+
+  // An older Sidecar has none, and reads as none.
+  CaseResult older;
+  older.verdict = Verdict::Passed;
+  std::string text = toJson(older);
+  const auto at = text.find("\"rendererParams\"");
+  REQUIRE(at != std::string::npos);
+  text.replace(at, std::string("\"rendererParams\"").size(), "\"unrelated\"");
+  CaseResult read;
+  REQUIRE(fromJson(text, read));
+  CHECK(read.rendererParams.empty());
+}
+
 TEST_CASE("device defaults serialize when unset", "[cts][sidecar]")
 {
   CaseResult r;

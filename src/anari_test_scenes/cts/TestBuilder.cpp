@@ -40,6 +40,12 @@ TestBuilder &TestBuilder::renderer(RendererFn fn)
   return *this;
 }
 
+TestBuilder &TestBuilder::rendererParam(std::string name, std::string value)
+{
+  m_def.rendererParams.push_back({std::move(name), std::move(value)});
+  return *this;
+}
+
 TestBuilder &TestBuilder::frameSize(FrameSizeFn fn)
 {
   m_def.frameSize = std::move(fn);

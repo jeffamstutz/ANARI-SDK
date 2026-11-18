@@ -228,6 +228,10 @@ struct CaseResult
   bool usesGroundTruth{true}; // the Test compares against Ground truth
   bool groundTruthEvaluated{false}; // ... and the comparison ran
   std::string groundTruthReason; // why the Test needs it, when declared
+  // The optional renderer parameters the Runner set on the Case's renderer
+  // (`TestBuilder::rendererParam`), name and value as written. Additive in
+  // v4: absent in an older Sidecar, which set none.
+  std::vector<std::pair<std::string, std::string>> rendererParams;
   std::vector<ChannelResult> channels;
   // The Case's rendered image per Channel (schema v4), relative to the
   // workdir root, whether or not a Ground-truth comparison ran.

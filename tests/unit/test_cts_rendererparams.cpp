@@ -7,6 +7,9 @@
 // std
 #include <cstdint>
 #include <cstring>
+#include <map>
+#include <string>
+#include <vector>
 
 using namespace anari::cts;
 
@@ -123,4 +126,27 @@ TEST_CASE("parseParamValue infers when type is unknown", "[cts]")
 
   CHECK_FALSE(parseParamValue(ANARI_INT32, "1.5")); // declared int, float text
   CHECK_FALSE(parseParamValue(ANARI_FLOAT32, "abc"));
+}
+
+TEST_CASE(
+    "supportedRendererParams keeps only the parameters the renderer lists",
+    "[cts]")
+{
+  const std::vector<RendererParam> declared = {
+      {"ignoreAmbientLighting", "false"},
+      {"noSuchSwitch", "1"},
+      {"resolutionDivider", "1"}};
+  const std::map<std::string, ANARIDataType> listed = {
+      {"resolutionDivider", ANARI_INT32},
+      {"ignoreAmbientLighting", ANARI_BOOL},
+      {"background", ANARI_FLOAT32_VEC4}};
+
+  const auto kept = supportedRendererParams(declared, listed);
+  REQUIRE(kept.size() == 2);
+  CHECK(kept[0].name == "ignoreAmbientLighting"); // declaration order
+  CHECK(kept[0].value == "false");
+  CHECK(kept[1].name == "resolutionDivider");
+
+  CHECK(supportedRendererParams(declared, {}).empty());
+  CHECK(supportedRendererParams({}, listed).empty());
 }
