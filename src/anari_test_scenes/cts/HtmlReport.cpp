@@ -83,7 +83,7 @@ header {
   color: var(--dark); }
 .legend .dot { width: 9px; height: 9px; border-radius: 2px; }
 .legend .n { margin-left: auto; font-weight: 600; }
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
 .stat {
   background: var(--card); border: 1px solid var(--border); border-radius: 12px;
   padding: 16px 18px; display: flex; flex-direction: column; gap: 6px;
@@ -259,6 +259,23 @@ header {
   gap: 6px; }
 .extchip button { font: inherit; font-size: 12px; cursor: pointer; border: 1px solid
   var(--border); background: #fff; border-radius: 4px; color: var(--muted); }
+.asserts { padding: 14px 18px 4px; }
+.asrt { border: 1px solid var(--border-soft); border-radius: 6px; margin: 8px 0;
+  padding: 9px 12px; background: var(--panel); }
+.asrt.bad { border-color: var(--fail); }
+.asrt .ah { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline;
+  font-size: 13px; }
+.kindchip { font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .04em; padding: 1px 7px; border-radius: 10px; background: #e6ebf0;
+  color: var(--dark); }
+.asrt .res { font-weight: 600; }
+.asrt .ad { font-size: 12.5px; color: var(--muted); margin-top: 4px;
+  overflow-wrap: anywhere; }
+.asrt .figs { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+.asrt figure { margin: 0; }
+.asrt figure img { display: block; width: 220px; max-width: 100%; border: 1px solid
+  var(--border); background: #111; }
+.asrt figcaption { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
 .empty { text-align: center; padding: 70px 20px; color: var(--muted3); }
 .empty .h { font-size: 15px; font-weight: 600; color: #9aa4ad; }
 .empty .s { font-size: 13px; margin-top: 6px; }
@@ -278,6 +295,9 @@ const sortSegs = Array.from(document.querySelectorAll('.sortseg'));
 let status = 'all';
 // The extension the Case list is restricted to (a matrix row), or ''.
 let extFilter = '';
+// The failure kind the Case list is restricted to, or ''.
+let kindFilter = '';
+const kindSegs = Array.from(document.querySelectorAll('.kindseg'));
 const extRows = Array.from(document.querySelectorAll('.ext[data-cases]'));
 const extChip = document.getElementById('extchip');
 const activeSort = document.querySelector('.sortseg.active');
@@ -309,7 +329,8 @@ function applyFilter() {
   for (const r of rows) {
     const ok = (status === 'all' || r.dataset.verdict === status)
       && (!q || r.dataset.search.includes(q))
-      && (!extFilter || r.dataset.ext.split(' ').includes(extFilter));
+      && (!extFilter || r.dataset.ext.split(' ').includes(extFilter))
+      && (!kindFilter || r.dataset.kinds.split('|').includes(kindFilter));
     r.hidden = !ok;
     if (ok) shown++;
   }
@@ -348,6 +369,11 @@ sortSegs.forEach(b => b.addEventListener('click', () => {
   sortSegs.forEach(x => x.classList.toggle('active', x === b));
   applyFilter();
 }));
+kindSegs.forEach(b => b.addEventListener('click', () => {
+  kindFilter = b.dataset.kind;
+  kindSegs.forEach(x => x.classList.toggle('active', x === b));
+  applyFilter();
+}));
 search.addEventListener('input', applyFilter);
 function setExt(ext) {
   extFilter = ext;
@@ -374,6 +400,25 @@ document.querySelectorAll('.test .row').forEach(row => {
       test.querySelectorAll('.mask-pane').forEach(initMask);
   });
 });
+
+// A link to a partner Case: clear the filters so it is listed, open it and
+// scroll to it.
+document.querySelectorAll('a.partner').forEach(a => a.addEventListener('click', e => {
+  e.preventDefault();
+  const target = document.getElementById(a.dataset.target);
+  if (!target) return;
+  status = 'all'; extFilter = ''; kindFilter = ''; search.value = '';
+  statusSegs.forEach(x => x.classList.toggle('active', x.dataset.status === 'all'));
+  kindSegs.forEach(x => x.classList.toggle('active', x.dataset.kind === ''));
+  extRows.forEach(x => x.classList.remove('active'));
+  if (extChip) extChip.hidden = true;
+  applyFilter();
+  if (!target.classList.contains('open')) {
+    target.classList.add('open');
+    target.querySelectorAll('.mask-pane').forEach(initMask);
+  }
+  target.scrollIntoView({behavior: 'smooth', block: 'start'});
+}));
 
 // A/B flip between reference (ground truth) and actual (this run).
 function setAB(stage, v) {
@@ -791,6 +836,9 @@ void appendConfigTable(std::ostringstream &os, const CaseResult &r)
   os << "<div class=\"r\"><span class=\"kk\">Ground truth</span><span "
         "class=\"vv\" style=\"color:var(--link);\">"
      << htmlEscape(r.groundTruthKey.empty() ? "—" : r.groundTruthKey)
+     << (r.usesGroundTruth && !r.groundTruthEvaluated
+                ? (r.verdict == Verdict::Skipped ? "" : " (not evaluated)")
+                : "")
      << "</span></div>";
   os << "</div></div>";
 }
@@ -804,10 +852,170 @@ bool hasAnyImage(const CaseResult &r)
   return false;
 }
 
+// The Case's own image of `channel` (by name), from the Channel results or
+// the result images; empty when it has none.
+std::string caseImagePath(const CaseResult &r, const std::string &channel)
+{
+  for (const auto &[ch, path] : r.resultImages)
+    if (channelName(ch) == channel)
+      return path;
+  for (const auto &ch : r.channels)
+    if (channelName(ch.channel) == channel)
+      return ch.resultImage;
+  return {};
+}
+
+void appendFigure(std::ostringstream &os,
+    const std::filesystem::path &root,
+    const std::string &relPath,
+    const char *caption,
+    bool embed,
+    bool selected,
+    const std::string &srcPrefix)
+{
+  const std::string src = imageSrc(root, relPath, embed, selected, srcPrefix);
+  if (src.empty())
+    return;
+  os << "<figure><img loading=\"lazy\" alt=\"" << caption << "\" src=\"" << src
+     << "\"><figcaption>" << caption << "</figcaption></figure>";
+}
+
+// The partner Cases an assertion names, as links to their rows when they are
+// Cases of the run (a support render has no row of its own).
+void appendPartners(std::ostringstream &os,
+    const CaseResult &r,
+    const Assertion &a,
+    const std::map<std::string, CaseResult> &results)
+{
+  bool first = true;
+  for (const auto &id : a.relatedCases) {
+    const std::string key = r.category + "/" + r.test + "/" + id;
+    os << (first ? "" : ", ");
+    first = false;
+    if (results.count(key))
+      os << "<a class=\"partner kmono\" href=\"#case-" << htmlEscape(key)
+         << "\" data-target=\"case-" << htmlEscape(key) << "\">"
+         << htmlEscape(id) << "</a>";
+    else
+      os << "<span class=\"kmono\">" << htmlEscape(id) << "</span>";
+  }
+}
+
+bool isRelational(const std::string &kind)
+{
+  return kind == kEffectAssertion || kind == kEquivalenceAssertion
+      || kind == kConvergenceAssertion;
+}
+
+// The Case's self-checks: kind, axis or label, outcome, score against its
+// bound and detail; a failed one adds the images that show it.
+void appendAssertions(std::ostringstream &os,
+    const std::filesystem::path &root,
+    const CaseResult &r,
+    const std::map<std::string, CaseResult> &results,
+    bool embed,
+    bool selected,
+    const std::string &srcPrefix)
+{
+  os << "<div class=\"asserts\"><div class=\"lbl\">Self-checks</div>";
+  for (const auto &a : r.assertions) {
+    const bool bad = a.evaluated && !a.passed;
+    const char *outcome = !a.evaluated ? "opted out" : (a.passed ? "PASS" : "FAIL");
+    const char *outcomeFg = !a.evaluated ? "skip-fg" : (a.passed ? "pass-fg" : "fail-fg");
+    os << "<div class=\"asrt" << (bad ? " bad" : "") << "\" data-kind=\""
+       << htmlEscape(a.kind) << "\"><div class=\"ah\"><span class=\"kindchip\">"
+       << htmlEscape(a.kind.empty() ? kOtherFailure : a.kind) << "</span>";
+    if (!a.axis.empty())
+      os << "<span>axis <span class=\"kmono\">" << htmlEscape(a.axis)
+         << "</span></span>";
+    if (!a.label.empty())
+      os << "<span>check <span class=\"kmono\">" << htmlEscape(a.label)
+         << "</span></span>";
+    os << "<span class=\"res " << outcomeFg << "\">" << outcome << "</span>";
+    if (a.evaluated && std::isfinite(a.score) && !a.kind.empty()) {
+      os << "<span class=\"kmono\">changed " << fixed(a.score * 100.0, 2)
+         << " %";
+      if (isRelational(a.kind))
+        os << (a.kind == kEffectAssertion ? " (needs &ge; " : " (allows &le; ")
+           << fixed(a.threshold * 100.0, 2) << " %)";
+      os << "</span>";
+    }
+    if (!a.channel.empty())
+      os << "<span class=\"skip-fg\">on " << htmlEscape(a.channel) << "</span>";
+    if (!a.relatedCases.empty()) {
+      os << "<span>" << (a.kind == kEffectAssertion ? "partner " : "from ");
+      appendPartners(os, r, a, results);
+      os << "</span>";
+    }
+    os << "</div>";
+    if (!a.expectation.empty())
+      os << "<div class=\"ad\">" << htmlEscape(a.expectation) << "</div>";
+    if (!a.detail.empty())
+      os << "<div class=\"ad\">" << htmlEscape(a.detail) << "</div>";
+    if (a.pixels) {
+      os << "<div class=\"ad kmono\">" << a.pixels->offending << " of "
+         << a.pixels->checked << " pixels offend";
+      if (a.pixels->first) {
+        const auto &f = *a.pixels->first;
+        os << "; first at (" << f.x << ", " << f.y << "): got "
+           << htmlEscape(f.got) << ", expected " << htmlEscape(f.expected);
+      }
+      os << "</div>";
+    }
+    if (a.measurement)
+      os << "<div class=\"ad kmono\">measured "
+         << fixed(a.measurement->value, 4) << ", must be "
+         << htmlEscape(a.measurement->limit) << " "
+         << fixed(a.measurement->bound, 4) << "</div>";
+    if (a.kind == kConvergenceAssertion) {
+      os << "<div class=\"ad kmono\">frames rendered " << a.framesRendered;
+      if (a.refinementProgress)
+        os << ", refinementProgress " << fixed(*a.refinementProgress, 3);
+      os << "</div>";
+    }
+    if (bad) {
+      os << "<div class=\"figs\">";
+      if (a.kind == kEffectAssertion) {
+        appendFigure(os, root, caseImagePath(r, a.channel), "this Case", embed,
+            selected, srcPrefix);
+        appendFigure(os, root, a.partnerImage, "partner Case", embed, selected,
+            srcPrefix);
+        appendFigure(os, root, a.maskImage, "changed pixels", embed, selected,
+            srcPrefix);
+      } else if (a.kind == kEquivalenceAssertion) {
+        appendFigure(os, root, caseImagePath(r, a.channel), "actual", embed,
+            selected, srcPrefix);
+        appendFigure(os, root,
+            !a.expectedImage.empty() ? a.expectedImage : a.partnerImage,
+            "expected", embed, selected, srcPrefix);
+        appendFigure(os, root, a.maskImage, "changed pixels", embed, selected,
+            srcPrefix);
+      } else {
+        // An exact check's failure mask, or whatever an unknown kind wrote.
+        appendFigure(os, root, a.maskImage, "failure mask", embed, selected,
+            srcPrefix);
+      }
+      os << "</div>";
+    }
+    os << "</div>";
+  }
+  os << "</div>";
+}
+
+// The failure kinds of a Case, joined for the row's data attribute.
+std::string kindList(const CaseResult &r)
+{
+  std::string out;
+  for (const auto &k : failureKinds(r))
+    out += (out.empty() ? "" : "|") + k;
+  return out;
+}
+
 void appendTestRow(std::ostringstream &os,
     const std::filesystem::path &root,
     const std::string &key,
     const CaseResult &r,
+    const std::map<std::string, CaseResult> &results,
     bool embed,
     bool includeAll,
     const std::string &srcPrefix)
@@ -817,8 +1025,10 @@ void appendTestRow(std::ostringstream &os,
   const bool selected = includeAll || r.verdict == Verdict::Failed;
   const char *vc = verdictClass(r.verdict);
   const std::string name = r.test + " / " + r.caseId;
-  const std::string searchText =
+  std::string searchText =
       toLower(key + " " + r.description + " " + axisText(r));
+  for (const auto &a : r.assertions)
+    searchText += " " + toLower(a.kind + " " + a.axis + " " + a.label);
   const char *metricFg = r.verdict == Verdict::Skipped
       ? "skip-fg"
       : (r.verdict == Verdict::Failed ? "fail-fg" : "pass-fg");
@@ -833,7 +1043,9 @@ void appendTestRow(std::ostringstream &os,
     extList += (extList.empty() ? "" : " ") + ext;
   os << "<div class=\"test\" data-verdict=\"" << vc << "\" data-category=\""
      << htmlEscape(r.category) << "\" data-ext=\"" << htmlEscape(extList)
-     << "\" data-key=\"" << htmlEscape(key) << "\" data-search=\""
+     << "\" data-kinds=\"" << htmlEscape(kindList(r)) << "\" id=\"case-"
+     << htmlEscape(key) << "\" data-key=\"" << htmlEscape(key)
+     << "\" data-search=\""
      << htmlEscape(searchText) << "\">";
 
   // Collapsed row.
@@ -849,8 +1061,13 @@ void appendTestRow(std::ostringstream &os,
 
   // Expanded panel.
   os << "<div class=\"panel\">";
-  const bool skipped = r.verdict == Verdict::Skipped || r.channels.empty();
-  if (skipped) {
+  const bool skipped = r.verdict == Verdict::Skipped
+      || (r.channels.empty() && r.assertions.empty());
+  if (!r.assertions.empty())
+    appendAssertions(os, root, r, results, embed, selected, srcPrefix);
+  if (r.channels.empty() && !r.assertions.empty()) {
+    // The self-checks above are the whole result.
+  } else if (skipped) {
     const std::string reason = !r.skipReason.empty() ? r.skipReason : r.detail;
     os << "<div class=\"compare\"><div class=\"skipnote\"><span "
           "class=\"dot\"></span><div><div class=\"h\">No images captured</div>"
@@ -865,9 +1082,10 @@ void appendTestRow(std::ostringstream &os,
     for (const auto &ch : r.channels)
       appendComparePane(os, root, ch, embed, selected, srcPrefix);
   }
-  if (!r.channels.empty()) {
+  if (!r.channels.empty() || !r.assertions.empty()) {
     os << "<div class=\"meta\">";
-    appendMetricsTable(os, r);
+    if (!r.channels.empty())
+      appendMetricsTable(os, r);
     appendConfigTable(os, r);
     os << "</div>";
   }
@@ -916,7 +1134,13 @@ void appendCoverageMatrix(std::ostringstream &os,
        << "<span class=\"x\">" << htmlEscape(c.extension) << "</span>"
        << "<span class=\"" << (c.advertised ? "dark-fg" : "skip-fg") << "\">"
        << advertised << "</span>"
-       << "<span class=\"n pass-fg\">" << c.passed << "</span>"
+       << "<span class=\"n pass-fg\">" << c.passed
+       << (c.passedWithoutGroundTruth > 0
+                  ? " <span class=\"skip-fg\" title=\"passed on self-checks "
+                    "alone; Ground truth not evaluated\">("
+                      + std::to_string(c.passedWithoutGroundTruth) + " self)</span>"
+                  : std::string())
+       << "</span>"
        << "<span class=\"n fail-fg\">" << c.failed << "</span>"
        << "<span class=\"n skip-fg\">" << c.skipped << "</span>"
        << "<span><span class=\"state " << coverageStateClass(c.state) << "\">"
@@ -1081,6 +1305,10 @@ std::string generateHtml(const std::filesystem::path &workdir,
         "kmono\">"
      << s.total << "</div><div class=\"sub\">" << executed
      << " executed</div></div>";
+  os << "<div class=\"stat\"><div class=\"k\">Passed on self-checks</div>"
+        "<div class=\"v kmono\">"
+     << s.passedWithoutGroundTruth
+     << "</div><div class=\"sub\">Ground truth not evaluated</div></div>";
   os << "<div class=\"stat\"><div class=\"k\">Categories</div><div class=\"v "
         "kmono\">"
      << s.categories.size()
@@ -1115,6 +1343,17 @@ std::string generateHtml(const std::filesystem::path &workdir,
      << "</button><button type=\"button\" class=\"statusseg\" "
         "data-status=\"skipped\">Skipped "
      << s.skipped << "</button></div>";
+  // Failure-kind filter, with the count of failed Cases per kind.
+  if (!s.failuresByKind.empty()) {
+    os << "<div class=\"segctl\" title=\"failure kind\"><button "
+          "type=\"button\" class=\"kindseg active\" data-kind=\"\">Any "
+          "kind</button>";
+    for (const auto &[kind, n] : s.failuresByKind)
+      os << "<button type=\"button\" class=\"kindseg\" data-kind=\""
+         << htmlEscape(kind) << "\">" << htmlEscape(kind) << " " << n
+         << "</button>";
+    os << "</div>";
+  }
   // Sort control. "Failed first" defaults on when the run has any failures, so
   // the most actionable Cases lead on open.
   const bool failedFirstDefault = s.failed > 0;
@@ -1158,7 +1397,8 @@ std::string generateHtml(const std::filesystem::path &workdir,
          << c.failed << "F</span><span class=\"kmono skip-fg\" data-c=\"s\">"
          << c.skipped << "S</span></span></div>";
     }
-    appendTestRow(os, workdir, key, r, opts.embed, opts.includeAll, srcPrefix);
+    appendTestRow(
+        os, workdir, key, r, results, opts.embed, opts.includeAll, srcPrefix);
   }
   os << "</div>"; // #list
 
