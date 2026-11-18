@@ -1,16 +1,26 @@
 // Copyright 2021-2026 The Khronos Group
 // SPDX-License-Identifier: Apache-2.0
 
+#include "../AnariObject.h"
 #include "../BuildContext.h"
+#include "../FrameReadback.h"
 #include "../GeometryBuilder.h"
 #include "../LightBuilder.h"
+#include "../Metrics.h"
+#include "../ScreenQuad.h"
 #include "../SurfaceBuilder.h"
 #include "../TestBuilder.h"
 #include "../VolumeBuilder.h"
 #include "../WorldBuilder.h"
 #include "Categories.h"
+#include "ScreenScene.h"
 #include "generators/ColorPalette.h"
 // std
+#include <array>
+#include <cstdio>
+#include <initializer_list>
+#include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -379,6 +389,272 @@ void registerShape(Catalog &catalog,
       .registerInto(catalog);
 }
 
+// ---- KHR_ARRAY1D_REGION
+// ------------------------------------------------------
+//
+// An array's `region` (lower inclusive, upper exclusive, in elements) makes
+// the array behave as the slice of elements it names; mapping still gives the
+// whole capacity. The Tests lay triangles out in screen coordinates, seen by
+// the screen camera, so a device that ignores the region draws triangles the
+// region leaves out, in places a device that honours it leaves empty.
+
+using Region = std::array<uint64_t, 2>;
+
+constexpr float kRegionTriangleHalf = 0.11f;
+
+Triangle regionTriangle(float sx, float sy)
+{
+  return screenTriangle(sx, sy, kRegionTriangleHalf);
+}
+
+// The triangles a region Case draws (a top row) and the ones the region must
+// leave out, before and after them (a bottom row).
+struct RegionLayout
+{
+  std::vector<Triangle> before;
+  std::vector<Triangle> subject;
+  std::vector<Triangle> after;
+};
+
+RegionLayout regionLayout()
+{
+  RegionLayout l;
+  l.before = {regionTriangle(0.2f, 0.25f), regionTriangle(0.5f, 0.25f)};
+  l.subject = {regionTriangle(0.2f, 0.75f),
+      regionTriangle(0.5f, 0.75f),
+      regionTriangle(0.8f, 0.75f)};
+  l.after = {regionTriangle(0.8f, 0.25f)};
+  return l;
+}
+
+std::vector<Triangle> join(std::initializer_list<std::vector<Triangle>> parts)
+{
+  std::vector<Triangle> out;
+  for (const auto &p : parts)
+    out.insert(out.end(), p.begin(), p.end());
+  return out;
+}
+
+// A committed array of `values`, with `region` set when given. The caller
+// owns the returned reference.
+template <typename T>
+anari::Array1D regionArray(anari::Device d,
+    const std::vector<T> &values,
+    const std::optional<Region> &region)
+{
+  auto array = anari::newArray1D(d, values.data(), values.size());
+  if (region)
+    anariSetParameter(d, array, "region", ANARI_UINT64_REGION1, region->data());
+  anari::commitParameters(d, array);
+  return array;
+}
+
+// A triangle geometry built from `triangles` in the form a Case names. Every
+// form must draw exactly the subject triangles:
+//   shortArray             vertex.position holds only the subject
+//   vertexRegionFromStart  the subject first, then triangles to leave out;
+//                          the region starts at 0
+//   vertexRegionAfterStart triangles to leave out on both sides of the
+//                          subject; the region starts past 0
+//   indexRegionAfterStart  every vertex, and a primitive.index array with
+//                          triangles to leave out on both sides, whose region
+//                          starts past 0
+anari::Geometry regionTriangleGeometry(
+    anari::Device d, const std::string &form, const RegionLayout &l)
+{
+  auto geom = anari::newObject<anari::Geometry>(d, "triangle");
+  const uint64_t nBefore = l.before.size(), nSubject = l.subject.size(),
+                 nAfter = l.after.size();
+  if (form == "shortArray") {
+    const auto verts = triangleSoup(l.subject);
+    anari::setAndReleaseParameter(
+        d, geom, "vertex.position", regionArray(d, verts, std::nullopt));
+  } else if (form == "vertexRegionFromStart") {
+    const auto verts = triangleSoup(join({l.subject, l.before, l.after}));
+    anari::setAndReleaseParameter(d,
+        geom,
+        "vertex.position",
+        regionArray(d, verts, Region{0, 3 * nSubject}));
+  } else if (form == "vertexRegionAfterStart") {
+    const auto verts = triangleSoup(join({l.before, l.subject, l.after}));
+    anari::setAndReleaseParameter(d,
+        geom,
+        "vertex.position",
+        regionArray(d, verts, Region{3 * nBefore, 3 * (nBefore + nSubject)}));
+  } else if (form == "indexRegionAfterStart") {
+    const auto verts = triangleSoup(join({l.before, l.subject, l.after}));
+    std::vector<anari::math::uint3> indices;
+    for (uint32_t t = 0; t < nBefore + nSubject + nAfter; ++t)
+      indices.push_back(anari::math::uint3(3 * t, 3 * t + 1, 3 * t + 2));
+    anari::setAndReleaseParameter(
+        d, geom, "vertex.position", regionArray(d, verts, std::nullopt));
+    anari::setAndReleaseParameter(d,
+        geom,
+        "primitive.index",
+        regionArray(d, indices, Region{nBefore, nBefore + nSubject}));
+  } else {
+    anari::release(d, geom);
+    throw std::invalid_argument("unknown region form " + form);
+  }
+  anari::commitParameters(d, geom);
+  return geom;
+}
+
+// The world of one geometry, lit head-on, for the screen camera.
+anari::World regionWorld(anari::Device d, anari::Geometry geom)
+{
+  auto mat = makeMatteMaterial(d, float3(0.7f, 0.5f, 0.3f));
+  auto surface = makeSurface(d, geom, mat);
+  auto world = makeScreenQuadWorld(d, surface);
+  anari::release(d, geom);
+  anari::release(d, mat);
+  anari::release(d, surface);
+  return world;
+}
+
+// What the region-changes Test draws: two triangles on the left (the array's
+// first half) and two on the right (its second half).
+std::vector<Triangle> halfTriangles(float sx)
+{
+  return {regionTriangle(sx, 0.7f), regionTriangle(sx, 0.3f)};
+}
+
+// The region of the region-changes Test's value: nothing (unset, the whole
+// array), the left half or the right half.
+std::optional<Region> halfRegion(const std::string &value)
+{
+  if (value == "first")
+    return Region{0, 6};
+  if (value == "second")
+    return Region{6, 12};
+  return std::nullopt;
+}
+
+// A device-side rig for the recommit check: a world of one geometry whose
+// vertex array the check re-regions after rendering.
+class RegionRig
+{
+ public:
+  RegionRig(anari::Device d,
+      anari::Camera camera,
+      anari::Renderer renderer,
+      uint32_t w,
+      uint32_t h)
+      : m_d(d), m_w(w), m_h(h)
+  {
+    const auto verts =
+        triangleSoup(join({halfTriangles(0.25f), halfTriangles(0.75f)}));
+    m_array = regionArray(d, verts, halfRegion("first"));
+    m_geometry = anari::newObject<anari::Geometry>(d, "triangle");
+    anari::setParameter(d, m_geometry, "vertex.position", m_array);
+    anari::commitParameters(d, m_geometry);
+    auto mat = makeMatteMaterial(d, float3(0.7f, 0.5f, 0.3f));
+    auto surface = makeSurface(d, m_geometry, mat);
+    m_world = makeScreenQuadWorld(d, surface);
+    anari::release(d, mat);
+    anari::release(d, surface);
+
+    m_frame =
+        UniqueAnariObject<anari::Frame>(d, anari::newObject<anari::Frame>(d));
+    const auto f = m_frame.get();
+    anari::setParameter(d, f, "size", anari::math::vec<uint32_t, 2>(w, h));
+    anari::setParameter(d, f, "channel.color", ANARI_UFIXED8_RGBA_SRGB);
+    anari::setParameter(d, f, "renderer", renderer);
+    anari::setParameter(d, f, "camera", camera);
+    anari::setParameter(d, f, "world", m_world);
+    anari::commitParameters(d, f);
+  }
+
+  ~RegionRig()
+  {
+    m_frame = {};
+    anari::release(m_d, m_world);
+    anari::release(m_d, m_geometry);
+    anari::release(m_d, m_array);
+  }
+
+  // Change the region and commit the chain that leads to the world.
+  void setRegion(const std::string &value)
+  {
+    const auto region = halfRegion(value);
+    if (region)
+      anariSetParameter(
+          m_d, m_array, "region", ANARI_UINT64_REGION1, region->data());
+    else
+      anariUnsetParameter(m_d, m_array, "region");
+    anari::commitParameters(m_d, m_array);
+    anari::commitParameters(m_d, m_geometry);
+    anari::commitParameters(m_d, m_world);
+  }
+
+  FrameReadbackResult render()
+  {
+    anari::render(m_d, m_frame.get());
+    anari::wait(m_d, m_frame.get());
+    return readFrameChannel(m_d, m_frame.get(), Channel::Color, m_w, m_h);
+  }
+
+ private:
+  anari::Device m_d;
+  uint32_t m_w, m_h;
+  anari::Array1D m_array{nullptr};
+  anari::Geometry m_geometry{nullptr};
+  anari::World m_world{nullptr};
+  UniqueAnariObject<anari::Frame> m_frame;
+};
+
+// Rendering, then changing an array's region and committing it, must show the
+// new region: the image changes, and equals a render of the same region set
+// before the first render.
+BehaviorResult checkRegionRecommit(anari::Device d,
+    anari::World,
+    anari::Camera camera,
+    anari::Renderer renderer,
+    uint32_t w,
+    uint32_t h)
+{
+  constexpr int kTau = 8;
+  constexpr double kEffect = 0.01, kSame = 0.002;
+
+  RegionRig rig(d, camera, renderer, w, h);
+  const auto first = rig.render();
+  if (!first)
+    return {false, "rendering the first region failed: " + first.detail};
+
+  rig.setRegion("second");
+  const auto changed = rig.render();
+  if (!changed)
+    return {false, "rendering the changed region failed: " + changed.detail};
+  const double moved = changedFraction(first.image, changed.image, kTau);
+
+  // The same region, set before any render.
+  RegionRig fresh(d, camera, renderer, w, h);
+  fresh.setRegion("second");
+  const auto expected = fresh.render();
+  if (!expected)
+    return {false, "rendering the reference failed: " + expected.detail};
+  const double off = changedFraction(changed.image, expected.image, kTau);
+
+  auto percent = [](double f) {
+    char text[32];
+    std::snprintf(text, sizeof(text), "%.2f %%", 100.0 * f);
+    return std::string(text);
+  };
+  if (!(moved >= kEffect))
+    return {false,
+        "changing the region and committing it moved only " + percent(moved)
+            + " of the pixels (at least " + percent(kEffect) + " expected)"};
+  if (!(off <= kSame))
+    return {false,
+        "after the region changed, the image differs from one rendered with "
+        "that region in "
+            + percent(off) + " of the pixels (at most " + percent(kSame)
+            + " expected)"};
+  return {true,
+      "the region change moved " + percent(moved) + " of the pixels and "
+          "matches a fresh render ("
+          + percent(off) + " differ)"};
+}
 } // namespace
 
 void registerGeometryTests(Catalog &catalog)
@@ -975,6 +1251,83 @@ void registerGeometryTests(Catalog &catalog)
       .covers("ANARI_KHR_GEOMETRY_ISOSURFACE")
       .requireFeature("ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR")
       .requireFeatures(kSupportMatte)
+      .registerInto(catalog);
+
+  // ---- array region ---------------------------------------------------------
+  makeTest("geometry", "array1d_region")
+      .description(
+          "Checks that an array whose region names a slice of it (starting "
+          "at 0 or past it, on vertex positions or primitive indices) draws "
+          "what an array holding just that slice draws.")
+      .build([](BuildContext &ctx) {
+        return regionWorld(ctx.device(),
+            regionTriangleGeometry(
+                ctx.device(), ctx.getString("array", ""), regionLayout()));
+      })
+      .camera([](BuildContext &ctx, const scenes::Bounds &) {
+        return makeScreenQuadCamera(ctx.device());
+      })
+      // The first value is the reference: no region, just the elements.
+      .variant("array",
+          {"shortArray",
+              "vertexRegionFromStart",
+              "vertexRegionAfterStart",
+              "indexRegionAfterStart"})
+      .channels(kColorDepth)
+      .noGroundTruth()
+      .covers("ANARI_KHR_ARRAY1D_REGION")
+      .requireFeatures(kSupportMatteTriangle)
+      .registerInto(catalog);
+
+  makeTest("geometry", "array1d_region_changes")
+      .description(
+          "Checks that setting an array's region changes what is drawn: the "
+          "first half, the second half, or (unset) all of the array.")
+      .build([](BuildContext &ctx) {
+        auto d = ctx.device();
+        const auto verts =
+            triangleSoup(join({halfTriangles(0.25f), halfTriangles(0.75f)}));
+        auto geom = anari::newObject<anari::Geometry>(d, "triangle");
+        anari::setAndReleaseParameter(d,
+            geom,
+            "vertex.position",
+            regionArray(d, verts, halfRegion(ctx.getString("region", ""))));
+        anari::commitParameters(d, geom);
+        return regionWorld(d, geom);
+      })
+      .camera([](BuildContext &ctx, const scenes::Bounds &) {
+        return makeScreenQuadCamera(ctx.device());
+      })
+      .permute("region", {"unset", "first", "second"})
+      // The whole array draws both halves: the left half of the frame is the
+      // first half's, the right half the second's.
+      .expectDerived("region",
+          "unset",
+          "the first half's image on the left, the second half's on the right",
+          [](const Siblings &s) {
+            return regionComposite(s.at("first"),
+                s.at("second"),
+                [](float x, float) { return x < 0.5f; });
+          })
+      .channels(kColorDepth)
+      .noGroundTruth()
+      .covers("ANARI_KHR_ARRAY1D_REGION")
+      .requireFeatures(kSupportMatteTriangle)
+      .registerInto(catalog);
+
+  makeTest("geometry", "array1d_region_recommit")
+      .description(
+          "Checks that changing the region of an array that was already "
+          "rendered, and committing it, shows the new region.")
+      .build([](BuildContext &ctx) {
+        return assembleWorld(ctx.device(), WorldContents{});
+      })
+      .camera([](BuildContext &ctx, const scenes::Bounds &) {
+        return makeScreenQuadCamera(ctx.device());
+      })
+      .behavior(checkRegionRecommit)
+      .covers("ANARI_KHR_ARRAY1D_REGION")
+      .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 }
 
