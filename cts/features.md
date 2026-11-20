@@ -16,11 +16,12 @@ reporting and device-diff, which are the Python layer reading the results tree
 ## Render and score test scenes
 
 The catalog is a set of C++ Tests, each expanding into one or more Cases. The
-reference device (helide) renders the ground truth; the candidate device renders
+reference device (halcyon's `preview` renderer, or helide when halcyon can't be
+loaded) renders the ground truth; the candidate device renders
 the same Cases and each Channel is scored against ground truth.
 
 ```bash
-anariCts generate --renderer default --ambientRadiance 1 --workdir myrun
+anariCts generate --ambientRadiance 1 --workdir myrun
 anariCts run helide --renderer default --ambientRadiance 1 --workdir myrun
 ```
 

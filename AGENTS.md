@@ -126,7 +126,7 @@ ANARI_LIBRARY=helide anariInfo
 
 ## CI
 
-GitHub Actions (`.github/workflows/anari_sdk_ci.yml`) runs on push/PR to `next_release` and `main`, except for changes confined to `src/devices/halcyon/`. Matrix: Ubuntu 22.04/24.04 and Windows (Release + Debug), macOS (Release only). Tests require `ANARI_LIBRARY=helide`.
+GitHub Actions (`.github/workflows/anari_sdk_ci.yml`) runs on push/PR to `next_release` and `main`, except for changes confined to `src/devices/halcyon/`. Matrix: Ubuntu 22.04/24.04 and Windows (Release + Debug), macOS (Release only). Tests require `ANARI_LIBRARY=helide`. It builds helide only, not halcyon, so the CTS ctests (`cts_tool::discrimination::*`) generate Ground truth with `anariCts generate`'s helide fallback rather than the default Reference device, halcyon.
 
 The `anari` Python wheels have their own workflow (`.github/workflows/python_wheels.yml`): it builds them with cibuildwheel, runs `tests/python` on the installed wheels, and publishes them to PyPI on `v*` tags.
 
