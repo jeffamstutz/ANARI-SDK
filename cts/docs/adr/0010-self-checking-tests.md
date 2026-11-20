@@ -618,8 +618,9 @@ visionaray where it advertises the extension.
     subject is between keys (open and rolling shutters), it moves by
     translation, which every interpolation agrees on. The open shutter's
     exact check requires the part both end silhouettes share to show the
-    subject, nothing outside their hull, and most of each part only one
-    covers to show it (blended); an instant shutter shows the subject where
+    subject, nothing outside their hull, and at least a quarter of each part
+    only one covers to show it (blended: about half at one sample per pixel,
+    so the check holds without accumulation); an instant shutter shows the subject where
     it was. Identical keys render as no motion, with the shutter open.
 48. **The rolling shutter's schedule, as the CTS reads it.** With shutter
     `[0, 1]`, lines open one after another, the first at the shutter's start

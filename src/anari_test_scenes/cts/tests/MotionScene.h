@@ -44,6 +44,12 @@ inline constexpr float kOpenHalfHeight = 0.4f;
 inline const math::float3 kOpenFrom(-0.3f, 0.f, 0.f);
 inline const math::float3 kOpenTo(0.3f, 0.f, 0.f);
 
+// The open-shutter rectangle's centre at time t.
+inline math::float3 openCentreAt(float t)
+{
+  return kOpenFrom + t * (kOpenTo - kOpenFrom);
+}
+
 // The identical-keys Tests: every key (and the static scene) puts the
 // open-shutter rectangle's centre here.
 inline const math::float3 kIdenticalAt(0.2f, 0.1f, 0.f);
