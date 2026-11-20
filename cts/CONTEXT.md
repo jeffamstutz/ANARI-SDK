@@ -116,7 +116,10 @@ _Avoid_: stress test, watchdog test
 ### Running and comparing
 
 **Reference device**:
-The device whose renders define ground truth (currently helide).
+The device whose renders define ground truth: halcyon's `preview` renderer
+by default, or helide when halcyon can't be loaded (ADR-0005). `generate`
+records which one it used; a Case needing an extension it lacks has no Ground
+truth, and the run says so.
 _Avoid_: golden device
 
 **Candidate**:
@@ -186,7 +189,7 @@ Both include a per-extension matrix: for every canonical KHR extension, whether
 the device advertised it, the passed/failed/skipped Cases it is primary for, and
 a state (`passed` only when every Case was fully scored, `passed, Ground truth
 not evaluated`, `advertised, partly scored`, `failed`, `not advertised`,
-`advertised, no Ground truth`, ...; `no Test` when the run's Catalog, as its
+`advertised, no Ground truth`, `advertised, Reference device lacks it`, ...; `no Test` when the run's Catalog, as its
 Sidecars record it, has no Test covering it), classified from the Cases'
 verdicts and Ground-truth flags. A leading `core` row counts the Cases of Tests
 that cover no extension. The text summary counts failures by kind (effect,

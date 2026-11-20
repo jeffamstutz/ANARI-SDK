@@ -1,6 +1,7 @@
 # Ground truth is generated on demand, not committed to the repository
 
-Ground-truth images are produced by running the Reference device (helide) through
+Ground-truth images are produced by running the Reference device (helide at first; halcyon now, see the last
+update) through
 the C++ runner's `generate` mode into the workdir's `ground_truth/` directory,
 which is gitignored. Regeneration is a first-class command. The repository
 contains scene *code* only — no rendered images.
@@ -27,3 +28,20 @@ or `.noGroundTruth()` when it is fully self-checked (effect and equivalence
 between its own Cases); `generate` skips the latter. A Variant's shared file is
 written from its first value's Case only. Unit tests still generate their
 images in code: nothing is committed or fetched.
+
+**Update (halcyon is the default Reference device):** `generate` defaults to
+halcyon's `preview` renderer in its default mode. It is fast and deterministic,
+and it renders the light, albedo and normal Tests that helide can't (helide
+doesn't advertise those extensions, so 51 image Cases had no Ground truth).
+halcyon's `quality` path tracer was not chosen: it is slower and converges by
+sampling. halcyon needs ISPC and is off by default (`BUILD_HALCYON_DEVICE`), so
+when it can't be loaded `generate` prints a notice and uses helide's default
+renderer, and a minimal SDK build still generates. `generate` records the
+device, renderer and advertised extensions in `ground_truth/reference.json`.
+`run` copies that identity into each Sidecar (`reference`, additive in v4) and
+the report shows it next to the Candidate. A Case whose required extension the
+Reference lacked is skipped with `no ground truth: reference device (<name>)
+lacks <extension>` (`referenceMissingFeatures`; the matrix state `advertised,
+Reference device lacks it`), not with "run generate first", which no
+`generate` with that device can fix. The main CI workflow builds helide only,
+so its CTS ctests run on the fallback.

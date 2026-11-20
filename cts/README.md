@@ -2,7 +2,8 @@
 
 The Conformance Test Suite (CTS) validates an ANARI device implementation by
 rendering a known battery of scenes and comparing each render against
-ground-truth images produced by a reference device (helide). It is a
+ground-truth images produced by a reference device (halcyon's `preview`
+renderer, or helide when halcyon isn't available). It is a
 self-contained C++ command-line tool, `anariCts`, with a thin Python layer
 (`ctsReport.py`) retained only for producing a PDF.
 
@@ -38,10 +39,12 @@ sidecar files in the workdir (ADR-0003); the results tree is the only contract.
 ## Building
 
 The tool builds as part of the SDK when either `BUILD_CTS` or `BUILD_TESTING` is
-on, and needs a device to test against (helide is the reference):
+on, and needs a device to test against. The Reference device that `generate`
+uses by default is halcyon (`BUILD_HALCYON_DEVICE`, which needs ISPC); without
+it, `generate` falls back to helide and says so:
 
 ```bash
-cmake -DBUILD_CTS=ON -DBUILD_HELIDE_DEVICE=ON ..
+cmake -DBUILD_CTS=ON -DBUILD_HELIDE_DEVICE=ON [-DBUILD_HALCYON_DEVICE=ON] ..
 cmake --build . -j
 ```
 
@@ -67,7 +70,9 @@ commands:
 options:
   --filter <pattern>   select a slice of the catalog (substring or glob over <category>/<test>)
   --workdir <dir>      run root holding results/ ground_truth/ assets/ (default: cts_workdir)
-  --device <lib>       reference device library for generate (default: helide)
+  --device <lib>       Reference device library for generate (default:
+                       halcyon with its preview renderer; helide, with a
+                       notice, when halcyon can't be loaded)
   --width <n>          render width (default: 256)
   --height <n>         render height (default: 256)
   -r, --renderer <subtype>
@@ -109,8 +114,9 @@ Ground truth is generated on demand and never committed (ADR-0005), so the first
 step is always to generate it with the reference device, then run the candidate:
 
 ```bash
-# 1. Generate ground truth for the whole catalog with the reference device.
-anariCts generate --renderer default --ambientRadiance 1 --workdir myrun
+# 1. Generate ground truth for the whole catalog with the reference device
+#    (halcyon's preview renderer, or helide if halcyon can't be loaded).
+anariCts generate --ambientRadiance 1 --workdir myrun
 
 # 2. Render + score a candidate device against it.
 anariCts run helide --renderer default --ambientRadiance 1 --workdir myrun
@@ -124,8 +130,12 @@ python cts/ctsReport.py report myrun --pdf myrun.pdf         # PDF, if you want 
 
 `run` exits non-zero if any Case failed, so it drops into CI directly.
 
-Use the same `--renderer` and `--ambientRadiance` values for `generate` and
-`run`; they are part of the rendering configuration being compared. The
+Use the same `--ambientRadiance` value for `generate` and `run`; it is part of
+the rendering configuration being compared. `generate` records the Reference
+device and renderer it used in `ground_truth/reference.json`; the report shows
+it next to the Candidate, and a Case whose required extension the Reference
+lacks is reported as `reference device (<name>) lacks <extension>` rather than
+as needing `generate`. The
 ambient value is a baseline for ordinary Tests. A renderer Test that explicitly
 exercises `ambientRadiance` overrides it with the Case's axis value.
 
