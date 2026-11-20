@@ -112,7 +112,7 @@ float3 transformPoint(const mat4 &m, const float3 &v)
 float4 rotationZ(float degrees)
 {
   return math::rotation_quat(
-      float3(0.f, 0.f, 1.f), degrees * 3.14159265f / 180.f);
+      float3(0.f, 0.f, 1.f), degrees * float(M_PI) / 180.f);
 }
 
 Pose translated(const float3 &t)
@@ -537,8 +537,14 @@ PixelMask maskOf(FrameSize size, const PixelRect &r, float grow)
 // covered all the time the shutter is open and shows the subject; nothing
 // outside their hull is touched; and with a shutter open for a while, the
 // part only one of them covers is covered for part of it and shows the
-// subject (blended, but not background) in most of its pixels. Edges are
-// given 2 pixels either way.
+// subject (blended, but not background) in a good share of its pixels. Edges
+// are given 2 pixels either way. The share of a part covered for only some of
+// the shutter that must show the subject. The cover falls from all of the
+// shutter to none across it, so about half its pixels show the subject at one
+// sample per pixel and nearly all once accumulated; a device that shows only
+// one end shows none.
+constexpr double kPartlyCoveredShown = 0.25;
+
 void openShutterCoverage(ExactCheck &x)
 {
   const auto color = x.rgba(Channel::Color);
@@ -546,11 +552,8 @@ void openShutterCoverage(ExactCheck &x)
   const FrameSize size = x.frameSize();
   const float2 shutter = shutterOf(x.values());
   const float2 half(motion::kOpenHalfWidth, motion::kOpenHalfHeight);
-  auto at = [&](float t) {
-    return motion::kOpenFrom + t * (motion::kOpenTo - motion::kOpenFrom);
-  };
-  const auto start = projectRect(x, at(shutter.x), half);
-  const auto end = projectRect(x, at(shutter.y), half);
+  const auto start = projectRect(x, motion::openCentreAt(shutter.x), half);
+  const auto end = projectRect(x, motion::openCentreAt(shutter.y), half);
   if (!start || !end) {
     x.measure("the subject projects into the frame", 0.0, Limit::AtLeast, 1.0);
     return;
@@ -597,11 +600,11 @@ void openShutterCoverage(ExactCheck &x)
       "subject",
       fractionShown(PixelRect{start->x0, start->y0, end->x0, start->y1}),
       Limit::AtLeast,
-      0.5);
+      kPartlyCoveredShown);
   x.measure("fraction of the part only the end covers that shows the subject",
       fractionShown(PixelRect{start->x1, end->y0, end->x1, end->y1}),
       Limit::AtLeast,
-      0.5);
+      kPartlyCoveredShown);
 }
 
 // The identical-keys Tests: whether moving or static, the subject is the

@@ -239,8 +239,7 @@ Image openFrame(float t0, float t1)
 {
   Image im = solid(kSize, kSize, 0, 0, 0, 255);
   auto box = [](float t) {
-    return projectedBox(
-        motion::kOpenFrom + t * (motion::kOpenTo - motion::kOpenFrom),
+    return projectedBox(motion::openCentreAt(t),
         float2(motion::kOpenHalfWidth, motion::kOpenHalfHeight));
   };
   for (uint32_t y = 0; y < kSize; ++y)
@@ -410,6 +409,22 @@ TEST_CASE(
       return openFrame(s.x, s.y);
     };
     CHECK(f.allPass(f.judge(render)));
+
+    // One sample per pixel: each pixel shows the subject or the background,
+    // with the chance of its cover (a fixed hash stands in for the noise).
+    const auto oneSample = f.judge([&](const Values &v) {
+      Image im = render(v);
+      for (uint32_t y = 0; y < kSize; ++y)
+        for (uint32_t x = 0; x < kSize; ++x) {
+          const size_t i = (size_t(y) * kSize + x) * 4;
+          const float cover = im.rgba[i] / float(kSubject.r);
+          const float u =
+              float((x * 73856093u ^ y * 19349663u) % 1000) / 1000.f;
+          setPixel(im, x, y, u < cover ? kSubject : Rgba{0, 0, 0, 255});
+        }
+      return im;
+    });
+    CHECK(f.passes(oneSample, {{"shutter", shutter(0.f, 1.f)}}));
 
     // Shows the open shutter's start only: the end's part is empty.
     const auto instantOnly = f.judge([](const Values &v) {
