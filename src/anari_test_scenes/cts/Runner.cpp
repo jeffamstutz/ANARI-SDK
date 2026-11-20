@@ -424,6 +424,7 @@ Runner::SceneObjects Runner::buildScene(
     return scene;
 
   BuildContext ctx(m_device);
+  ctx.setFrameSize(size);
   for (const auto &cv : c.values)
     ctx.set(cv.axisName, cv.value);
 

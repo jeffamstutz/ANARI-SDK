@@ -71,9 +71,25 @@ struct BuildContext
   void setCameraProjection(const CameraProjection &projection);
   const std::optional<CameraProjection> &cameraProjection() const;
 
+  // A camera that is what `projection` describes, with that projection
+  // recorded (setCameraProjection()) in the same call, so a Test's own camera
+  // hook describes its camera once. It is of the projection's type, placed
+  // and shaped by its position, direction, up, fovy (perspective) or height
+  // (orthographic), aspect and image region (set only when it isn't the
+  // whole sensor). The aspect is the Case's frame's when the frame size is
+  // known (setFrameSize()), else the projection's. The camera is not
+  // committed: set the Test's own parameters on it, then commit it.
+  anari::Camera newCamera(CameraProjection projection);
+
+  // The size the Case renders at. The runner records it before the build and
+  // camera hooks run; a context made elsewhere (a smoke test) has none.
+  void setFrameSize(FrameSize size);
+  const std::optional<FrameSize> &frameSize() const;
+
  private:
   anari::Device m_device{nullptr};
   std::optional<CameraProjection> m_projection;
+  std::optional<FrameSize> m_frameSize;
   helium::ParameterizedObject m_params;
   std::unordered_map<std::string, ParameterBinding> m_bindings;
 };
