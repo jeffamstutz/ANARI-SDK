@@ -57,6 +57,12 @@ namespace cts {
 // kind `exact`, carrying `label` and either `pixels` (offending and checked
 // counts, the first offender) or `measurement` (value, bound, limit). No
 // earlier sidecar holds an `exact` entry, so their absence can't be misread.
+//
+// Additive to v4, read with defaults (ADR-0005): `reference`, the Reference
+// device whose Ground truth the run scored against (its library empty when the
+// workdir has no record of it), and `referenceMissingFeatures`, the required
+// extensions that device lacked, so it rendered no Ground truth for the Case.
+// An older Sidecar reads as "Reference unknown", which is what it was.
 constexpr int kSidecarSchemaVersion = 4;
 
 // The skipReason of a Case skipped because it has no Ground truth. The report
@@ -206,6 +212,12 @@ struct CaseResult
   std::string caseId;
   std::string groundTruthKey;
   DeviceSpec device; // which device produced this result (schema v2)
+  // The Reference device whose Ground truth the run read (ADR-0005), without
+  // its extensions; the library is empty when the workdir has no record.
+  DeviceSpec reference;
+  // The Case's required extensions the Reference lacked: why it has no
+  // Ground truth. Empty when the Reference had them all, or is unknown.
+  std::vector<std::string> referenceMissingFeatures;
   std::vector<std::pair<std::string, std::string>> axisValues; // name -> value
   // The Test's extensions (schema v3): all it requires, the primary ones it
   // covers, and the required ones the device lacks.
@@ -247,6 +259,11 @@ struct CaseResult
         && !groundTruthEvaluated;
   }
 };
+
+// Why a Case that asks for Ground truth has none: the Reference device lacked
+// an extension it needs (`referenceMissingFeatures`), which no `generate` with
+// that device can fix, or else kNoGroundTruthReason.
+std::string noGroundTruthReason(const CaseResult &result);
 
 // Serialize a CaseResult to its sidecar JSON text (pretty-printed).
 std::string toJson(const CaseResult &result);

@@ -170,6 +170,31 @@ std::optional<DeviceSpec> runDevice(
   return devices.begin()->second;
 }
 
+std::string deviceSpecLabel(const DeviceSpec &device)
+{
+  return device.library + " (" + device.device + "/" + device.renderer + ")";
+}
+
+std::optional<DeviceSpec> runReference(
+    const std::map<std::string, CaseResult> &results, std::ostream &warnings)
+{
+  std::set<std::tuple<std::string, std::string, std::string>> references;
+  for (const auto &[key, r] : results)
+    if (!r.reference.library.empty())
+      references.insert(
+          {r.reference.library, r.reference.device, r.reference.renderer});
+  if (references.size() > 1) {
+    warnings << "warning: mixed Reference devices in one run:";
+    for (const auto &[library, device, renderer] : references)
+      warnings << " " << library << " (" << device << "/" << renderer << ")";
+    warnings << "\n";
+  }
+  if (references.size() != 1)
+    return std::nullopt;
+  const auto &[library, device, renderer] = *references.begin();
+  return DeviceSpec{library, device, renderer};
+}
+
 std::string deviceLabel(const std::map<std::string, CaseResult> &results,
     const std::string &fallback,
     std::ostream &warnings)
@@ -177,7 +202,7 @@ std::string deviceLabel(const std::map<std::string, CaseResult> &results,
   const auto device = runDevice(results, warnings);
   if (!device)
     return fallback;
-  return device->library + " (" + device->device + "/" + device->renderer + ")";
+  return deviceSpecLabel(*device);
 }
 
 std::vector<std::string> canonicalKhrExtensions()
@@ -207,6 +232,8 @@ const char *coverageStateName(CoverageState state)
     return "not advertised";
   case CoverageState::NoGroundTruth:
     return "advertised, no Ground truth";
+  case CoverageState::ReferenceLacks:
+    return "advertised, Reference device lacks it";
   case CoverageState::MissingSupport:
     return "advertised, missing support";
   case CoverageState::NotRun:
@@ -278,8 +305,10 @@ std::vector<ExtensionCoverage> extensionCoverage(
 
   // Tally one Case into a row, noting the rows with a Case skipped for want
   // of something to evaluate (Ground truth): a skip that names no missing
-  // extension. The Sidecar's fields decide it, not the reason's wording.
+  // extension, apart from those whose Reference device lacked one. The
+  // Sidecar's fields decide it, not the reason's wording.
   std::set<const ExtensionCoverage *> noGroundTruth;
+  std::set<const ExtensionCoverage *> referenceLacks;
   // Rows with a passed Case carrying an unevaluated (opted-out) assertion:
   // not every assertion was evaluated, so the row isn't plain "passed".
   std::set<const ExtensionCoverage *> partlyEvaluated;
@@ -298,8 +327,12 @@ std::vector<ExtensionCoverage> extensionCoverage(
       break;
     case Verdict::Skipped:
       ++c.skipped;
-      if (r.missingFeatures.empty())
+      if (!r.missingFeatures.empty())
+        break;
+      if (r.referenceMissingFeatures.empty())
         noGroundTruth.insert(&c);
+      else
+        referenceLacks.insert(&c);
       break;
     }
   };
@@ -327,6 +360,8 @@ std::vector<ExtensionCoverage> extensionCoverage(
       c.state = CoverageState::Passed;
     else if (noGroundTruth.count(&c))
       c.state = CoverageState::NoGroundTruth;
+    else if (referenceLacks.count(&c))
+      c.state = CoverageState::ReferenceLacks;
     else if (c.skipped > 0)
       c.state = CoverageState::MissingSupport;
     else
@@ -379,6 +414,8 @@ void writeTextSummary(std::ostream &out,
   } else if (const auto device = runDevice(results, out))
     out << "  device: " << device->library << " (" << device->device << "/"
         << device->renderer << ")\n";
+  if (const auto reference = runReference(results, out))
+    out << "  reference: " << deviceSpecLabel(*reference) << "\n";
   out << "  " << s.total << " cases: " << s.passed << " passed, " << s.failed
       << " failed, " << s.skipped << " skipped\n";
   if (s.passedWithoutGroundTruth > 0)

@@ -6,6 +6,7 @@
 #include "cts/ArtifactPublication.h"
 #include "cts/Case.h"
 #include "cts/Metrics.h"
+#include "cts/Reference.h"
 #include "cts/Sidecar.h"
 #include "cts/Workdir.h"
 // std
@@ -279,6 +280,69 @@ TEST_CASE(
   }
 
   std::filesystem::remove_all(dir.parent_path(), ec);
+}
+
+TEST_CASE("a sidecar round-trips the Reference device and what it lacks",
+    "[cts][sidecar][reference]")
+{
+  CaseResult r;
+  r.verdict = Verdict::Skipped;
+  r.reference = {"halcyon", "default", "preview"};
+  r.referenceMissingFeatures = {"ANARI_KHR_X"};
+  CaseResult back;
+  REQUIRE(fromJson(toJson(r), back));
+  CHECK(back.reference.library == "halcyon");
+  CHECK(back.reference.device == "default");
+  CHECK(back.reference.renderer == "preview");
+  CHECK(
+      back.referenceMissingFeatures == std::vector<std::string>{"ANARI_KHR_X"});
+
+  // An older v4 Sidecar has neither; they read as unknown and empty.
+  CaseResult old;
+  REQUIRE(fromJson(R"({"schemaVersion": 4, "verdict": "skipped"})", old));
+  CHECK(old.reference.library.empty());
+  CHECK(old.referenceMissingFeatures.empty());
+}
+
+TEST_CASE("a Case without Ground truth says whether the Reference lacked it",
+    "[cts][sidecar][reference]")
+{
+  CaseResult r;
+  CHECK(noGroundTruthReason(r) == kNoGroundTruthReason);
+  r.reference = {"halcyon", "default", "preview"};
+  CHECK(noGroundTruthReason(r) == kNoGroundTruthReason);
+  r.referenceMissingFeatures = {"ANARI_KHR_X", "ANARI_KHR_Y"};
+  CHECK(noGroundTruthReason(r)
+      == "no ground truth: reference device (halcyon) lacks ANARI_KHR_X, "
+         "ANARI_KHR_Y");
+}
+
+// The Reference record ///////////////////////////////////////////////////////
+
+TEST_CASE("the Reference record round-trips and is absent until written",
+    "[cts][reference]")
+{
+  const auto root =
+      std::filesystem::temp_directory_path() / "cts_reference_record_test";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+  const Workdir wd(root);
+
+  CHECK_FALSE(readReference(wd));
+  CHECK(wd.referenceRecordPath() == wd.groundTruthDir() / "reference.json");
+
+  const DeviceSpec reference{
+      "halcyon", "default", "preview", {"ANARI_KHR_A", "ANARI_KHR_B"}};
+  REQUIRE(writeReference(wd, reference));
+  const auto back = readReference(wd);
+  REQUIRE(back);
+  CHECK(back->library == "halcyon");
+  CHECK(back->device == "default");
+  CHECK(back->renderer == "preview");
+  CHECK(back->extensions
+      == std::vector<std::string>{"ANARI_KHR_A", "ANARI_KHR_B"});
+
+  std::filesystem::remove_all(root, ec);
 }
 
 // Artifact publication ///////////////////////////////////////////////////////

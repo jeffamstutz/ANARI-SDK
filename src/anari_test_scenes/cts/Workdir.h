@@ -54,6 +54,10 @@ struct Workdir
   // (DeviceFailure.h). Not a Sidecar.
   std::filesystem::path runRecordPath() const;
 
+  // ground_truth/reference.json: the Reference device the last `generate`
+  // used (Reference.h).
+  std::filesystem::path referenceRecordPath() const;
+
   // A path expressed relative to the workdir root (for storing in sidecars).
   std::string relativeToRoot(const std::filesystem::path &p) const;
 

@@ -64,6 +64,9 @@ struct RunSummary
   // Of `passed`: Cases that passed their self-checks while the Ground truth
   // their Test asks for was missing (ADR-0010).
   int passedWithoutGroundTruth{0};
+  // Of `skipped`: Cases with no Ground truth because the Reference device
+  // lacked an extension they need (CaseResult::referenceMissingFeatures).
+  int referenceLacks{0};
   // generate: equivalences the Reference device's own Variants failed.
   int variantDisagreements{0};
   // Why the device could not render the probe frame (DeviceProbe.h); empty
@@ -88,8 +91,10 @@ struct Runner
   // the timeout isn't enforced.
   void setCaseIsolation(std::shared_ptr<CaseIsolation> isolation);
 
-  // Render every selected Case and save its channels under ground_truth/.
-  // Does not score or write sidecars (ADR-0005). A shared (Variant) Ground
+  // Render every selected Case and save its channels under ground_truth/,
+  // and record the Reference device (RunOptions::device, with
+  // `referenceFeatures`) beside them (Reference.h). Does not score or write
+  // sidecars (ADR-0005). A shared (Variant) Ground
   // truth file is written from its first Variant value's Case only, and the
   // device's own Variants are checked for equivalence (a disagreement is
   // reported, RunSummary::variantDisagreements). Skips `.noGroundTruth()`
@@ -245,6 +250,10 @@ struct Runner
       const std::set<std::string> &features,
       RunSummary &summary);
 
+  // A Case's result before it runs: its Test's and the run's identity, and
+  // the Reference device the workdir records.
+  CaseResult caseResult(const TestDef &test, const Case &c);
+
   // Publish a Case's complete result and tally its verdict. A publication
   // failure always tallies as failed, regardless of the intended verdict.
   void recordResult(const Case &c,
@@ -308,6 +317,8 @@ struct Runner
   // resolved once from device introspection to type the CLI overrides.
   std::map<std::string, ANARIDataType> m_rendererParamTypes;
   bool m_rendererParamTypesResolved{false};
+  // The Reference device the workdir records (Reference.h), read by run().
+  std::optional<DeviceSpec> m_reference;
   // probeOnce()'s result, once probed.
   std::optional<std::string> m_deviceFailure;
 };
