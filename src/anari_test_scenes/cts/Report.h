@@ -77,6 +77,15 @@ Summary summarize(const std::map<std::string, CaseResult> &results);
 std::optional<DeviceSpec> runDevice(
     const std::map<std::string, CaseResult> &results, std::ostream &warnings);
 
+// "<library> (<device>/<renderer>)": how a report names a device.
+std::string deviceSpecLabel(const DeviceSpec &device);
+
+// The single Reference device named by a run's sidecars (ADR-0005), without
+// its extensions. Absent when none names one (no record, or sidecars older
+// than it) or they name more than one (diagnosed to `warnings`).
+std::optional<DeviceSpec> runReference(
+    const std::map<std::string, CaseResult> &results, std::ostream &warnings);
+
 // A human label for a run: its device identity, or `fallback` (the workdir
 // name) when the sidecars predate the device field.
 std::string deviceLabel(const std::map<std::string, CaseResult> &results,
@@ -102,6 +111,9 @@ enum class CoverageState
   Failed, // advertised; at least one of its Cases failed
   NotAdvertised, // the device doesn't advertise it (its Cases skip)
   NoGroundTruth, // advertised; its Cases skipped for want of Ground truth
+  // Advertised; its Cases skipped because the Reference device lacked an
+  // extension they need, so it rendered no Ground truth for them.
+  ReferenceLacks,
   MissingSupport, // advertised; its Cases skipped for a support extension
   NotRun, // advertised and tested, but no Case of it is in the results
   AdvertisedNoTest, // advertised; the CTS has no Test for it

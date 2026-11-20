@@ -11,6 +11,7 @@
 #include "FrameFormats.h"
 #include "FrameReadback.h"
 #include "Metrics.h"
+#include "Reference.h"
 #include "Sidecar.h"
 #include "Value.h"
 #include "ViewBuilder.h"
@@ -470,8 +471,7 @@ void Runner::writeFeatureSkip(const TestDef &test,
     const std::set<std::string> &features,
     RunSummary &summary)
 {
-  CaseResult result = baseResult(
-      test, c, m_options.device, m_catalogCovered, appliedRendererParams(test));
+  CaseResult result = caseResult(test, c);
   result.verdict = Verdict::Skipped;
   result.missingFeatures = missingFeatures(test, c, features);
   result.skipReason = featureSkipReason(result.missingFeatures);
@@ -503,6 +503,8 @@ void Runner::tally(const CaseResult &result, RunSummary &summary)
     break;
   case Verdict::Skipped:
     summary.skipped++;
+    if (!result.referenceMissingFeatures.empty())
+      summary.referenceLacks++;
     break;
   }
 }
@@ -512,8 +514,7 @@ void Runner::writeCaseFailure(const TestDef &test,
     const std::string &detail,
     RunSummary &summary)
 {
-  CaseResult result = baseResult(
-      test, c, m_options.device, m_catalogCovered, appliedRendererParams(test));
+  CaseResult result = caseResult(test, c);
   result.verdict = Verdict::Failed;
   result.detail = detail;
   recordResult(c, result, summary);
@@ -649,6 +650,17 @@ std::optional<FrameSize> Runner::sizeOrSkip(
   return size.size;
 }
 
+CaseResult Runner::caseResult(const TestDef &test, const Case &c)
+{
+  CaseResult r = baseResult(
+      test, c, m_options.device, m_catalogCovered, appliedRendererParams(test));
+  if (m_reference) {
+    r.reference = {
+        m_reference->library, m_reference->device, m_reference->renderer};
+  }
+  return r;
+}
+
 RunSummary Runner::generate(const Catalog &catalog,
     const Filter &filter,
     const std::set<std::string> &referenceFeatures)
@@ -660,6 +672,27 @@ RunSummary Runner::generate(const Catalog &catalog,
   summary.deviceFailure = probeOnce();
   if (!summary.deviceFailure.empty())
     return summary;
+  // What a run needs to tell a Case the Reference can't render from one
+  // generate wasn't run for.
+  DeviceSpec reference = m_options.device;
+  reference.extensions.assign(
+      referenceFeatures.begin(), referenceFeatures.end());
+  // The record names one device; Ground truth an earlier generate left with
+  // another stays, so the workdir would mix them.
+  if (const auto earlier = readReference(m_workdir); earlier
+      && (earlier->library != reference.library
+          || earlier->device != reference.device
+          || earlier->renderer != reference.renderer))
+    std::cerr << "warning: " << m_workdir.groundTruthDir().string()
+              << " holds Ground truth from " << earlier->library << " ("
+              << earlier->device << "/" << earlier->renderer
+              << "); the record now names " << reference.library << " ("
+              << reference.device << "/" << reference.renderer
+              << "), so remove the directory first unless the earlier "
+                 "Ground truth is all replaced\n";
+  if (!writeReference(m_workdir, reference))
+    std::cerr << "warning: could not write "
+              << m_workdir.referenceRecordPath().string() << "\n";
   for (const TestDef *test : catalog.filter(filter))
     generateTest(*test, filter, referenceFeatures, summary);
   return summary;
@@ -675,6 +708,7 @@ RunSummary Runner::run(const Catalog &catalog,
   // this run didn't select, from the results tree alone (ADR-0008).
   const auto covered = coveredExtensions(catalog);
   m_catalogCovered.assign(covered.begin(), covered.end());
+  m_reference = readReference(m_workdir);
   if (!m_workdir.writeGitignore())
     return workdirFailureSummary(catalog, filter);
   RunSummary summary;
@@ -703,8 +737,7 @@ Runner::CaseOutcome Runner::runCase(
 {
   CaseOutcome out;
   CaseResult &result = out.result;
-  result = baseResult(
-      test, c, m_options.device, m_catalogCovered, appliedRendererParams(test));
+  result = caseResult(test, c);
 
   // Per-case crash isolation (ADR-0003): a throwing build helper or fatal
   // fails this Case and the run continues. Handles built mid-case are
@@ -746,11 +779,17 @@ Runner::CaseOutcome Runner::runCase(
       }
       groundTruth.push_back(std::move(gt));
     }
+    if (!haveGroundTruth && test.usesGroundTruth() && m_reference) {
+      const std::set<std::string> referenceFeatures(
+          m_reference->extensions.begin(), m_reference->extensions.end());
+      result.referenceMissingFeatures =
+          missingFeatures(test, c, referenceFeatures);
+    }
     if (!haveGroundTruth && test.usesGroundTruth()
         && !renderWithoutGroundTruth) {
       // Nothing would be evaluated: don't render.
       result.verdict = Verdict::Skipped;
-      result.skipReason = kNoGroundTruthReason;
+      result.skipReason = noGroundTruthReason(result);
       return out;
     }
 
@@ -1169,11 +1208,7 @@ void Runner::runBehaviorTest(const TestDef &test,
     // check becomes a failed sidecar and the run continues; SceneObjects owns
     // every handle and releases partial or complete builds on scope exit.
     try {
-      CaseResult result = baseResult(test,
-          c,
-          m_options.device,
-          m_catalogCovered,
-          appliedRendererParams(test));
+      CaseResult result = caseResult(test, c);
 
       const auto size = sizeOrSkip(test, c, result);
       if (!size) {
@@ -1266,12 +1301,7 @@ void Runner::runIsolatedCase(
     break;
   }
 
-  CaseResult result = haveResult ? written
-                                 : baseResult(test,
-                                       c,
-                                       m_options.device,
-                                       m_catalogCovered,
-                                       appliedRendererParams(test));
+  CaseResult result = haveResult ? written : caseResult(test, c);
   if (haveResult) {
     why += std::string("; before that, its check had ")
         + verdictName(written.verdict)

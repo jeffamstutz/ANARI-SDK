@@ -13,6 +13,7 @@
 #include "cts/Expansion.h"
 #include "cts/HtmlReport.h"
 #include "cts/Isolation.h"
+#include "cts/Reference.h"
 #include "cts/RendererParams.h"
 #include "cts/Report.h"
 #include "cts/Runner.h"
@@ -43,6 +44,9 @@ namespace {
 struct StatusState
 {
   bool verbose{false};
+  // Loading a device that may be absent (the default Reference device):
+  // errors print only with --verbose.
+  bool quiet{false};
   // For behaviour checks that fail on a device error (ADR-0009).
   DeviceErrorLog errors;
 };
@@ -61,8 +65,10 @@ void statusFunc(const void *userData,
   const bool verbose = state && state->verbose;
   if (state)
     state->errors.record(severity, message);
-  if (severity == ANARI_SEVERITY_FATAL_ERROR
-      || severity == ANARI_SEVERITY_ERROR)
+  const bool quiet = state && state->quiet;
+  if ((severity == ANARI_SEVERITY_FATAL_ERROR
+          || severity == ANARI_SEVERITY_ERROR)
+      && (!quiet || verbose))
     std::cerr << "[ANARI][ERROR] " << message << "\n";
   else if (verbose && severity == ANARI_SEVERITY_WARNING)
     std::cerr << "[ANARI][WARN ] " << message << "\n";
@@ -76,6 +82,7 @@ struct Options
   uint32_t width = 256;
   uint32_t height = 256;
   std::string renderer = "default";
+  bool rendererGiven{false}; // -r/--renderer was passed
   float ambientRadiance = 1.f;
   // Device-agnostic renderer parameter overrides (repeatable --renderer-param
   // NAME=VALUE), applied to every rendered Case's renderer.
@@ -129,7 +136,9 @@ options:
   --filter <pattern>   select a slice of the catalog (substring or glob over <category>/<test>,
                        or over <category>/<test>/<case> to select some Cases of a Test)
   --workdir <dir>      run root holding results/ ground_truth/ assets/ (default: cts_workdir)
-  --device <lib>       reference device library for generate (default: helide)
+  --device <lib>       Reference device library for generate (default:
+                       halcyon with its preview renderer; helide, with a
+                       notice, when halcyon can't be loaded)
   --width <n>          render width (default: 256)
   --height <n>         render height (default: 256)
   -r, --renderer <subtype>
@@ -226,9 +235,10 @@ Options parseOptions(int argc, char **argv, int start)
       o.width = parseDim(next(), o.width);
     else if (a == "--height")
       o.height = parseDim(next(), o.height);
-    else if (a == "--renderer" || a == "-r")
+    else if (a == "--renderer" || a == "-r") {
       o.renderer = next();
-    else if (a == "--ambientRadiance")
+      o.rendererGiven = true;
+    } else if (a == "--ambientRadiance")
       o.ambientRadiance = parseFloat(next(), o.ambientRadiance);
     else if (a == "--renderer-param" || a == "-p") {
       const std::string spec = next();
@@ -296,17 +306,33 @@ void warnIfDenoiseUnsupported(const std::string &deviceName,
                  "renderer 'denoise' parameter anyway\n";
 }
 
-// Load a device library and create its default device, or null on failure.
-anari::Device loadDevice(const std::string &name, anari::Library &lib)
+// Load a device library and create its default device, or null on failure,
+// which is an error unless `quiet` (then the device's errors while loading
+// print only with --verbose).
+anari::Device loadDevice(
+    const std::string &name, anari::Library &lib, bool quiet = false)
 {
+  struct QuietWhileLoading
+  {
+    explicit QuietWhileLoading(bool on)
+    {
+      g_status.quiet = on;
+    }
+    ~QuietWhileLoading()
+    {
+      g_status.quiet = false;
+    }
+  } loading(quiet);
   lib = anari::loadLibrary(name.c_str(), statusFunc, &g_status);
   if (!lib) {
-    std::cerr << "error: failed to load ANARI library '" << name << "'\n";
+    if (!quiet)
+      std::cerr << "error: failed to load ANARI library '" << name << "'\n";
     return nullptr;
   }
   auto d = anari::newDevice(lib, "default");
   if (!d) {
-    std::cerr << "error: failed to create device from '" << name << "'\n";
+    if (!quiet)
+      std::cerr << "error: failed to create device from '" << name << "'\n";
     anari::unloadLibrary(lib);
     lib = nullptr;
     return nullptr;
@@ -487,9 +513,31 @@ int cmdCheckProperties(const Options &o)
 
 int cmdGenerate(const Options &o)
 {
-  const std::string deviceName = o.device.empty() ? "helide" : o.device;
+  // The default Reference device, or helide when it can't be loaded, so a
+  // minimal SDK build still generates (ADR-0005).
+  std::string deviceName = o.device;
+  std::string renderer = o.renderer;
   anari::Library lib = nullptr;
-  auto d = loadDevice(deviceName, lib);
+  anari::Device d = nullptr;
+  if (deviceName.empty()) {
+    deviceName = kDefaultReferenceLibrary;
+    if (!o.rendererGiven)
+      renderer = kDefaultReferenceRenderer;
+    d = loadDevice(deviceName, lib, /*quiet=*/true);
+    if (!d) {
+      std::cout << "notice: the default Reference device '"
+                << kDefaultReferenceLibrary
+                << "' could not be loaded; generating Ground truth with '"
+                << kFallbackReferenceLibrary
+                << "' instead (build halcyon with BUILD_HALCYON_DEVICE=ON, "
+                   "which needs ISPC)\n";
+      deviceName = kFallbackReferenceLibrary;
+      if (!o.rendererGiven)
+        renderer = kFallbackReferenceRenderer;
+    }
+  }
+  if (!d)
+    d = loadDevice(deviceName, lib);
   if (!d)
     return 2;
   const auto features = deviceExtensions(lib, "default");
@@ -503,7 +551,7 @@ int cmdGenerate(const Options &o)
   ro.accumulationFrames = o.accumulationFrames;
   ro.denoise = o.denoise;
   ro.rendererParams = o.rendererParams;
-  ro.device = {deviceName, "default", o.renderer};
+  ro.device = {deviceName, "default", renderer};
   Runner runner(d, Workdir(o.workdir), ro);
 
   auto s = runner.generate(catalog, Filter{o.filter}, features);
@@ -512,9 +560,9 @@ int cmdGenerate(const Options &o)
     anari::unloadLibrary(lib);
     return deviceFailed("generate", deviceName, s.deviceFailure);
   }
-  std::cout << "generate (" << deviceName << "): " << s.passed << " generated, "
-            << s.skipped << " skipped, " << s.failed << " failed (of "
-            << s.total << ")\n";
+  std::cout << "generate (" << deviceName << ", renderer " << renderer
+            << "): " << s.passed << " generated, " << s.skipped << " skipped, "
+            << s.failed << " failed (of " << s.total << ")\n";
   if (s.variantDisagreements > 0)
     std::cout << "  " << s.variantDisagreements
               << " Variant equivalence(s) failed on the Reference device "
@@ -593,6 +641,7 @@ int cmdRun(const Options &o)
       s.failed += part.failed;
       s.skipped += part.skipped;
       s.passedWithoutGroundTruth += part.passedWithoutGroundTruth;
+      s.referenceLacks += part.referenceLacks;
     }
   } else {
     s = runner.run(catalog, Filter{o.filter}, features);
@@ -610,7 +659,12 @@ int cmdRun(const Options &o)
   if (s.passedWithoutGroundTruth > 0)
     std::cout << "  " << s.passedWithoutGroundTruth
               << " of the passed Cases passed their self-checks with Ground "
-                 "truth not evaluated (run generate first)\n";
+                 "truth not evaluated: it is missing (run generate first, "
+                 "unless the Reference device can't render them)\n";
+  if (s.referenceLacks > 0)
+    std::cout << "  " << s.referenceLacks
+              << " of the skipped Cases have no Ground truth because the "
+                 "Reference device lacks an extension they need\n";
 
   anari::release(d, d);
   anari::unloadLibrary(lib);

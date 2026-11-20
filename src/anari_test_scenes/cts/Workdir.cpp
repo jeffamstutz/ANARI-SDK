@@ -90,6 +90,11 @@ std::filesystem::path Workdir::runRecordPath() const
   return resultsDir() / "run.json";
 }
 
+std::filesystem::path Workdir::referenceRecordPath() const
+{
+  return groundTruthDir() / "reference.json";
+}
+
 std::string Workdir::relativeToRoot(const std::filesystem::path &p) const
 {
   std::error_code ec;

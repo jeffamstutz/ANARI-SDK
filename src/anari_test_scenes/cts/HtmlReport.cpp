@@ -843,8 +843,11 @@ void appendConfigTable(std::ostringstream &os, const CaseResult &r)
         "class=\"vv\" style=\"color:var(--link);\">"
      << htmlEscape(r.groundTruthKey.empty() ? "—" : r.groundTruthKey)
      << (r.usesGroundTruth && !r.groundTruthEvaluated
-                ? (r.verdict == Verdict::Skipped ? "" : " (not evaluated)")
-                : "")
+                    && r.verdict != Verdict::Skipped
+                ? htmlEscape(r.referenceMissingFeatures.empty()
+                          ? std::string(" (not evaluated)")
+                          : " (not evaluated: " + noGroundTruthReason(r) + ")")
+                : std::string())
      << "</span></div>";
   os << "</div></div>";
 }
@@ -1278,6 +1281,9 @@ std::string generateHtml(const std::filesystem::path &workdir,
   const std::string label = opts.deviceFailure
       ? opts.deviceFailure->device.library
       : deviceLabel(results, workdir.filename().string(), warnings);
+  const auto reference = runReference(results, warnings);
+  const std::string referenceLabel =
+      reference ? deviceSpecLabel(*reference) : std::string("not recorded");
   const std::string runName = workdir.filename().string();
   const std::string title = "ANARI CTS — " + runName;
 
@@ -1293,7 +1299,9 @@ std::string generateHtml(const std::filesystem::path &workdir,
      << "<div><div class=\"title\">Conformance Test Suite</div>"
         "<div class=\"subtitle\">Image comparison — "
         "device under test: <span class=\"kmono\">"
-     << htmlEscape(label) << "</span></div></div></div>";
+     << htmlEscape(label)
+     << "</span> · Reference device: <span class=\"kmono\">"
+     << htmlEscape(referenceLabel) << "</span></div></div></div>";
   os << "<div class=\"runbox\">Run<br><span class=\"kmono\" "
         "style=\"font-size:13px;color:var(--dark);text-transform:none;"
         "letter-spacing:0;\">"
@@ -1351,6 +1359,10 @@ std::string generateHtml(const std::filesystem::path &workdir,
   os << "<div class=\"stat\"><div class=\"k\">Device under test</div><div "
         "class=\"v sm kmono\">"
      << htmlEscape(label) << "</div></div>";
+  os << "<div class=\"stat\"><div class=\"k\">Reference device</div><div "
+        "class=\"v sm kmono\">"
+     << htmlEscape(referenceLabel)
+     << "</div><div class=\"sub\">whose Ground truth was read</div></div>";
   os << "<div class=\"stat\"><div class=\"k\">Wall time</div><div class=\"v "
         "kmono\">"
      << fixed(wallMs, 0)

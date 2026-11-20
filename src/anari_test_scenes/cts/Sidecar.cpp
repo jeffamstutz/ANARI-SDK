@@ -51,6 +51,17 @@ Verdict verdictFromName(const std::string &name)
   return Verdict::Skipped;
 }
 
+std::string noGroundTruthReason(const CaseResult &result)
+{
+  if (result.referenceMissingFeatures.empty())
+    return kNoGroundTruthReason;
+  std::string reason = "no ground truth: reference device ("
+      + result.reference.library + ") lacks ";
+  for (size_t i = 0; i < result.referenceMissingFeatures.size(); ++i)
+    reason += (i ? ", " : "") + result.referenceMissingFeatures[i];
+  return reason;
+}
+
 std::string toJson(const CaseResult &result)
 {
   json j;
@@ -66,6 +77,11 @@ std::string toJson(const CaseResult &result)
       {"device", result.device.device},
       {"renderer", result.device.renderer},
       {"extensions", result.device.extensions}};
+  if (!result.reference.library.empty())
+    j["reference"] = {{"library", result.reference.library},
+        {"device", result.reference.device},
+        {"renderer", result.reference.renderer}};
+  j["referenceMissingFeatures"] = result.referenceMissingFeatures;
   j["requiredFeatures"] = result.requiredFeatures;
   j["coveredFeatures"] = result.coveredFeatures;
   j["missingFeatures"] = result.missingFeatures;
@@ -216,6 +232,12 @@ bool fromJson(const std::string &text, CaseResult &out, bool *schemaMismatch)
     out.device.renderer = d->value("renderer", "default");
     out.device.extensions = readStrings(*d, "extensions");
   }
+  if (const auto r = j.find("reference"); r != j.end() && r->is_object()) {
+    out.reference.library = r->value("library", "");
+    out.reference.device = r->value("device", "default");
+    out.reference.renderer = r->value("renderer", "default");
+  }
+  out.referenceMissingFeatures = readStrings(j, "referenceMissingFeatures");
   out.requiredFeatures = readStrings(j, "requiredFeatures");
   out.coveredFeatures = readStrings(j, "coveredFeatures");
   out.missingFeatures = readStrings(j, "missingFeatures");

@@ -18,6 +18,7 @@
 #include "cts/GeometryLayout.h"
 #include "cts/Isolation.h"
 #include "cts/LightBuilder.h"
+#include "cts/Reference.h"
 #include "cts/Report.h"
 #include "cts/Runner.h"
 #include "cts/SurfaceBuilder.h"
@@ -1242,6 +1243,111 @@ TEST_CASE("generate writes a shared Ground truth from the first Variant only",
   CHECK(summary.passed == 4);
   CHECK(writer->groundTruthWrites == 2);
   CHECK(summary.variantDisagreements == 0);
+
+  std::filesystem::remove_all(root, ec);
+  anari::release(d, d);
+  anari::unloadLibrary(lib);
+}
+
+TEST_CASE("run says when the Reference device lacked a Case's extension",
+    "[cts][runner][reference][helide]")
+{
+  anari::Library lib = anari::loadLibrary("helide", statusFunc, nullptr);
+  if (!lib) {
+    WARN("helide library not available; skipping Reference test");
+    return;
+  }
+  anari::Device d = anari::newDevice(lib, "default");
+  REQUIRE(d != nullptr);
+  anari::commitParameters(d, d);
+
+  const auto root =
+      std::filesystem::temp_directory_path() / "cts_runner_reference_test";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+
+  Catalog catalog;
+  makeTest("demo", "reference_gap")
+      .description("Value b of the axis needs an extension.")
+      .build(buildTriangleWorld)
+      .permute("ignored", {"a", "b"})
+      .requireFeatureFor("ignored", Any("b"), "ANARI_KHR_TEST_B")
+      .noEffectCheck("ignored", "the build ignores it")
+      .groundTruth("the test compares images")
+      .registerInto(catalog);
+  const auto at = [](const char *v) {
+    return caseOf(
+        "demo", "reference_gap", {{"ignored", Any(v), AxisKind::Permutation}});
+  };
+
+  RunOptions opts;
+  opts.width = 64;
+  opts.height = 64;
+  const Workdir wd(root);
+
+  // The Reference lacks ANARI_KHR_TEST_B, so b gets no Ground truth.
+  opts.device = {"helide", "default", "default"};
+  {
+    Runner reference(d, wd, opts);
+    const auto s =
+        reference.generate(catalog, Filter{"demo/reference_gap"}, {"X"});
+    CHECK(s.passed == 1);
+    CHECK(s.skipped == 1);
+  }
+  const auto record = readReference(wd);
+  REQUIRE(record);
+  CHECK(record->library == "helide");
+  CHECK(record->extensions == std::vector<std::string>{"X"});
+
+  opts.device = {"candidate", "default", "default"};
+  auto runAndRead = [&](RunSummary &summary) {
+    Runner candidate(d, wd, opts);
+    summary = candidate.run(
+        catalog, Filter{"demo/reference_gap"}, {"ANARI_KHR_TEST_B"});
+    std::pair<CaseResult, CaseResult> out;
+    REQUIRE(readSidecar(wd.sidecarPath(at("a")), out.first));
+    REQUIRE(readSidecar(wd.sidecarPath(at("b")), out.second));
+    return out;
+  };
+
+  SECTION("a Case needing what the Reference lacked says so")
+  {
+    RunSummary summary;
+    const auto [ra, rb] = runAndRead(summary);
+    CHECK(ra.verdict == Verdict::Passed);
+    CHECK(ra.groundTruthEvaluated);
+    CHECK(ra.reference.library == "helide");
+    CHECK(ra.referenceMissingFeatures.empty());
+    CHECK(rb.verdict == Verdict::Skipped);
+    CHECK(rb.missingFeatures.empty());
+    CHECK(rb.referenceMissingFeatures
+        == std::vector<std::string>{"ANARI_KHR_TEST_B"});
+    CHECK(rb.skipReason
+        == "no ground truth: reference device (helide) lacks "
+           "ANARI_KHR_TEST_B");
+    CHECK(summary.referenceLacks == 1);
+  }
+
+  SECTION("Ground truth the Reference could have made is 'run generate'")
+  {
+    std::filesystem::remove(wd.groundTruthImagePath(at("a"), Channel::Color));
+    RunSummary summary;
+    const auto [ra, rb] = runAndRead(summary);
+    CHECK(ra.verdict == Verdict::Skipped);
+    CHECK(ra.skipReason == kNoGroundTruthReason);
+    CHECK(ra.referenceMissingFeatures.empty());
+    CHECK(summary.referenceLacks == 1);
+  }
+
+  SECTION("without a record, nothing is known of the Reference")
+  {
+    std::filesystem::remove(wd.referenceRecordPath());
+    RunSummary summary;
+    const auto [ra, rb] = runAndRead(summary);
+    CHECK(ra.reference.library.empty());
+    CHECK(rb.skipReason == kNoGroundTruthReason);
+    CHECK(summary.referenceLacks == 0);
+  }
 
   std::filesystem::remove_all(root, ec);
   anari::release(d, d);

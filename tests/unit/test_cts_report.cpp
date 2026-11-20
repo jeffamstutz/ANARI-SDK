@@ -954,6 +954,57 @@ TEST_CASE("extensionCoverage classifies by verdicts and assertions",
   CHECK(row(rows, "A_ODD").state == CoverageState::NoGroundTruth);
 }
 
+TEST_CASE("a Case the Reference device can't render reads as such",
+    "[cts][report][coverage][reference]")
+{
+  const std::vector<std::string> advertised = {"A_GAP", "A_NOT_GENERATED"};
+  auto gap = coverageCase("gap", "A_GAP", Verdict::Skipped, advertised);
+  gap.reference = {"halcyon", "default", "preview"};
+  gap.referenceMissingFeatures = {"A_GAP"};
+  gap.skipReason = noGroundTruthReason(gap);
+  auto notGenerated = coverageCase(
+      "not_generated", "A_NOT_GENERATED", Verdict::Skipped, advertised);
+  notGenerated.reference = gap.reference;
+  const auto results = keyed({gap, notGenerated});
+  const auto rows =
+      extensionCoverage(results, {}, {"A_GAP", "A_NOT_GENERATED"});
+  CHECK(row(rows, "A_GAP").state == CoverageState::ReferenceLacks);
+  CHECK(coverageStateLabel(row(rows, "A_GAP"))
+      == "advertised, Reference device lacks it");
+  CHECK(row(rows, "A_NOT_GENERATED").state == CoverageState::NoGroundTruth);
+
+  std::ostringstream out;
+  writeTextSummary(out, "run", results, true, rows);
+  const std::string text = out.str();
+  CHECK(text.find("  reference: halcyon (default/preview)\n")
+      != std::string::npos);
+  CHECK(
+      text.find("reference device (halcyon) lacks A_GAP") != std::string::npos);
+
+  const std::string doc = generateHtml("/tmp/myrun", results, HtmlOptions{});
+  CHECK(doc.find("Reference device") != std::string::npos);
+  CHECK(doc.find("halcyon (default/preview)") != std::string::npos);
+}
+
+TEST_CASE("runReference is the one Reference a run's Sidecars name",
+    "[cts][report][reference]")
+{
+  auto a = makeCase("demo", "a", "default", Verdict::Passed);
+  auto b = makeCase("demo", "b", "default", Verdict::Passed);
+  std::ostringstream warnings;
+  CHECK_FALSE(runReference(keyed({a, b}), warnings));
+
+  a.reference = {"halcyon", "default", "preview"};
+  const auto one = runReference(keyed({a, b}), warnings);
+  REQUIRE(one);
+  CHECK(one->library == "halcyon");
+  CHECK(warnings.str().empty());
+
+  b.reference = {"helide", "default", "default"};
+  CHECK_FALSE(runReference(keyed({a, b}), warnings));
+  CHECK(warnings.str().find("mixed Reference devices") != std::string::npos);
+}
+
 TEST_CASE("generateHtml reads Sidecars with assertions", "[cts][html]")
 {
   CaseResult effect = makeCase("light", "spot", "moved", Verdict::Failed);

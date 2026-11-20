@@ -604,8 +604,8 @@ void settleVerdict(CaseResult &result, bool participated)
   if (result.verdict == Verdict::Failed || evaluated)
     return;
   result.verdict = Verdict::Skipped;
-  result.skipReason =
-      result.usesGroundTruth ? kNoGroundTruthReason : kNothingEvaluatedReason;
+  result.skipReason = result.usesGroundTruth ? noGroundTruthReason(result)
+                                             : kNothingEvaluatedReason;
 }
 
 CaseRender loadCaseRender(
