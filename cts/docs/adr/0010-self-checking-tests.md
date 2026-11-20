@@ -303,9 +303,12 @@ rendering for the whole Test and returns only a bool and a string.
     frames, whose `fovy` it now sets explicitly to the spec's default (pi/3)
     so `project()` doesn't rely on the device's default, and whose aspect is
     the Case's. A Test's
-    own `.camera` hook records its camera with
-    `BuildContext::setCameraProjection()`; without that, `project()` fails
-    the check, saying so. `fovy`, `height` and `aspect` describe the whole
+    own `.camera` hook builds its camera with `BuildContext::newCamera(
+    projection)`, which creates the camera the projection describes (aspect
+    the Case's frame's) and records it in one call, so the camera is
+    described once (ticket 09); `setCameraProjection()` remains for a camera
+    the projection can't build. Without a recorded projection, `project()`
+    fails the check, saying so. `fovy`, `height` and `aspect` describe the whole
     sensor and `imageRegion` the part of it the frame shows.
 
 25. **New pixel assertions use `.expectExact`, not `.behavior`.**
@@ -591,3 +594,51 @@ between 400 and 100 nm), not as nanometres in the value (no ticket yet). There
 is no Ground-truth failure. visrtx's quality renderer (`--accumulation 64`)
 passes all 62 `material/pbr_*` Cases it runs, which validates the lobe scenes
 on a device that renders the lobes.
+
+## Motion and shutter (ticket 09)
+
+The camera shutter, rolling shutter, camera motion, instance motion (matrix
+and decomposed keys) and triangle and quad motion deformation are covered by
+`tests/motion.cpp`. No SDK device advertises any of them; the Tests are
+validated by synthetic images (`tests/unit/test_cts_motion.cpp`) and on
+visionaray where it advertises the extension.
+
+46. **Instant shutters at key times.** The spec spaces keys uniformly over
+    `time` but doesn't say how they are interpolated. The main check of each
+    motion extension renders with a shutter `[t, t]` at the times the keys
+    sit at (the start, middle and end of `time`), where any interpolation
+    gives the key itself, and requires the static scene built at that key (a
+    Variant `subject`). The motion forms include `time` [-1, 1] over five
+    keys (the last three at 0, 0.5 and 1), motion keys over a decoy
+    `transform` (instances: the keys take precedence), decomposed camera keys
+    and `motion.transform` over decoy decomposed ones (the camera: the matrix
+    overrides), and for `motionScaleRotationTranslation` a `motionTransform`
+    holding the same keys as matrices (gated on its extension).
+47. **Between keys, only translation.** Where a check has to know where the
+    subject is between keys (open and rolling shutters), it moves by
+    translation, which every interpolation agrees on. The open shutter's
+    exact check requires the part both end silhouettes share to show the
+    subject, nothing outside their hull, and most of each part only one
+    covers to show it (blended); an instant shutter shows the subject where
+    it was. Identical keys render as no motion, with the shutter open.
+48. **The rolling shutter's schedule, as the CTS reads it.** With shutter
+    `[0, 1]`, lines open one after another, the first at the shutter's start
+    and the last closing at its end, each open for `rollingShutterDuration`;
+    `down` scans from the top row, `up` from the bottom, `right` from the
+    left column, `left` from the right. The spec gives the parameters
+    ("the open time per line, clamped to [0, shutter.upper-shutter.lower]")
+    but not the schedule; this is the reading under which a duration equal
+    to the shutter is a global shutter and 0 the sharpest roll. visionaray
+    reads it differently (line starts offset by the duration, each line open
+    for the whole shutter, `down` starting at the bottom) and fails; that is
+    a question for the working group as much as for visionaray.
+49. **A moving camera leaves its frame at the spec's defaults** (at the
+    origin, looking down -z, +y up), so whether a device applies the motion
+    keys to `position`/`direction`/`up` or uses them as the camera's
+    placement, the keys place it the same; the spec doesn't say which. Its
+    Cases record the rest camera's projection, and their exact checks say
+    where the subject appears from it.
+50. **Geometry motion sets `vertex.position` too** (the first key), as the
+    triangle and quad require it; the spec doesn't say which wins, so no
+    check depends on it. `motion.vertex.tangent` is set alongside the
+    normals but has nothing to show without a normal map.

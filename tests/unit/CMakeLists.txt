@@ -125,6 +125,7 @@ add_executable(anariCatalogTests
   test_cts_exact.cpp
   test_cts_isolation.cpp
   test_cts_metrics.cpp
+  test_cts_motion.cpp
   test_cts_parameter_coverage.cpp
   test_cts_relations.cpp
   test_cts_rendererparams.cpp

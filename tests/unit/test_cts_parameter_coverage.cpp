@@ -336,14 +336,18 @@ std::set<std::string> parametersTheSpecDefines(const std::string &extension)
 // Whether `parameter` ("<type>/<subtype>/<name>") was set. A parameter of an
 // object type without subtypes (a frame, a surface; a spec JSON names it
 // "<type>//<name>") counts when set on any object of the type, whatever its
-// subtype.
+// subtype. So does one the spec JSON gives every subtype of a type, under
+// the subtype "default" (the camera extensions' `shutter`, `motion.*`, ...:
+// no camera subtype is called that).
 bool isSet(const std::set<std::string> &set, const std::string &parameter)
 {
   if (set.count(parameter))
     return true;
   const auto first = parameter.find('/');
   const auto second = parameter.find('/', first + 1);
-  if (second != first + 1)
+  const bool anySubtype = second == first + 1
+      || parameter.compare(first + 1, second - first - 1, "default") == 0;
+  if (!anySubtype)
     return false;
   const std::string type = parameter.substr(0, first + 1);
   const std::string name = parameter.substr(second);
@@ -497,6 +501,13 @@ TEST_CASE("the recording device sees a parameter a Test sets and no other",
 
 namespace {
 
+// Why a motion instance's uniform attributes are set by no Test.
+constexpr const char *kMotionInstanceAttributes =
+    "the motion instances' uniform attributes are the instance's own, which "
+    "the instance attribute Tests check on the transform instance; the "
+    "motion Tests check motion, and no installed device that advertises a "
+    "motion instance could show an attribute Test on one";
+
 const std::vector<Skipped> &allowList()
 {
   static const std::vector<Skipped> list = {
@@ -535,6 +546,36 @@ const std::vector<Skipped> &allowList()
        "ANARI_FRAME//frameCompletionCallbackUserData",
           "frame/frame_completion_callback sets it on a frame of its own in "
           "its behaviour check, which a Test's build hook doesn't reach"},
+      {"ANARI_KHR_INSTANCE_MOTION_SCALE_ROTATION_TRANSLATION: "
+       "ANARI_INSTANCE/motionScaleRotationTranslation/attribute0",
+          kMotionInstanceAttributes},
+      {"ANARI_KHR_INSTANCE_MOTION_SCALE_ROTATION_TRANSLATION: "
+       "ANARI_INSTANCE/motionScaleRotationTranslation/attribute1",
+          kMotionInstanceAttributes},
+      {"ANARI_KHR_INSTANCE_MOTION_SCALE_ROTATION_TRANSLATION: "
+       "ANARI_INSTANCE/motionScaleRotationTranslation/attribute2",
+          kMotionInstanceAttributes},
+      {"ANARI_KHR_INSTANCE_MOTION_SCALE_ROTATION_TRANSLATION: "
+       "ANARI_INSTANCE/motionScaleRotationTranslation/attribute3",
+          kMotionInstanceAttributes},
+      {"ANARI_KHR_INSTANCE_MOTION_SCALE_ROTATION_TRANSLATION: "
+       "ANARI_INSTANCE/motionScaleRotationTranslation/color",
+          kMotionInstanceAttributes},
+      {"ANARI_KHR_INSTANCE_MOTION_TRANSFORM: "
+       "ANARI_INSTANCE/motionTransform/attribute0",
+          kMotionInstanceAttributes},
+      {"ANARI_KHR_INSTANCE_MOTION_TRANSFORM: "
+       "ANARI_INSTANCE/motionTransform/attribute1",
+          kMotionInstanceAttributes},
+      {"ANARI_KHR_INSTANCE_MOTION_TRANSFORM: "
+       "ANARI_INSTANCE/motionTransform/attribute2",
+          kMotionInstanceAttributes},
+      {"ANARI_KHR_INSTANCE_MOTION_TRANSFORM: "
+       "ANARI_INSTANCE/motionTransform/attribute3",
+          kMotionInstanceAttributes},
+      {"ANARI_KHR_INSTANCE_MOTION_TRANSFORM: "
+       "ANARI_INSTANCE/motionTransform/color",
+          kMotionInstanceAttributes},
       {"ANARI_KHR_LIGHT_PRIMARY_VISIBILITY: ANARI_LIGHT/directional/visible",
           "the spec makes visible meaningful only for area lights (the quad, "
           "ring and hdri Tests set it); a directional light has no footprint "
