@@ -151,7 +151,9 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   ground-truth key, permutations get distinct ones.
 - `Catalog.{h,cpp}` / `Filter.{h,cpp}` — the registry and its substring/glob filter.
 - `BuildContext.{h,cpp}` / `Value.{h,cpp}` — per-Case axis values handed to
-  `build()`, backed by `helium::ParameterizedObject`.
+  `build()`, backed by `helium::ParameterizedObject`, plus the Case's frame size and
+  camera projection (`newCamera()` builds a Test's camera and records its
+  projection in one call).
 - `Runner.{h,cpp}` — builds, renders, and scores Cases; owns renderer creation
   and baseline configuration, owns the default camera, and runs the behavior
   hook for behavioral tests: a timed one's Cases through its `CaseIsolation`,
@@ -273,6 +275,13 @@ device may take the process down with (a device that throws on a valid
 parameter) is a timed behaviour Test so each Case runs in its own process; the
 `*_index_types` Tests do it by rendering both forms themselves.
 
+`tests/motion.cpp` holds the motion blur family (camera shutter and rolling
+shutter, camera motion, instance motion, triangle and quad motion
+deformation; ADR-0010 46-50), registered in the camera, instance and
+geometry categories; `tests/MotionScene.h` is its scene (rest camera,
+subject extents and paths, the rolling shutter's schedule), shared with its
+unit tests.
+
 Two header-only helpers sit beside them: `tests/ScreenScene.h` (triangles laid
 out in the screen camera's coordinates, and which pixels they cover) and
 `tests/ParameterQuery.h` (`listsParameter`, for a query-level check that a
@@ -287,7 +296,8 @@ the light's footprint, the default render elsewhere).
 
 **Unit tests:** `tests/unit/test_cts_*.cpp` (catalog/expansion/filter/builder,
 metrics, relations, discrimination, frame accumulation, results/sidecar/workdir,
-report/html, runner, isolation; `anari12` and `small_extensions` judge the
+report/html, runner, isolation; `motion` judges the motion and shutter Tests
+on synthetic images; `anari12` and `small_extensions` judge the
 ANARI 1.2 Tests and the small extensions' Tests (array region, transform
 arrays, light primary visibility, denoise) on synthetic images).
 `test_cts_parameter_coverage.cpp` (tag `[parameter_coverage]`) runs every Case's
@@ -295,7 +305,9 @@ build, camera and renderer hooks against a recording device and requires every
 parameter that the spec JSON (`code_gen/api/khr_*.json`) defines for an
 extension the Catalog covers to be set by some Test, or to be on its allow-list
 with a reason (a stale entry fails too); `name` is exempt, and a parameter of
-an object type without subtypes counts when set on any object of the type. Add
+an object type without subtypes, or one the spec JSON gives every subtype
+under the subtype `default` (the camera extensions'), counts when set on any
+object of the type. Add
 a Test, or an allow-list entry saying what stops one, whenever the extension
 gains a parameter. Behaviour checks are not run there, so a parameter only
 a behaviour check sets is allow-listed.
@@ -353,8 +365,10 @@ background check requires only what the spec implies: an ID background holds
 no subject's ID, and a depth background is no closer than the farthest
 subject. Don't require `~0u`, `+inf` or any other specific value. Use `x.project(p)` to find
 where a world point lands; the runner's camera records its projection, and a
-Test with its own `.camera` hook must call
-`ctx.setCameraProjection(...)` for `project()` to work. Don't use
+Test with its own `.camera` hook builds its camera with
+`ctx.newCamera(projection)` (it creates the camera the `CameraProjection`
+describes, aspect from the Case's frame, records it, and leaves it
+uncommitted for the Test's own parameters) for `project()` to work. Don't use
 `.behavior` for a property of one rendered image. Unit-test a check with the
 evaluation seam (`evaluateSelfChecks`, `ExactCheck.h`): build a correct and a
 wrong channel in code with `idChannel`/`depthChannel`
