@@ -77,5 +77,45 @@ const std::optional<CameraProjection> &BuildContext::cameraProjection() const
   return m_projection;
 }
 
+anari::Camera BuildContext::newCamera(CameraProjection projection)
+{
+  if (m_frameSize && m_frameSize->width != 0 && m_frameSize->height != 0)
+    projection.aspect = float(m_frameSize->width) / float(m_frameSize->height);
+  const bool perspective =
+      projection.type == CameraProjection::Type::Perspective;
+  auto d = m_device;
+  auto camera = anari::newObject<anari::Camera>(
+      d, perspective ? "perspective" : "orthographic");
+  anari::setParameter(d, camera, "position", projection.position);
+  anari::setParameter(d, camera, "direction", projection.direction);
+  anari::setParameter(d, camera, "up", projection.up);
+  if (perspective)
+    anari::setParameter(d, camera, "fovy", projection.fovy);
+  else
+    anari::setParameter(d, camera, "height", projection.height);
+  anari::setParameter(d, camera, "aspect", projection.aspect);
+  const bool wholeSensor = projection.regionLo == math::float2(0.f, 0.f)
+      && projection.regionHi == math::float2(1.f, 1.f);
+  if (!wholeSensor) {
+    const float region[4] = {projection.regionLo.x,
+        projection.regionLo.y,
+        projection.regionHi.x,
+        projection.regionHi.y};
+    anariSetParameter(d, camera, "imageRegion", ANARI_FLOAT32_BOX2, region);
+  }
+  m_projection = projection;
+  return camera;
+}
+
+void BuildContext::setFrameSize(FrameSize size)
+{
+  m_frameSize = size;
+}
+
+const std::optional<FrameSize> &BuildContext::frameSize() const
+{
+  return m_frameSize;
+}
+
 } // namespace cts
 } // namespace anari
