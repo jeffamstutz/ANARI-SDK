@@ -407,7 +407,8 @@ TEST_CASE("the built-in catalog covers the extensions it tests",
   const auto covered = coveredExtensions(catalog);
   CHECK(covered.count("ANARI_KHR_LIGHT_POINT") == 1);
   CHECK(covered.count("ANARI_KHR_GEOMETRY_TRIANGLE") == 1);
-  CHECK(covered.count("ANARI_KHR_CAMERA_STEREO") == 0); // no Test yet
+  CHECK(covered.count("ANARI_KHR_CAMERA_STEREO") == 1);
+  CHECK(covered.count("ANARI_KHR_CAMERA_DEPTH_OF_FIELD") == 1);
 
   // The concurrent synchronization rules (ADR-0009 rules 3-4) are the only
   // ones that make calls from several threads at once, so they alone require

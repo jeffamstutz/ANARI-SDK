@@ -140,6 +140,7 @@ if (BUILD_CTS OR BUILD_TESTING)
     cts/tests/light.cpp
     cts/tests/material.cpp
     cts/tests/motion.cpp
+    cts/tests/optics.cpp
     cts/tests/renderer.cpp
     cts/tests/sampler.cpp
     cts/tests/synchronization.cpp

@@ -655,3 +655,71 @@ visionaray where it advertises the extension.
     triangle and quad require it; the spec doesn't say which wins, so no
     check depends on it. `motion.vertex.tangent` is set alongside the
     normals but has nothing to show without a normal map.
+
+## Depth of field and stereo (ticket 10)
+
+`KHR_CAMERA_DEPTH_OF_FIELD` and `KHR_CAMERA_STEREO` are covered by
+`tests/optics.cpp`, on the perspective camera. The spec gives each two
+parameters and a line of description, no model, so each check holds under
+every reasonable reading. Depth of field is validated on halcyon's `quality`
+renderer, visrtx, barney and visionaray; stereo, which no installed device
+advertises, by synthetic images (`tests/unit/test_cts_optics.cpp`).
+
+51. **Depth of field is judged by edge width, unit-free.** A bright square
+    in a dark border (so its edges lie in its plane and the background is
+    kept away), on a near and a far plate that project to the same size. Per
+    edge, the profile across it (mean of the square's middle rows) rises
+    from 10 % to 90 % within 2.5 pixels when sharp, and over at least 0.2 of
+    the square's half extent (4.4 pixels at 256) when blurred; a thin lens of
+    the Test's aperture, in world units, spreads it over about 10. The
+    blurred bound doesn't depend on the aperture's unit or how the lens is
+    sampled, only on the blur being visible. The square stays centred where
+    the pinhole puts it (within 1.5 pixels, halfway between its two edges'
+    halfway points): a thin lens blurs a point around its pinhole image, and
+    the symmetric measure is unmoved by the output transfer (sRGB, tone
+    mapping or clipping each move an edge's halfway point, the same amount
+    both ways). The plates sit near the view axis, so a device focusing on a
+    sphere of radius `focusDistance` rather than a plane agrees to 0.3 pixels.
+52. **Depth-of-field Cases** (one `lens` axis): focused on the near plate,
+    on the far one, at 1 (both blurred) and with `focusDistance` unset (a
+    derived expectation: the 1 Case), the pinhole (neither parameter set) and
+    `apertureRadius` 0 with a focus distance set (a derived expectation: the
+    pinhole). The first Case samples the aperture, so the convergence guard
+    measures a noisy render. Orthographic and omnidirectional depth of field
+    has no Test: the spec lists the parameters among those all cameras
+    understand but describes only the perspective camera as a thin lens
+    (halcyon blurs orthographic too; visrtx and barney only perspective); a
+    question for the working group.
+53. **A stereo eye is judged by disparity, whatever the convergence.** An
+    eye `interpupillaryDistance` / 2 to the camera's left (or right, along
+    `direction` x `up`) sees a near plate offset from a far one by a
+    disparity fixed by the eyes' separation alone: a parallel, off-axis or
+    toed-in convergence (the spec doesn't say which, nor where it converges)
+    moves both plates alike. The plates sit one above the other on the view
+    axis, the near one red and the far one blue, so in a mono image their
+    centroids share a column, and the near one's offset from the far one is
+    the eye's disparity: within 0.75 pixels plus 15 % of the parallel eyes'
+    (toed-in eyes add a few percent). Their rows are the mono camera's
+    (within a pixel plus 5 % of the distance from the middle row): the eyes
+    are apart along the right vector. `none` (and `stereoMode` unset, a
+    derived expectation) shows no disparity; `interpupillaryDistance` 0 makes
+    `left` and `right` the mono image (Variant); unset, it is 0.0635 (Variant
+    with the explicit value).
+54. **`sideBySide` and `topBottom` are checked per half, not as a
+    concatenation.** The spec says the left eye is at the top for
+    `topBottom` and nothing else: not which half holds which eye for
+    `sideBySide`, nor how an eye's image fits its half (squeezed from the
+    full frame, or rendered at the half's size and aspect). A derived
+    expectation (`hconcat(left, right)` at half width) would hold under one
+    fit only. So each half must show both plates, at the mono camera's rows
+    (`topBottom`: halved, in its half), with the near plate offset from the
+    far one by between half and all of the eye's disparity (half: squeezed
+    across, or rendered at the half's aspect for `topBottom`); `topBottom`'s
+    top half is the left eye's way, and `sideBySide`'s halves are offset
+    opposite ways. The synthetic tests pass parallel, off-axis and toed-in
+    eyes converging at 1, 2 and 4, both fits and both `sideBySide` orders,
+    and fail a mono device, swapped eyes, eyes apart along `up`, one eye in
+    both halves, the right eye on top, `topBottom` laid out side by side, an
+    unset `stereoMode` other than `none`, and wrong zero and default
+    interpupillary distances. The open questions are the working group's;
+    the checks tighten once the spec answers.

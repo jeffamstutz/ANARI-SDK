@@ -282,6 +282,13 @@ geometry categories; `tests/MotionScene.h` is its scene (rest camera,
 subject extents and paths, the rolling shutter's duration), shared with its
 unit tests.
 
+`tests/optics.cpp` holds the camera's optics, depth of field and stereo
+(ADR-0010 51-54), registered in the camera category: a near and a far plate,
+judged by edge width (depth of field) and by the near plate's offset from the
+far one, an eye's disparity (stereo), so no check depends on the lens or
+convergence model the spec leaves open; `tests/OpticsScene.h` is its scene,
+shared with its unit tests.
+
 Two header-only helpers sit beside them: `tests/ScreenScene.h` (triangles laid
 out in the screen camera's coordinates, and which pixels they cover) and
 `tests/ParameterQuery.h` (`listsParameter`, for a query-level check that a
@@ -297,7 +304,8 @@ the light's footprint, the default render elsewhere).
 **Unit tests:** `tests/unit/test_cts_*.cpp` (catalog/expansion/filter/builder,
 metrics, relations, discrimination, frame accumulation, results/sidecar/workdir,
 report/html, runner, isolation; `motion` judges the motion and shutter Tests
-on synthetic images; `anari12` and `small_extensions` judge the
+on synthetic images, as `optics` does the depth-of-field and stereo Tests;
+`anari12` and `small_extensions` judge the
 ANARI 1.2 Tests and the small extensions' Tests (array region, transform
 arrays, light primary visibility, denoise) on synthetic images).
 `test_cts_parameter_coverage.cpp` (tag `[parameter_coverage]`) runs every Case's

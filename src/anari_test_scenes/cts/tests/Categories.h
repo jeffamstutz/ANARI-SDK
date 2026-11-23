@@ -47,6 +47,7 @@ void registerFrameTests(Catalog &catalog);
 void registerRendererTests(Catalog &catalog);
 void registerInstanceTests(Catalog &catalog);
 void registerMotionTests(Catalog &catalog);
+void registerOpticsTests(Catalog &catalog);
 void registerVolumeTests(Catalog &catalog);
 void registerSynchronizationTests(Catalog &catalog);
 
