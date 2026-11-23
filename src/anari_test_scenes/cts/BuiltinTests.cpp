@@ -21,6 +21,7 @@ void registerBuiltinTests(Catalog &catalog)
   registerMotionTests(catalog);
   registerOpticsTests(catalog);
   registerVolumeTests(catalog);
+  registerFieldTests(catalog);
   registerSynchronizationTests(catalog);
 }
 

@@ -3,4 +3,5 @@
 
 add_subdirectory(stb_image)
 add_subdirectory(mikktspace)
+add_subdirectory(nanovdb)
 

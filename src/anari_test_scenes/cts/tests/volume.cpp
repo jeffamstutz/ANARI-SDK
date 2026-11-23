@@ -7,6 +7,7 @@
 #include "../WorldBuilder.h"
 #include "Categories.h"
 #include "SubjectShown.h"
+#include "VolumeScene.h"
 // std
 #include <algorithm>
 #include <array>
@@ -22,6 +23,7 @@ namespace {
 using anari::math::float3;
 using anari::math::float4;
 using V = std::vector<Any>;
+using volume_scene::ViewAxis;
 
 // A valueRange (box1) axis value: stored with its ANARI type, FLOAT32_BOX1,
 // since a plain float2 is a VEC2 that a device doesn't read as the range.
@@ -72,14 +74,6 @@ void setVolumeOpacity(BuildContext &ctx, anari::Device d, anari::Volume vol)
 constexpr uint32_t kCells = 4; // per axis
 const float3 kCellOrigin(-1.f);
 const float kCellSpacing = 0.5f; // bounds [-1, 1]
-
-// The axis a cell-centered Test's camera looks down. Each view checks the
-// field across it, so between them the two Tests check all three axes.
-enum class ViewAxis
-{
-  Z,
-  X
-};
 
 // The cell values: smooth, and different along the two axes across the view
 // (x and y looking down z; z and y looking down x), so a field that is
@@ -176,27 +170,6 @@ anari::World cellCenteredWorld(BuildContext &ctx, ViewAxis view)
   anari::release(d, field);
   anari::release(d, vol);
   return world;
-}
-
-// Orthographic, looking straight down -z at the field's +z face (or down -x
-// at its +x face), so every pixel shows the field on that face and no pixel
-// sees a side face. The view is kCellCenteredViewHeight tall: the bounds'
-// edges (+-1) fall at 1/2 +- 3/8 of the frame, on whole pixels for a square
-// frame whose size is a multiple of 8.
-constexpr float kCellCenteredViewHeight = 8.f / 3.f;
-
-anari::Camera cellCenteredCamera(BuildContext &ctx, ViewAxis view)
-{
-  auto d = ctx.device();
-  const float3 dir =
-      view == ViewAxis::X ? float3(-1.f, 0.f, 0.f) : float3(0.f, 0.f, -1.f);
-  auto c = anari::newObject<anari::Camera>(d, "orthographic");
-  anari::setParameter(d, c, "position", -3.f * dir);
-  anari::setParameter(d, c, "direction", dir);
-  anari::setParameter(d, c, "up", float3(0.f, 1.f, 0.f));
-  anari::setParameter(d, c, "height", kCellCenteredViewHeight);
-  anari::commitParameters(d, c);
-  return c;
 }
 
 } // namespace
@@ -393,9 +366,11 @@ void registerVolumeTests(Catalog &catalog)
             [view](BuildContext &ctx) { return cellCenteredWorld(ctx, view); })
         // A fixed orthographic camera looking down -z or -x, not one framing
         // the world's bounds: a field whose bounds are wrong then renders at
-        // the wrong size. See cellCenteredCamera() for the framing.
+        // the wrong size. See volume_scene::viewCamera() for the framing.
         .camera([view](BuildContext &ctx, const scenes::Bounds &) {
-          return cellCenteredCamera(ctx, view);
+          auto c = ctx.newCamera(volume_scene::viewCamera(view));
+          anari::commitParameters(ctx.device(), c);
+          return c;
         })
         // The first value is the reference: the vertex-centered equal.
         // Framed this way, the default tolerance holds on helide, halcyon

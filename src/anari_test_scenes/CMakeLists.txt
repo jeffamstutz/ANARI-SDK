@@ -133,6 +133,7 @@ if (BUILD_CTS OR BUILD_TESTING)
 
     cts/tests/attributes.cpp
     cts/tests/camera.cpp
+    cts/tests/fields.cpp
     cts/tests/frame.cpp
     cts/tests/geometry.cpp
     cts/tests/IndistinguishableGroundTruth.cpp
@@ -140,6 +141,7 @@ if (BUILD_CTS OR BUILD_TESTING)
     cts/tests/light.cpp
     cts/tests/material.cpp
     cts/tests/motion.cpp
+    cts/tests/NanoVdbGrid.cpp
     cts/tests/optics.cpp
     cts/tests/renderer.cpp
     cts/tests/sampler.cpp
@@ -154,6 +156,8 @@ if (BUILD_CTS OR BUILD_TESTING)
   PUBLIC
     anari_test_scenes
     anari_device_introspection
+  PRIVATE
+    $<BUILD_INTERFACE:anari_nanovdb>
   )
   target_compile_features(anari_cts_core PUBLIC cxx_std_20)
 endif()

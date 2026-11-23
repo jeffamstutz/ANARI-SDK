@@ -731,3 +731,112 @@ synthetic images (`tests/unit/test_cts_optics.cpp`).
     unset `stereoMode` other than `none`, and wrong zero and default
     interpupillary distances. The open questions are the working group's;
     the checks tighten once the spec answers.
+
+## Spatial fields (ticket 11)
+
+`KHR_SPATIAL_FIELD_UNSTRUCTURED`, `KHR_SPATIAL_FIELD_NANOVDB` and
+`KHR_SPATIAL_FIELD_STRUCTURED_REGULAR_FILTER_CUBIC` are covered by
+`tests/fields.cpp` (volume category, plus `geometry/isosurface_sphere`); the
+framing is `tests/VolumeScene.h`, shared with `volume.cpp`'s cell-centered
+Tests and the unit tests (`tests/unit/test_cts_volumes.cpp`). No SDK device
+implements the three extensions. nanovdb and the isosurface were run on
+visrtx, unstructured on barney; cubic filtering, which no installed device
+advertises under its spec name, is validated by synthetic images only.
+
+55. **One linear ramp, sampled into each representation, renders the same
+    volume.** The field is linear across the view and constant along it
+    (`rampValue`: slopes 0.5 and 0.3, so a field mirrored or transposed
+    across the view fails), which any interpolation over any cells
+    reproduces exactly, so no check depends on how a device interpolates
+    inside a cell. The framing is the cell-centered Tests' (orthographic,
+    opaque at once, bounds [-1, 1]^3, edges on whole pixels at 256), and each
+    Test is a pair, `_down_z` and `_down_x`. A representation is a
+    Permutation value with a derived expectation of its reference (a value
+    with one is exempt from the effect check), so one Test can hold two
+    references that must differ: the ramp and a uniform field.
+56. **unstructured:** hexahedra, six tetrahedra, two wedges and six pyramids
+    per block, and a mix of the four, over 2 x 2 x 2 blocks; vertex.data plus
+    a different cell.data renders the vertex.data ramp (the spec's
+    precedence). cell.data is checked only as a uniform field: the spec
+    doesn't say how per-cell values are reconstructed (constant per cell, or
+    averaged to vertices and interpolated), and only a uniform field renders
+    the same under both. `unstructured_extent` checks the field's extent
+    without a structuredRegular field to compare with (decision 60).
+57. **nanovdb voxel centering is open, so its checks hold either way.** The
+    grid is built in code (`tests/NanoVdbGrid.cpp`) with NanoVDB's own
+    headers (`external/nanovdb`, NanoVDB 32.9.0 from OpenVDB 13.0.0, the
+    version VisRTX vendors; NanoVDB.h is no longer a single header, so its
+    two dependencies come with it): one float grid, breadth-first, with
+    NanoVDB tools' world bounds (a voxel covers [ijk, ijk + 1] in index
+    space). The spec says only that the extent is in the grid header; it
+    doesn't say whether a voxel's value sits at its centre (visrtx's default
+    and NanoVDB's own bounds) or its corner. A corner reading shifts the
+    ramp by half a voxel and the bounds by one, so the grid is fine (32^3
+    voxels over [-1, 1]: half a voxel moves the ramp under 3 levels) and the
+    equivalence is masked to the interior a voxel in (two for the cubic
+    filter's reach; `interiorMask`). `nanovdb_extent` allows the same voxel
+    at its edges. `nanovdb_filter` checks that nearest, linear and cubic
+    differ on a 4^3 zig-zag grid and that unset is linear; the spec lists
+    cubic for nanovdb without an extension, so a device must render it.
+58. **The wedge's winding follows the spec's text, not VTK.** The spec says
+    a wedge's bottom three vertices are counterclockwise (as a tetrahedron's
+    bottom triangle and a hexahedron's and pyramid's bottom faces, which VTK
+    orders the same way: normal toward the top) and that the field is
+    VTK-compatible; VTK_WEDGE orders its bottom triangle the other way
+    (normal away from the top). The Test uses the spec's order; the
+    conflict is a question for the working group. Every other cell is
+    ordered so that both readings agree.
+59. **Cubic filtering is judged where every cubic agrees.** The spec doesn't
+    say which cubic (B-spline, Catmull-Rom, ...). `structured_regular_filter_cubic`
+    requires nearest, linear and cubic to differ on a 4^3 zig-zag grid (every
+    cubic smooths or overshoots a zig-zag unlike linear), and
+    `structured_regular_filter_cubic_ramp_down_z` / `_down_x` that cubic
+    renders a 9^3 linear ramp as linear does a cell or more inside the
+    bounds, where any cubic that reproduces linear functions agrees and
+    clamp-to-edge (the spec's border) can't reach.
+60. **Extents through a step transfer function are exact checks.** A field
+    ramping along x seen down -z through 256 opacities, 0 below the middle
+    of the value range and 1 above, is opaque exactly where its value is
+    past the step and background elsewhere (constant along the view, so
+    each ray is wholly one or the other). `structured_regular_extent`
+    (simplified: `origin` (-1, -1, -1) or unset, `spacing` unset or
+    (0.5, 0.75, 1), `valueRange` unset or [0.5, 1]) checks the edges the
+    spec's bounds ([origin, origin + (size - 1) x spacing]) and value mapping
+    put, 1.5 pixels either side unjudged; `unstructured_extent` and
+    `nanovdb_extent` do the same without structuredRegular, so a device
+    without it still has those fields checked. structuredRegular `data` in
+    each element type the spec allows is a Variant of FLOAT32
+    (`structured_regular_data_types_down_z` / `_down_x`; FIXED16 holds
+    positive values only, so its signed scaling, 32767 or 32768, is under a
+    level).
+
+`geometry/isosurface_sphere` checks the isosurface's depth against the
+sphere a distance field (33^3 vertices) describes, from a perspective
+camera, where the ray meets it more than 0.05 inside its silhouette: within
+0.02 plus what the sphere's depth changes by across the pixel (the spec takes
+a pixel's depth as the minimum over its samples, anywhere in it); outside,
+no closer than the sphere's farthest point. The isovalue as a FLOAT32 is a
+Variant of the one-element array.
+
+`volume/volume` was not reworked: ticket 04 gave each of its axes an effect
+check, and all pass on helide and halcyon except `filter`
+(cts-device-findings 11). The `unitDistance` transmittance relation
+(Appendix C: halving it squares a slab's transmittance) was not added: it
+needs the emission and the background separated (two backgrounds behind the
+slab) in linear colour, and the effect check already fails a device that
+ignores the parameter.
+
+Measured on 2026-11-23 at 256 (accumulation 16 unless stated): helide and
+halcyon run the 10 data-type and 4 extent Cases and pass them (the rest skip:
+neither advertises the three extensions or the isosurface). visrtx passes
+`nanovdb_down_z` / `_down_x`, `nanovdb_extent`, the extent and data-type
+Cases except FLOAT64 data (renders nothing: it makes a 64-bit float CUDA
+texture), and fails `nanovdb_filter`'s cubic (rendered as linear: visrtx maps
+every filter but nearest to linear). visrtx and ospray pass
+`isosurface_sphere` (`--accumulation 256`); visionaray fails it (its
+surface is about 0.09 deeper than the sphere, and a FLOAT32 `isovalue`
+renders nothing: it reads only an array). barney renders all five
+unstructured layouts pixel for pixel alike, but its volumes keep a noise
+floor of about 10 levels per pixel at 4096 frames (the convergence guard
+passes), so 19 % of pixels differ from its own structuredRegular render: the
+equivalences can't be judged on it.

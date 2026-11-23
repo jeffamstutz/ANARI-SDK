@@ -135,12 +135,14 @@ add_executable(anariCatalogTests
   test_cts_runner.cpp
   test_cts_sink_smoke.cpp
   test_cts_small_extensions.cpp
+  test_cts_volumes.cpp
   test_cts_worldbuilder.cpp
 )
 
 target_link_libraries(anariCatalogTests
 PRIVATE
   anari_cts_core
+  anari_nanovdb
 )
 # The parameter-coverage test reads the spec JSON the frontend is generated
 # from.

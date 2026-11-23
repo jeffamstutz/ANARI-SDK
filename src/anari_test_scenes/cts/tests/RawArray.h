@@ -40,5 +40,20 @@ inline anari::Array2D makeRawArray2D(anari::Device d,
   return array;
 }
 
+inline anari::Array3D makeRawArray3D(anari::Device d,
+    ANARIDataType type,
+    uint64_t width,
+    uint64_t height,
+    uint64_t depth,
+    const void *bytes)
+{
+  auto array = anari::newArray3D(d, type, width, height, depth);
+  void *dst = anariMapArray(d, array);
+  if (dst && bytes)
+    std::memcpy(dst, bytes, anari::sizeOf(type) * width * height * depth);
+  anariUnmapArray(d, array);
+  return array;
+}
+
 } // namespace cts
 } // namespace anari
