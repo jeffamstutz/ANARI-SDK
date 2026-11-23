@@ -637,7 +637,10 @@ visionaray where it advertises the extension.
     first one (`down`, `right`) mirrored across the scan's middle line,
     compared only where the mirror shows background at least 3 pixels from
     the bar, so it must shear the other way and the noisy inside of the smear
-    isn't judged. The schedule is a question for the working group; the
+    isn't judged. That assumes only that a reversed direction runs the same
+    schedule from the other edge (the scene is symmetric across the scan's
+    middle line); the CTS can't compare the two Cases' shear directly, as an
+    exact check sees one Case. The schedule is a question for the working group; the
     checks tighten once the spec answers. The synthetic tests pass two
     schedules (lines open one after another over the shutter, each for the
     duration, `down` from the top row; and visionaray's) and fail no shear,

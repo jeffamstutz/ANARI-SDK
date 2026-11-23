@@ -29,7 +29,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstdlib>
 #include <optional>
 #include <string>
 #include <vector>
@@ -654,6 +653,7 @@ void subjectAtIdenticalKeys(ExactCheck &x)
 void rollingShear(ExactCheck &x, bool rows)
 {
   const auto color = x.rgba(Channel::Color);
+  // The bar never reaches a corner.
   const Rgba8 background = color.at(0, 0);
   const FrameSize size = x.frameSize();
   const std::string direction =
@@ -709,18 +709,15 @@ void rollingShear(ExactCheck &x, bool rows)
   // Monotonic: both steps go the way the whole shift does, each by at least
   // the tolerance.
   const double sense = centre[2] >= centre[0] ? 1.0 : -1.0;
-  x.measure("pixels the bar's centre (" + axisName
-          + ") moves from the band at 10 % to the band at 50 %, the way it "
-            "moves from 10 % to 90 %: sheared",
-      sense * (centre[1] - centre[0]),
-      Limit::AtLeast,
-      tolerance);
-  x.measure("pixels the bar's centre (" + axisName
-          + ") moves from the band at 50 % to the band at 90 %, the way it "
-            "moves from 10 % to 90 %: sheared",
-      sense * (centre[2] - centre[1]),
-      Limit::AtLeast,
-      tolerance);
+  for (size_t b = 1; b < bands.size(); ++b)
+    x.measure("pixels the bar's centre (" + axisName
+            + ") moves from the band at "
+            + std::to_string(int(bands[b - 1] * 100)) + " % to the band at "
+            + std::to_string(int(bands[b] * 100))
+            + " %, the way it moves from 10 % to 90 %: sheared",
+        sense * (centre[b] - centre[b - 1]),
+        Limit::AtLeast,
+        tolerance);
 }
 
 // A pixel within this many pixels of one showing the bar isn't compared by
@@ -740,39 +737,32 @@ ExpectedImage mirroredOutsideSmear(const Image &image, bool rows)
   if (!image.valid())
     return {};
   const uint32_t w = image.width, h = image.height;
-  auto px = [&](const Image &im, uint32_t x, uint32_t y) {
-    return &im.rgba[(size_t(y) * w + x) * 4];
+  auto at = [w](uint32_t x, uint32_t y) { return (size_t(y) * w + x) * 4; };
+  auto rgba = [&](const Image &im, uint32_t x, uint32_t y) {
+    const uint8_t *p = &im.rgba[at(x, y)];
+    return Rgba8{p[0], p[1], p[2], p[3]};
   };
   Image mirror = image;
   for (uint32_t y = 0; y < h; ++y)
     for (uint32_t x = 0; x < w; ++x) {
-      const uint8_t *src =
-          rows ? px(image, x, h - 1 - y) : px(image, w - 1 - x, y);
-      std::copy(src, src + 4, &mirror.rgba[(size_t(y) * w + x) * 4]);
+      const size_t src = rows ? at(x, h - 1 - y) : at(w - 1 - x, y);
+      std::copy_n(&image.rgba[src], 4, &mirror.rgba[at(x, y)]);
     }
-  const uint8_t *bg = px(mirror, 0, 0);
-  auto shows = [&](uint32_t x, uint32_t y) {
-    const uint8_t *p = px(mirror, x, y);
-    for (int c = 0; c < 3; ++c)
-      if (std::abs(int(p[c]) - int(bg[c])) > int(kBackgroundLevels))
-        return true;
-    return false;
-  };
+  // The bar never reaches a corner, as rollingShear() assumes too.
+  const Rgba8 background = rgba(mirror, 0, 0);
   Image mask = image;
   std::fill(mask.rgba.begin(), mask.rgba.end(), uint8_t(255));
   for (uint32_t y = 0; y < h; ++y)
     for (uint32_t x = 0; x < w; ++x) {
-      if (!shows(x, y))
+      if (!(valueDistance(rgba(mirror, x, y), background) > kBackgroundLevels))
         continue;
       const uint32_t x0 = x > uint32_t(kSmearMargin) ? x - kSmearMargin : 0;
       const uint32_t y0 = y > uint32_t(kSmearMargin) ? y - kSmearMargin : 0;
       const uint32_t x1 = std::min(w - 1, x + kSmearMargin);
       const uint32_t y1 = std::min(h - 1, y + kSmearMargin);
       for (uint32_t my = y0; my <= y1; ++my)
-        for (uint32_t mx = x0; mx <= x1; ++mx) {
-          uint8_t *m = &mask.rgba[(size_t(my) * w + mx) * 4];
-          m[0] = m[1] = m[2] = 0;
-        }
+        for (uint32_t mx = x0; mx <= x1; ++mx)
+          std::fill_n(&mask.rgba[at(mx, my)], 3, uint8_t(0));
     }
   return maskedBy(std::move(mirror), std::move(mask));
 }

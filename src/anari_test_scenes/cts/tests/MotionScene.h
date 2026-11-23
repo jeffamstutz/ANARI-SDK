@@ -6,8 +6,6 @@
 #include "../CameraProjection.h"
 // anari
 #include "anari/anari_cpp/ext/linalg.h"
-// std
-#include <cmath>
 
 // The scene of the motion and shutter Tests (motion.cpp), shared with their
 // unit tests so a synthetic image can be drawn where a Test expects its
