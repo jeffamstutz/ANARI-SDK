@@ -73,6 +73,9 @@ options:
   --device <lib>       Reference device library for generate (default:
                        halcyon with its preview renderer; helide, with a
                        notice, when halcyon can't be loaded)
+  --replace            generate: clear ground_truth/ first. Without it,
+                       generate refuses when ground_truth/ holds another
+                       device's (library, subtype or renderer) Ground truth
   --width <n>          render width (default: 256)
   --height <n>         render height (default: 256)
   -r, --renderer <subtype>
@@ -135,7 +138,11 @@ the rendering configuration being compared. `generate` records the Reference
 device and renderer it used in `ground_truth/reference.json`; the report shows
 it next to the Candidate, and a Case whose required extension the Reference
 lacks is reported as `reference device (<name>) lacks <extension>` rather than
-as needing `generate`. The
+as needing `generate`. A workdir holds one device's Ground truth: `generate`
+with a different device, device subtype or renderer than the record names
+refuses (exit 2, nothing written) unless `--replace` is given, which clears
+`ground_truth/` first. The same device regenerating a `--filter` slice keeps
+the rest. The
 ambient value is a baseline for ordinary Tests. A renderer Test that explicitly
 exercises `ambientRadiance` overrides it with the Case's axis value.
 

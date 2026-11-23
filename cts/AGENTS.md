@@ -93,7 +93,11 @@ Tests, and warns when the reference device's own Variants disagree.
 `generate` without `--device` uses halcyon's `preview` renderer (unless `-r`
 names another), and helide's default renderer, with a notice, when halcyon
 can't be loaded (ADR-0005). It records the device, renderer and extensions in
-`ground_truth/reference.json`. `run` copies the identity into every Sidecar
+`ground_truth/reference.json`, and refuses (exit 2, nothing written) when that
+record names a different library, device subtype or renderer, unless
+`--replace` clears `ground_truth/` first; the same device regenerating a slice
+keeps the rest (`RunOptions::replaceGroundTruth`,
+`RunSummary::referenceConflict`). `run` copies the identity into every Sidecar
 (`reference`), and a Case missing Ground truth because the Reference lacked one
 of its required extensions records them (`referenceMissingFeatures`) and is
 skipped as `no ground truth: reference device (<name>) lacks <extension>`
@@ -221,8 +225,10 @@ ctsReport.py              reads the results tree too; retained only for the PDF
 - `Reference.{h,cpp}` — the default Reference device and its helide fallback
   (ADR-0005), and the record `generate` writes of the one it used
   (`ground_truth/reference.json`: library, device, renderer, extensions),
-  which `run` reads to say a Case lacks Ground truth because the Reference
-  lacked one of its extensions.
+  with `referenceConflict()`, the reason `generate` refuses to mix devices in
+  one workdir, and `clearGroundTruth()` for `--replace`; `run` reads the
+  record to say a Case lacks Ground truth because the Reference lacked one of
+  its extensions.
 - `Relations.{h,cpp}` — the pure relational pass (ADR-0010): groups of Cases
   differing in one axis, effect (all pairs, attributed to the later Case) and
   equivalence (a derived expectation over the Case's siblings; a Variant's is

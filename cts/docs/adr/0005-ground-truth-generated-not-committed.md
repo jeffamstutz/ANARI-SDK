@@ -45,3 +45,14 @@ lacks <extension>` (`referenceMissingFeatures`; the matrix state `advertised,
 Reference device lacks it`), not with "run generate first", which no
 `generate` with that device can fix. The main CI workflow builds helide only,
 so its CTS ctests run on the fallback.
+
+**Update (one Reference device per workdir):** the record names one device, so
+a workdir's Ground truth comes from one device. When `ground_truth/reference.json`
+names a different library, device subtype or renderer than this `generate`
+would use, `generate` refuses with an error naming both and exits 2 without
+writing anything; otherwise the earlier device's files for Cases the new one
+doesn't render would stay, and still be scored, under a record naming the new
+device. `--replace` clears `ground_truth/` first and then generates, so the
+record and the files agree. The same device regenerating (e.g. a `--filter`
+slice) adds to and overwrites its own Ground truth as before. A workdir with no
+record (older than the record) is not checked.
