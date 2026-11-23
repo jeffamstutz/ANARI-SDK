@@ -12,6 +12,7 @@
 #include <memory>
 #include <new>
 #include <stdexcept>
+#include <string>
 
 namespace anari {
 namespace cts {
@@ -79,7 +80,8 @@ std::vector<uint8_t> makeNanoVdbFloatGrid(const NanoVdbGridSpec &spec)
   for (uint32_t n : spec.voxels)
     if (n == 0 || n > kLowerDim)
       throw std::invalid_argument(
-          "makeNanoVdbFloatGrid: each dimension must be in [1, 128]");
+          "makeNanoVdbFloatGrid: each dimension must be in [1, "
+          + std::to_string(kLowerDim) + "]");
   if (!spec.value)
     throw std::invalid_argument("makeNanoVdbFloatGrid: no value function");
 

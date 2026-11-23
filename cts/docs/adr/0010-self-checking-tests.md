@@ -754,8 +754,9 @@ advertises under its spec name, is validated by synthetic images only.
     Permutation value with a derived expectation of its reference (a value
     with one is exempt from the effect check), so one Test can hold two
     references that must differ: the ramp and a uniform field.
-56. **unstructured:** hexahedra, six tetrahedra, two wedges and six pyramids
-    per block, and a mix of the four, over 2 x 2 x 2 blocks; vertex.data plus
+56. **unstructured:** hexahedra, six tetrahedra and six pyramids per block,
+    and a mix of the three, over 2 x 2 x 2 blocks (a unit test checks every
+    cell's signed volume is positive and that they fill the box); vertex.data plus
     a different cell.data renders the vertex.data ramp (the spec's
     precedence). cell.data is checked only as a uniform field: the spec
     doesn't say how per-cell values are reconstructed (constant per cell, or
@@ -768,9 +769,10 @@ advertises under its spec name, is validated by synthetic images only.
     version VisRTX vendors; NanoVDB.h is no longer a single header, so its
     two dependencies come with it): one float grid, breadth-first, with
     NanoVDB tools' world bounds (a voxel covers [ijk, ijk + 1] in index
-    space). The spec says only that the extent is in the grid header; it
-    doesn't say whether a voxel's value sits at its centre (visrtx's default
-    and NanoVDB's own bounds) or its corner. A corner reading shifts the
+    space), each voxel holding the ramp at that box's centre. The spec says
+    only that the extent is in the grid header; it doesn't say whether a
+    voxel's value sits at that centre (visrtx's default) or at its index
+    point, the box's corner (NanoVDB's own samplers). A corner reading shifts the
     ramp by half a voxel and the bounds by one, so the grid is fine (32^3
     voxels over [-1, 1]: half a voxel moves the ramp under 3 levels) and the
     equivalence is masked to the interior a voxel in (two for the cubic
@@ -778,14 +780,14 @@ advertises under its spec name, is validated by synthetic images only.
     at its edges. `nanovdb_filter` checks that nearest, linear and cubic
     differ on a 4^3 zig-zag grid and that unset is linear; the spec lists
     cubic for nanovdb without an extension, so a device must render it.
-58. **The wedge's winding follows the spec's text, not VTK.** The spec says
-    a wedge's bottom three vertices are counterclockwise (as a tetrahedron's
-    bottom triangle and a hexahedron's and pyramid's bottom faces, which VTK
-    orders the same way: normal toward the top) and that the field is
-    VTK-compatible; VTK_WEDGE orders its bottom triangle the other way
-    (normal away from the top). The Test uses the spec's order; the
-    conflict is a question for the working group. Every other cell is
-    ordered so that both readings agree.
+58. **Wedges have no Test.** The spec says a wedge's bottom three vertices
+    are counterclockwise (as a tetrahedron's bottom triangle and a
+    hexahedron's and pyramid's bottom faces, which VTK orders the same way:
+    normal toward the top) and that the field is VTK-compatible, but
+    VTK_WEDGE orders its bottom triangle the other way (normal away from the
+    top). A device that locates a point by face-plane signs renders only one
+    order, so no wedge holds under both readings; cell type 13 waits for the
+    working group. The other three are ordered so that both readings agree.
 59. **Cubic filtering is judged where every cubic agrees.** The spec doesn't
     say which cubic (B-spline, Catmull-Rom, ...). `structured_regular_filter_cubic`
     requires nearest, linear and cubic to differ on a 4^3 zig-zag grid (every
@@ -835,8 +837,8 @@ texture), and fails `nanovdb_filter`'s cubic (rendered as linear: visrtx maps
 every filter but nearest to linear). visrtx and ospray pass
 `isosurface_sphere` (`--accumulation 256`); visionaray fails it (its
 surface is about 0.09 deeper than the sphere, and a FLOAT32 `isovalue`
-renders nothing: it reads only an array). barney renders all five
-unstructured layouts pixel for pixel alike, but its volumes keep a noise
+renders nothing: it reads only an array). barney renders every
+unstructured layout pixel for pixel alike (measured with wedges too), but its volumes keep a noise
 floor of about 10 levels per pixel at 4096 frames (the convergence guard
 passes), so 19 % of pixels differ from its own structuredRegular render: the
 equivalences can't be judged on it.

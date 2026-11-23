@@ -281,6 +281,53 @@ float ramp(float a, float b)
 
 } // namespace
 
+TEST_CASE(
+    "the unstructured meshes fill [-1, 1]^3 with cells ordered as the "
+    "spec and VTK order them",
+    "[cts][volumes]")
+{
+  using namespace fields;
+  // Signed volumes: a cell ordered as the spec says (bottom counterclockwise
+  // seen from the top or apex, the right-hand normal pointing at it) has a
+  // positive one.
+  auto tet = [](float3 a, float3 b, float3 c, float3 d) {
+    return anari::math::dot(b - a, anari::math::cross(c - a, d - a)) / 6.f;
+  };
+  for (CellLayout layout : {CellLayout::Hexahedra,
+           CellLayout::Tetrahedra,
+           CellLayout::Pyramids,
+           CellLayout::Mixed}) {
+    const UnstructuredMesh m = unstructuredMesh(layout);
+    REQUIRE(m.cellIndex.size() == m.cellType.size());
+    float total = 0.f;
+    bool positive = true;
+    for (size_t c = 0; c < m.cellType.size(); ++c) {
+      const uint32_t *i = &m.index[m.cellIndex[c]];
+      auto p = [&](int n) { return m.positions[i[n]]; };
+      float v = 0.f;
+      if (m.cellType[c] == kTetrahedron)
+        v = tet(p(0), p(1), p(2), p(3));
+      else if (m.cellType[c] == kPyramid)
+        v = tet(p(0), p(1), p(2), p(4)) + tet(p(0), p(2), p(3), p(4));
+      else if (m.cellType[c] == kHexahedron)
+        // An axis-aligned box: its bottom face's normal times its height.
+        v = anari::math::dot(
+            anari::math::cross(p(1) - p(0), p(3) - p(0)), p(4) - p(0));
+      else
+        FAIL("unexpected cell type " << int(m.cellType[c]));
+      positive = positive && v > 0.f;
+      total += v;
+    }
+    CHECK(positive);
+    CHECK(total == Approx(8.f));
+    for (uint32_t n : m.index)
+      CHECK(n < m.positions.size());
+  }
+  CHECK(unstructuredMesh(CellLayout::Hexahedra).cellType.size() == 8);
+  CHECK(unstructuredMesh(CellLayout::Tetrahedra).cellType.size() == 48);
+  CHECK(unstructuredMesh(CellLayout::Pyramids).cellType.size() == 48);
+}
+
 TEST_CASE("unstructured cells must render as the structuredRegular ramp",
     "[cts][volumes]")
 {
@@ -298,14 +345,14 @@ TEST_CASE("unstructured cells must render as the structuredRegular ramp",
     };
     CHECK(f.allPass(f.judge(correct)));
 
-    // Wedges read with the other winding render nothing; vertex.data losing
+    // Pyramids read with the other winding render nothing; vertex.data losing
     // to cell.data renders the uniform value; cell.data ignored renders
     // nothing; a ramp mirrored across the view.
     const Image empty = cts_test::solid(kSize, kSize, 0, 0, 0, 255);
     const Image mirrored =
         fieldView([](float a, float b) { return ramp(-a, b); });
     for (const auto &[value, wrong] :
-        std::vector<std::pair<std::string, Image>>{{"wedges", empty},
+        std::vector<std::pair<std::string, Image>>{{"pyramids", empty},
             {"vertexDataOverCellData", uniform},
             {"uniformCellData", empty},
             {"tetrahedra", mirrored}}) {

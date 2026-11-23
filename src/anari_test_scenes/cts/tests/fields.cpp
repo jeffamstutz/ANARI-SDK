@@ -3,9 +3,9 @@
 
 // The spatial field Tests (ticket 11; ADR-0010 55-60), registered in the
 // volume category: one field sampled into different representations
-// (structuredRegular, unstructured cells of each type, nanovdb; data element
-// types; the cubic filter) renders the same volume, and a step transfer
-// function makes a field's extent and value mapping analytic.
+// (structuredRegular; unstructured hexahedra, tetrahedra and pyramids;
+// nanovdb; data element types; the cubic filter) renders the same volume, and
+// a step transfer function makes a field's extent and value mapping analytic.
 
 #include "fields.h"
 #include "../BuildContext.h"
@@ -36,8 +36,7 @@ using namespace volume_scene;
 
 namespace fields {
 
-// ---- unstructured cells
-// ------------------------------------------------------
+// ---- unstructured cells ----
 
 namespace {
 
@@ -65,6 +64,9 @@ float det(float3 a, float3 b, float3 c)
 
 UnstructuredMesh unstructuredMesh(CellLayout layout)
 {
+  // The mix: each block in turn of the three kinds.
+  static const CellLayout kMixedCycle[3] = {
+      CellLayout::Hexahedra, CellLayout::Tetrahedra, CellLayout::Pyramids};
   UnstructuredMesh m;
   // A 3 x 3 x 3 lattice over [-1, 1]^3: 2 x 2 x 2 hexahedral blocks, each
   // made of cells of the layout's type.
@@ -95,7 +97,7 @@ UnstructuredMesh unstructuredMesh(CellLayout layout)
         }
         CellLayout cells = layout;
         if (layout == CellLayout::Mixed)
-          cells = CellLayout(block % 4);
+          cells = kMixedCycle[block % 3];
 
         switch (cells) {
         case CellLayout::Hexahedra:
@@ -119,14 +121,6 @@ UnstructuredMesh unstructuredMesh(CellLayout layout)
           }
           break;
         }
-        case CellLayout::Wedges:
-          // Two prisms along z, split on the bottom face's diagonal 0-2:
-          // each bottom triangle counterclockwise seen from the top, as the
-          // spec words it (VTK's wedge orders its bottom the other way;
-          // ADR-0010 58).
-          addCell(kWedge, {c[0], c[1], c[2], c[4], c[5], c[6]});
-          addCell(kWedge, {c[0], c[2], c[3], c[4], c[6], c[7]});
-          break;
         case CellLayout::Pyramids: {
           // Six pyramids, one per face, meeting at a vertex in the block's
           // centre; each base counterclockwise seen from the apex.
@@ -178,8 +172,7 @@ anari::SpatialField newUnstructuredField(anari::Device d,
   return field;
 }
 
-// ---- nanovdb
-// -----------------------------------------------------------------
+// ---- nanovdb ----
 
 anari::SpatialField newNanoVdbField(
     anari::Device d, const NanoVdbGridSpec &spec, const char *filter)
@@ -199,13 +192,15 @@ NanoVdbGridSpec rampGrid(ViewAxis view)
 {
   NanoVdbGridSpec spec;
   spec.voxels = {kRampVoxels, kRampVoxels, kRampVoxels};
-  spec.voxelSize = 2.f / kRampVoxels;
+  spec.voxelSize = kRampVoxelSize;
   spec.origin = float3(-1.f);
-  // Each voxel holds the ramp at its centre, as NanoVDB's own tools place a
-  // voxel; a device reading the value at the voxel's corner instead shifts
+  // Each voxel holds the ramp at the centre of the box NanoVDB's world
+  // bounds give it ([ijk, ijk + 1] in index space; visrtx samples there by
+  // default). NanoVDB's own samplers read a value at its index point, the
+  // box's corner: a device doing so shifts
   // the ramp by half a voxel (ADR-0010 57).
   spec.value = [view](uint32_t i, uint32_t j, uint32_t k) {
-    const float h = 2.f / kRampVoxels;
+    const float h = kRampVoxelSize;
     return rampValue(view,
         float3(-1.f + (i + 0.5f) * h,
             -1.f + (j + 0.5f) * h,
@@ -214,8 +209,7 @@ NanoVdbGridSpec rampGrid(ViewAxis view)
   return spec;
 }
 
-// ---- structuredRegular
-// --------------------------------------------------------
+// ---- structuredRegular ----
 
 anari::SpatialField newRampStructuredField(
     anari::Device d, ViewAxis view, uint32_t n, const char *filter)
@@ -318,10 +312,24 @@ anari::World fieldWorld(anari::Device d, anari::SpatialField field)
   return world;
 }
 
-CameraFn viewCameraHook(ViewAxis view)
+// The cells a field axis value of the unstructured Tests is made of (the
+// hexahedra for the values that aren't a cell type).
+CellLayout cellLayout(const std::string &value)
 {
-  return [view](BuildContext &ctx, const scenes::Bounds &) {
-    auto c = ctx.newCamera(viewCamera(view));
+  if (value == "tetrahedra")
+    return CellLayout::Tetrahedra;
+  if (value == "pyramids")
+    return CellLayout::Pyramids;
+  if (value == "mixed")
+    return CellLayout::Mixed;
+  return CellLayout::Hexahedra;
+}
+
+// A camera hook building (and recording) the camera `projection` describes.
+CameraFn cameraHook(CameraProjection projection)
+{
+  return [projection](BuildContext &ctx, const scenes::Bounds &) {
+    auto c = ctx.newCamera(projection);
     anari::commitParameters(ctx.device(), c);
     return c;
   };
@@ -383,10 +391,27 @@ anari::Volume stepVolume(anari::Device d, anari::SpatialField field)
   return vol;
 }
 
+// A world holding `field` (committed here and released) as stepVolume(),
+// with `valueRange` set when it is.
+anari::World stepWorld(
+    anari::Device d, anari::SpatialField field, const Any &valueRange = none())
+{
+  anari::commitParameters(d, field);
+  auto vol = stepVolume(d, field);
+  applyParameterValue(d, vol, "valueRange", valueRange.raw());
+  anari::commitParameters(d, vol);
+  WorldContents wc;
+  wc.volumes = {vol};
+  auto world = assembleWorld(d, wc);
+  anari::release(d, field);
+  anari::release(d, vol);
+  return world;
+}
+
 // Where in the range the step's opacity becomes enough to stop a ray: past
 // 127/255 by 0.3 % of its width, where the opacity reaches about 0.003 and the
 // slab is opaque within its depth.
-constexpr float kStepAt = 127.f / 255.f + 0.003f / 255.f;
+constexpr float kStepFraction = 127.f / 255.f + 0.003f / 255.f;
 
 // The analytic picture of a field ramping from 0 at x = x0 to 1 at x = x1
 // over the box [x0, x1] x [y0, y1], seen down -z through a step transfer
@@ -402,7 +427,7 @@ struct StepPicture
   // The x at which the field's value reaches the step.
   float edge() const
   {
-    const float v = valueLo + kStepAt * (valueHi - valueLo);
+    const float v = valueLo + kStepFraction * (valueHi - valueLo);
     return x0 + v * (x1 - x0);
   }
 };
@@ -515,10 +540,11 @@ void registerFieldTests(Catalog &catalog)
   // ---- unstructured ---------------------------------------------------------
   for (const View &v : kViews) {
     const ViewAxis view = v.axis;
-    makeTest("volume", std::string("unstructured") + v.suffix)
-        .description(
+    TestBuilder test =
+        makeTest("volume", std::string("unstructured") + v.suffix);
+    test.description(
             "Checks that an unstructured field of hexahedra, tetrahedra, "
-            "wedges, pyramids or a mix renders as the structuredRegular "
+            "pyramids or a mix renders as the structuredRegular "
             "field holding the same linear ramp, that vertex.data takes "
             "precedence over cell.data, and that uniform cell.data renders "
             "as the same uniform structuredRegular field, looking down "
@@ -537,22 +563,11 @@ void registerFieldTests(Catalog &catalog)
             anari::setParameterArray3D(d, field, "data", data.data(), 2, 2, 2);
             return fieldWorld(d, field);
           }
-          CellLayout layout = CellLayout::Hexahedra;
-          if (f == "tetrahedra")
-            layout = CellLayout::Tetrahedra;
-          else if (f == "wedges")
-            layout = CellLayout::Wedges;
-          else if (f == "pyramids")
-            layout = CellLayout::Pyramids;
-          else if (f == "mixed")
-            layout = CellLayout::Mixed;
-          const UnstructuredMesh mesh = unstructuredMesh(layout);
+          const UnstructuredMesh mesh = unstructuredMesh(cellLayout(f));
           std::vector<float> vertexData;
           for (const float3 &p : mesh.positions)
             vertexData.push_back(rampValue(view, p));
-          // A cell value unlike the ramp anywhere it is drawn: the ramp
-          // spans [0.1, 0.9] and this maps to a colour the ramp never
-          // shows only if it is read.
+          // One value in every cell: uniform, unlike the ramp as a whole.
           const std::vector<float> cellData(
               mesh.cellType.size(), kUniformValue);
           if (f == "uniformCellData")
@@ -564,7 +579,7 @@ void registerFieldTests(Catalog &catalog)
           return fieldWorld(
               d, newUnstructuredField(d, mesh, &vertexData, nullptr));
         })
-        .camera(viewCameraHook(view))
+        .camera(cameraHook(viewCamera(view)))
         // Two references: the ramp and a uniform field. Every unstructured
         // value must render as one of them (a derived expectation, exempt
         // from the axis's effect check); the two references must differ.
@@ -572,49 +587,25 @@ void registerFieldTests(Catalog &catalog)
             {"structuredRegular",
                 "hexahedra",
                 "tetrahedra",
-                "wedges",
                 "pyramids",
                 "mixed",
                 "vertexDataOverCellData",
                 "uniformStructuredRegular",
-                "uniformCellData"})
-        .expectDerived("field",
-            "hexahedra",
-            "the structuredRegular ramp",
-            [](const Siblings &s) -> ExpectedImage {
-              return s.at("structuredRegular");
-            })
-        .expectDerived("field",
-            "tetrahedra",
-            "the structuredRegular ramp",
-            [](const Siblings &s) -> ExpectedImage {
-              return s.at("structuredRegular");
-            })
-        .expectDerived("field",
-            "wedges",
-            "the structuredRegular ramp",
-            [](const Siblings &s) -> ExpectedImage {
-              return s.at("structuredRegular");
-            })
-        .expectDerived("field",
-            "pyramids",
-            "the structuredRegular ramp",
-            [](const Siblings &s) -> ExpectedImage {
-              return s.at("structuredRegular");
-            })
-        .expectDerived("field",
-            "mixed",
-            "the structuredRegular ramp",
-            [](const Siblings &s) -> ExpectedImage {
-              return s.at("structuredRegular");
-            })
-        .expectDerived("field",
-            "vertexDataOverCellData",
-            "the structuredRegular ramp: vertex.data takes precedence",
-            [](const Siblings &s) -> ExpectedImage {
-              return s.at("structuredRegular");
-            })
-        .expectDerived("field",
+                "uniformCellData"});
+    for (const char *ramp : {"hexahedra",
+             "tetrahedra",
+             "pyramids",
+             "mixed",
+             "vertexDataOverCellData"})
+      test.expectDerived("field",
+          ramp,
+          std::string(ramp) == "vertexDataOverCellData"
+              ? "the structuredRegular ramp: vertex.data takes precedence"
+              : "the structuredRegular ramp",
+          [](const Siblings &s) -> ExpectedImage {
+            return s.at("structuredRegular");
+          });
+    test.expectDerived("field",
             "uniformCellData",
             "the uniform structuredRegular field",
             [](const Siblings &s) -> ExpectedImage {
@@ -629,8 +620,7 @@ void registerFieldTests(Catalog &catalog)
         .registerInto(catalog);
   }
 
-  // ---- nanovdb
-  // ---------------------------------------------------------------
+  // ---- nanovdb ----
   for (const View &v : kViews) {
     const ViewAxis view = v.axis;
     makeTest("volume", std::string("nanovdb") + v.suffix)
@@ -648,7 +638,7 @@ void registerFieldTests(Catalog &catalog)
               newNanoVdbField(
                   d, rampGrid(view), f == "nanovdbCubic" ? "cubic" : nullptr));
         })
-        .camera(viewCameraHook(view))
+        .camera(cameraHook(viewCamera(view)))
         .permute("field", {"structuredRegular", "nanovdb", "nanovdbCubic"})
         // The spec doesn't say where in a voxel its value sits, so the
         // grid's bounds and its ramp may be half a voxel off between
@@ -696,7 +686,7 @@ void registerFieldTests(Catalog &catalog)
         applyParameterValue(d, field, "filter", ctx.value("filter").raw());
         return fieldWorld(d, field);
       })
-      .camera(viewCameraHook(ViewAxis::Z))
+      .camera(cameraHook(viewCamera(ViewAxis::Z)))
       .permute("filter", V{Any("nearest"), Any("linear"), Any("cubic"), none()})
       .expectDerived("filter",
           "none",
@@ -731,7 +721,7 @@ void registerFieldTests(Catalog &catalog)
         applyParameterValue(d, field, "filter", ctx.value("filter").raw());
         return fieldWorld(d, field);
       })
-      .camera(viewCameraHook(ViewAxis::Z))
+      .camera(cameraHook(viewCamera(ViewAxis::Z)))
       .permute("filter", {"nearest", "linear", "cubic"})
       .expectExact("the volume shows", subjectIsShown)
       .noGroundTruth()
@@ -759,7 +749,7 @@ void registerFieldTests(Catalog &catalog)
                   ctx.getString("filter", "linear") == "cubic" ? "cubic"
                                                                : "linear"));
         })
-        .camera(viewCameraHook(view))
+        .camera(cameraHook(viewCamera(view)))
         .permute("filter", {"linear", "cubic"})
         // Every cubic that reproduces a linear function (B-spline,
         // Catmull-Rom, ...) agrees with linear where its four samples per
@@ -834,7 +824,7 @@ void registerFieldTests(Catalog &catalog)
               d, field, "data", makeRawArray3D(d, t, n, n, n, bytes.data()));
           return fieldWorld(d, field);
         })
-        .camera(viewCameraHook(view))
+        .camera(cameraHook(viewCamera(view)))
         // The first value is the reference. UFIXED8 rounds a value by at
         // most 1/510, under a level of the colour map.
         .variant("dataType",
@@ -847,8 +837,7 @@ void registerFieldTests(Catalog &catalog)
         .registerInto(catalog);
   }
 
-  // ---- extents through a step transfer function
-  // -------------------------------
+  // ---- extents through a step transfer function ----
   //
   // A field ramping along x seen down -z through a step transfer function is
   // opaque exactly where its value is past the step and background elsewhere:
@@ -871,23 +860,9 @@ void registerFieldTests(Catalog &catalog)
         anari::setParameterArray3D(d, field, "data", data.data(), 3, 3, 3);
         applyParameterValue(d, field, "origin", ctx.value("origin").raw());
         applyParameterValue(d, field, "spacing", ctx.value("spacing").raw());
-        anari::commitParameters(d, field);
-        auto vol = stepVolume(d, field);
-        applyParameterValue(
-            d, vol, "valueRange", ctx.value("valueRange").raw());
-        anari::commitParameters(d, vol);
-        WorldContents wc;
-        wc.volumes = {vol};
-        auto world = assembleWorld(d, wc);
-        anari::release(d, field);
-        anari::release(d, vol);
-        return world;
+        return stepWorld(d, field, ctx.value("valueRange"));
       })
-      .camera([](BuildContext &ctx, const scenes::Bounds &) {
-        auto c = ctx.newCamera(extentCamera());
-        anari::commitParameters(ctx.device(), c);
-        return c;
-      })
+      .camera(cameraHook(extentCamera()))
       .simplified()
       // Unset origin is (0, 0, 0) and unset spacing (1, 1, 1) (the spec).
       .permute("origin", V{Any(float3(-1.f)), none()})
@@ -929,21 +904,9 @@ void registerFieldTests(Catalog &catalog)
         for (const float3 &p : mesh.positions)
           data.push_back((p.x + 1.f) / 2.f);
         auto field = newUnstructuredField(d, mesh, &data, nullptr);
-        anari::commitParameters(d, field);
-        auto vol = stepVolume(d, field);
-        anari::commitParameters(d, vol);
-        WorldContents wc;
-        wc.volumes = {vol};
-        auto world = assembleWorld(d, wc);
-        anari::release(d, field);
-        anari::release(d, vol);
-        return world;
+        return stepWorld(d, field);
       })
-      .camera([](BuildContext &ctx, const scenes::Bounds &) {
-        auto c = ctx.newCamera(extentCamera());
-        anari::commitParameters(ctx.device(), c);
-        return c;
-      })
+      .camera(cameraHook(extentCamera()))
       .expectExact("the picture's edges are the field's",
           [](ExactCheck &x) {
             stepExtentChecks(x, StepPicture{-1.f, 1.f, -1.f, 1.f});
@@ -970,21 +933,9 @@ void registerFieldTests(Catalog &catalog)
           return (i + 0.5f) / kRampVoxels;
         };
         auto field = newNanoVdbField(d, spec, nullptr);
-        anari::commitParameters(d, field);
-        auto vol = stepVolume(d, field);
-        anari::commitParameters(d, vol);
-        WorldContents wc;
-        wc.volumes = {vol};
-        auto world = assembleWorld(d, wc);
-        anari::release(d, field);
-        anari::release(d, vol);
-        return world;
+        return stepWorld(d, field);
       })
-      .camera([](BuildContext &ctx, const scenes::Bounds &) {
-        auto c = ctx.newCamera(extentCamera());
-        anari::commitParameters(ctx.device(), c);
-        return c;
-      })
+      .camera(cameraHook(extentCamera()))
       // Whether a voxel's value sits at its centre or its corner moves the
       // bounds and the ramp by up to a voxel (ADR-0010 57): edges within a
       // voxel aren't judged.
@@ -1049,11 +1000,7 @@ void registerFieldTests(Catalog &catalog)
         anari::release(d, light);
         return world;
       })
-      .camera([](BuildContext &ctx, const scenes::Bounds &) {
-        auto c = ctx.newCamera(sphereCamera());
-        anari::commitParameters(ctx.device(), c);
-        return c;
-      })
+      .camera(cameraHook(sphereCamera()))
       // The first value is the reference: the array form.
       .variant("isovalue", {"array", "scalar"})
       .expectExact("the isosurface is the sphere", isosurfaceSphereChecks)

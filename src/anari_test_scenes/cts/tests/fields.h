@@ -22,19 +22,19 @@ namespace fields {
 // The unstructured cell types (the spec's, VTK's).
 inline constexpr uint8_t kTetrahedron = 10;
 inline constexpr uint8_t kHexahedron = 12;
-inline constexpr uint8_t kWedge = 13;
 inline constexpr uint8_t kPyramid = 14;
 
 // Which cells an unstructured mesh over [-1, 1]^3 is made of: 2 x 2 x 2
-// blocks, each one hexahedron, six tetrahedra, two wedges, six pyramids
-// around a centre vertex, or (Mixed) block n of the four kinds in turn.
+// blocks, each one hexahedron, six tetrahedra, six pyramids around a centre
+// vertex, or (Mixed) block n of the three kinds in turn. No wedges: the spec's
+// text and VTK_WEDGE, which it says it follows, order a wedge's bottom
+// triangle opposite ways (ADR-0010 58).
 enum class CellLayout
 {
   Hexahedra = 0,
   Tetrahedra = 1,
-  Wedges = 2,
-  Pyramids = 3,
-  Mixed = 4,
+  Pyramids = 2,
+  Mixed = 3,
 };
 
 struct UnstructuredMesh

@@ -291,15 +291,15 @@ shared with its unit tests.
 
 `tests/fields.cpp` holds the spatial field Tests (ADR-0010 55-60),
 registered in the volume category, plus `geometry/isosurface_sphere`: one
-linear ramp sampled into structuredRegular, unstructured cells of each type
-and nanovdb renders the same volume (two views each), the filters differ on a
+linear ramp sampled into structuredRegular, unstructured hexahedra,
+tetrahedra and pyramids (no wedges, ADR-0010 58) and nanovdb renders the same volume (two views each), the filters differ on a
 coarse grid and cubic reproduces a ramp away from the boundary, data element
 types match FLOAT32, and a step transfer function makes a field's extent
 exact. `tests/fields.h` and `tests/VolumeScene.h` (the volume framing, shared
 with `volume.cpp`) hold its fields and view for the unit tests.
 `tests/NanoVdbGrid.{h,cpp}` builds a NanoVDB grid in code with the headers
-vendored in `external/nanovdb` (Apache-2.0; the only third-party code the CTS
-compiles besides stb_image), so no grid file is checked in.
+vendored in `external/nanovdb` (Apache-2.0, NanoVDB 32.9.0), so no grid file is
+checked in.
 
 Two header-only helpers sit beside them: `tests/ScreenScene.h` (triangles laid
 out in the screen camera's coordinates, and which pixels they cover) and
