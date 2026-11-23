@@ -1431,8 +1431,7 @@ TEST_CASE("generate keeps one Reference device per workdir's Ground truth",
       CHECK(s.passed == 0);
       CHECK(s.referenceConflict.find("helide (default/default)")
           != std::string::npos);
-      CHECK(s.referenceConflict.find(other.library + " (" + other.device + "/"
-                + other.renderer + ")")
+      CHECK(s.referenceConflict.find(deviceSpecLabel(other))
           != std::string::npos);
       CHECK(snapshotFiles(root) == before);
     }

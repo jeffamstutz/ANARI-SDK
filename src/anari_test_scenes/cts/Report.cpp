@@ -170,11 +170,6 @@ std::optional<DeviceSpec> runDevice(
   return devices.begin()->second;
 }
 
-std::string deviceSpecLabel(const DeviceSpec &device)
-{
-  return device.library + " (" + device.device + "/" + device.renderer + ")";
-}
-
 std::optional<DeviceSpec> runReference(
     const std::map<std::string, CaseResult> &results, std::ostream &warnings)
 {

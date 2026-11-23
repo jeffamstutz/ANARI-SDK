@@ -97,6 +97,13 @@ struct DeviceSpec
   std::vector<std::string> extensions;
 };
 
+// Whether two specs name the same device: library, device subtype and
+// renderer (the identity; the extensions are not part of it).
+bool sameDevice(const DeviceSpec &a, const DeviceSpec &b);
+
+// "<library> (<device>/<renderer>)": how a report or message names a device.
+std::string deviceSpecLabel(const DeviceSpec &device);
+
 // One channel's comparison against ground truth.
 struct ChannelResult
 {

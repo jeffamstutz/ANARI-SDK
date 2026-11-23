@@ -16,6 +16,17 @@ namespace cts {
 
 using nlohmann::json;
 
+bool sameDevice(const DeviceSpec &a, const DeviceSpec &b)
+{
+  return a.library == b.library && a.device == b.device
+      && a.renderer == b.renderer;
+}
+
+std::string deviceSpecLabel(const DeviceSpec &device)
+{
+  return device.library + " (" + device.device + "/" + device.renderer + ")";
+}
+
 namespace {
 
 std::filesystem::path temporarySidecarPath(

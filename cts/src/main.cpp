@@ -567,7 +567,12 @@ int cmdGenerate(const Options &o)
   if (!s.referenceConflict.empty()) {
     anari::release(d, d);
     anari::unloadLibrary(lib);
-    std::cerr << "error: " << s.referenceConflict << "\n";
+    std::cerr << "error: " << s.referenceConflict
+              << ". Pass --replace to clear it and generate afresh";
+    if (const auto earlier = readReference(Workdir(o.workdir)))
+      std::cerr << ", or generate with the recorded device (--device "
+                << earlier->library << " -r " << earlier->renderer << ")";
+    std::cerr << "\n";
     return 2;
   }
   if (!s.deviceFailure.empty()) {

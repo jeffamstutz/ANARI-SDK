@@ -62,29 +62,15 @@ std::optional<DeviceSpec> readReference(const Workdir &workdir)
   return reference;
 }
 
-bool sameReference(const DeviceSpec &a, const DeviceSpec &b)
-{
-  return a.library == b.library && a.device == b.device
-      && a.renderer == b.renderer;
-}
-
-std::string referenceLabel(const DeviceSpec &reference)
-{
-  return reference.library + " (" + reference.device + "/" + reference.renderer
-      + ")";
-}
-
 std::string referenceConflict(
     const Workdir &workdir, const DeviceSpec &reference)
 {
   const auto earlier = readReference(workdir);
-  if (!earlier || sameReference(*earlier, reference))
+  if (!earlier || sameDevice(*earlier, reference))
     return {};
   return workdir.groundTruthDir().string() + " holds Ground truth from "
-      + referenceLabel(*earlier) + "; generating with "
-      + referenceLabel(reference)
-      + " would mix the two devices' files. Pass --replace to clear it and "
-        "generate afresh, or generate with the recorded device";
+      + deviceSpecLabel(*earlier) + "; generating with "
+      + deviceSpecLabel(reference) + " would mix the two devices' files";
 }
 
 bool clearGroundTruth(const Workdir &workdir)

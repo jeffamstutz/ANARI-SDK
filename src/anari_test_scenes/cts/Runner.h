@@ -103,9 +103,8 @@ struct Runner
   // and record the Reference device (RunOptions::device, with
   // `referenceFeatures`) beside them (Reference.h). Refuses, writing nothing,
   // with RunSummary::referenceConflict set, when the record names a different
-  // device, unless RunOptions::replaceGroundTruth clears ground_truth/ first
-  // (ADR-0005). Does not score or write
-  // sidecars (ADR-0005). A shared (Variant) Ground
+  // device, unless RunOptions::replaceGroundTruth clears ground_truth/ first.
+  // Does not score or write sidecars (ADR-0005). A shared (Variant) Ground
   // truth file is written from its first Variant value's Case only, and the
   // device's own Variants are checked for equivalence (a disagreement is
   // reported, RunSummary::variantDisagreements). Skips `.noGroundTruth()`

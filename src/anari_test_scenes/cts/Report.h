@@ -77,9 +77,6 @@ Summary summarize(const std::map<std::string, CaseResult> &results);
 std::optional<DeviceSpec> runDevice(
     const std::map<std::string, CaseResult> &results, std::ostream &warnings);
 
-// "<library> (<device>/<renderer>)": how a report names a device.
-std::string deviceSpecLabel(const DeviceSpec &device);
-
 // The single Reference device named by a run's sidecars (ADR-0005), without
 // its extensions. Absent when none names one (no record, or sidecars older
 // than it) or they name more than one (diagnosed to `warnings`).

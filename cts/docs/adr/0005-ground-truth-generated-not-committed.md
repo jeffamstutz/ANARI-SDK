@@ -47,8 +47,8 @@ Reference device lacks it`), not with "run generate first", which no
 so its CTS ctests run on the fallback.
 
 **Update (one Reference device per workdir):** the record names one device, so
-a workdir's Ground truth comes from one device. When `ground_truth/reference.json`
-names a different library, device subtype or renderer than this `generate`
+a workdir's Ground truth comes from one device. When
+`ground_truth/reference.json` names a different library, device subtype or renderer than this `generate`
 would use, `generate` refuses with an error naming both and exits 2 without
 writing anything; otherwise the earlier device's files for Cases the new one
 doesn't render would stay, and still be scored, under a record naming the new
