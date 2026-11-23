@@ -279,7 +279,7 @@ parameter) is a timed behaviour Test so each Case runs in its own process; the
 shutter, camera motion, instance motion, triangle and quad motion
 deformation; ADR-0010 46-50), registered in the camera, instance and
 geometry categories; `tests/MotionScene.h` is its scene (rest camera,
-subject extents and paths, the rolling shutter's schedule), shared with its
+subject extents and paths, the rolling shutter's duration), shared with its
 unit tests.
 
 Two header-only helpers sit beside them: `tests/ScreenScene.h` (triangles laid

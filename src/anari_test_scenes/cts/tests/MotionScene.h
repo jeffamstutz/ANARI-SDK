@@ -8,7 +8,6 @@
 #include "anari/anari_cpp/ext/linalg.h"
 // std
 #include <cmath>
-#include <string>
 
 // The scene of the motion and shutter Tests (motion.cpp), shared with their
 // unit tests so a synthetic image can be drawn where a Test expects its
@@ -57,7 +56,9 @@ inline const math::float3 kIdenticalAt(0.2f, 0.1f, 0.f);
 // The rolling-shutter Tests: a bar crossing the whole frame, moving
 // perpendicular to the scan. Rows (directions down and up) scan rows, so the
 // bar is tall and moves along x; columns (left and right) scan columns, so it
-// is wide and moves along y.
+// is wide and moves along y. The scene is symmetric across the frame's middle
+// row (rows) or column (columns), so a scan run from the other edge renders
+// the mirror image.
 inline constexpr float kBarHalfThickness = 0.2f;
 inline constexpr float kBarHalfLength = 4.f;
 inline constexpr float kBarTravel = 1.2f; // from -kBarTravel to +kBarTravel
@@ -78,35 +79,11 @@ inline math::float2 barHalfExtent(bool rows)
               : math::float2(kBarHalfLength, kBarHalfThickness);
 }
 
-// The rolling shutter's schedule, as the CTS reads the spec (which gives the
-// parameters but not the schedule): with shutter [0, 1] the lines open one
-// after the other, the first line at the shutter's start and the last so it
-// closes at its end, each open for `duration` (clamped to the shutter's
-// length). `s` is a line's place in scan order, 0 for the first line and 1
-// for the last; `down` scans from the top row, `up` from the bottom row,
-// `right` from the left column, `left` from the right column. The time the
-// line is open around (its middle) is returned; `none` is a global shutter,
-// open around 0.5 everywhere.
-inline float rollingLineMidTime(
-    const std::string &direction, float duration, float s)
-{
-  if (direction != "down" && direction != "up" && direction != "left"
-      && direction != "right")
-    return 0.5f;
-  const float d = std::fmin(std::fmax(duration, 0.f), 1.f);
-  return s * (1.f - d) + 0.5f * d;
-}
-
-// A line's place in scan order from its pixel (row y or column x, Image
-// convention: row 0 at the bottom) in a frame `extent` lines long.
-inline float rollingScanOrder(
-    const std::string &direction, float pixelCenter, float extent)
-{
-  const float f = pixelCenter / extent;
-  if (direction == "down" || direction == "left")
-    return 1.f - f;
-  return f;
-}
+// The rolling-shutter Tests' duration: strictly inside the shutter [0, 1],
+// so the image is sheared whatever the line schedule (the spec gives
+// `rollingShutterDuration` but not when each line opens, nor which edge a
+// direction starts from; ADR-0010 48).
+inline constexpr float kRollingDuration = 0.5f;
 
 } // namespace motion
 } // namespace cts

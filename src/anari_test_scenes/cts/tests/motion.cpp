@@ -17,6 +17,7 @@
 
 #include "../BuildContext.h"
 #include "../ExactCheck.h"
+#include "../Image.h"
 #include "../LightBuilder.h"
 #include "../SurfaceBuilder.h"
 #include "../TestBuilder.h"
@@ -28,6 +29,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <optional>
 #include <string>
 #include <vector>
@@ -641,11 +643,14 @@ void subjectAtIdenticalKeys(ExactCheck &x)
 
 // The rolling shutter (the rolling-shutter Tests): the bar crosses the frame
 // over shutter [0, 1], perpendicular to the scan, so each line shows it where
-// it was while that line was open (motion::rollingLineMidTime). In three
-// bands of lines (early, middle and late in the scan) the centre of the
-// pixels showing the bar must be where the bar was at the band's time,
-// within 6 % of the bar's travel across the frame plus 2 pixels. A global
-// shutter (`none`) shows it blurred around its middle place in every band.
+// it was while that line was open. The spec doesn't say when each line opens
+// or which edge a direction starts from (ADR-0010 48), so this checks only
+// what holds under any schedule: in three bands of lines (at 10, 50 and 90 %
+// of the frame, in image order), the centre of the pixels showing the bar
+// moves one way across the bands, by at least 3 % of the bar's travel plus a
+// pixel at each step (the image is sheared); a global shutter (`none`) moves
+// it by no more than that (no shear). Which way a direction shears is the
+// derived expectation's business (mirroredOutsideSmear).
 void rollingShear(ExactCheck &x, bool rows)
 {
   const auto color = x.rgba(Channel::Color);
@@ -653,28 +658,24 @@ void rollingShear(ExactCheck &x, bool rows)
   const FrameSize size = x.frameSize();
   const std::string direction =
       x.values().getString("rollingShutterDirection", "none");
-  const float duration = x.get<float>("rollingShutterDuration", 0.f);
   const auto from = x.project(motion::barFrom(rows));
   const auto to = x.project(motion::barTo(rows));
   if (!from || !to) {
     x.measure("the bar projects into the frame", 0.0, Limit::AtLeast, 1.0);
     return;
   }
-  // Lines are rows (scanned along y) when the bar moves along x.
+  // Lines are rows when the bar moves along x.
   const uint32_t lines = rows ? size.height : size.width;
   const uint32_t along = rows ? size.width : size.height;
   const float travel = rows ? to->x - from->x : to->y - from->y;
-  const float tolerance = 0.06f * std::fabs(travel) + 2.f;
-  // A global shutter has no scan order; its bands are taken top down.
-  const std::string order = (direction == "none" || direction.empty())
-      ? (rows ? "down" : "right")
-      : direction;
-  for (const float s0 : {0.1f, 0.5f, 0.9f}) {
+  const double tolerance = 0.03 * std::fabs(travel) + 1.0;
+  const std::array<float, 3> bands = {0.1f, 0.5f, 0.9f};
+  std::array<double, 3> centre{};
+  for (size_t b = 0; b < bands.size(); ++b) {
     double sum = 0.0;
     size_t count = 0;
     for (uint32_t l = 0; l < lines; ++l) {
-      const float s = motion::rollingScanOrder(order, l + 0.5f, float(lines));
-      if (std::fabs(s - s0) > 0.025f)
+      if (std::fabs((l + 0.5f) / lines - bands[b]) > 0.025f)
         continue;
       for (uint32_t a = 0; a < along; ++a) {
         const Rgba8 v = rows ? color.at(a, l) : color.at(l, a);
@@ -684,21 +685,96 @@ void rollingShear(ExactCheck &x, bool rows)
         }
       }
     }
-    const std::string band =
-        "scan band at " + std::to_string(int(s0 * 100)) + " % of the scan";
     if (count == 0) {
-      x.measure(band + ": pixels showing the bar", 0.0, Limit::AtLeast, 1.0);
-      continue;
+      x.measure("pixels showing the bar in the band at "
+              + std::to_string(int(bands[b] * 100)) + " % of the frame",
+          0.0,
+          Limit::AtLeast,
+          1.0);
+      return;
     }
-    const float t = motion::rollingLineMidTime(direction, duration, s0);
-    const float expected = rows ? from->x + t * (to->x - from->x)
-                                : from->y + t * (to->y - from->y);
-    x.measure(band + ": pixels between the bar's centre and its place at time "
-            + std::to_string(t).substr(0, 4),
-        std::fabs(sum / double(count) - expected),
+    centre[b] = sum / double(count);
+  }
+  const std::string axisName = rows ? "x" : "y";
+  if (direction == "none" || direction.empty()) {
+    const double spread = std::max({centre[0], centre[1], centre[2]})
+        - std::min({centre[0], centre[1], centre[2]});
+    x.measure("pixels between the bar's centres (" + axisName
+            + ") in the bands at 10, 50 and 90 % of the frame: no shear",
+        spread,
         Limit::AtMost,
         tolerance);
+    return;
   }
+  // Monotonic: both steps go the way the whole shift does, each by at least
+  // the tolerance.
+  const double sense = centre[2] >= centre[0] ? 1.0 : -1.0;
+  x.measure("pixels the bar's centre (" + axisName
+          + ") moves from the band at 10 % to the band at 50 %, the way it "
+            "moves from 10 % to 90 %: sheared",
+      sense * (centre[1] - centre[0]),
+      Limit::AtLeast,
+      tolerance);
+  x.measure("pixels the bar's centre (" + axisName
+          + ") moves from the band at 50 % to the band at 90 %, the way it "
+            "moves from 10 % to 90 %: sheared",
+      sense * (centre[2] - centre[1]),
+      Limit::AtLeast,
+      tolerance);
+}
+
+// A pixel within this many pixels of one showing the bar isn't compared by
+// mirroredOutsideSmear().
+constexpr int kSmearMargin = 3;
+
+// What the reversed scan (`up` from `down`, `left` from `right`) must render:
+// the scene is symmetric across the scan's middle line, so whatever the
+// schedule, a scan from the other edge is the mirror image, sheared the other
+// way. Only the pixels where the mirror shows background, with no pixel
+// showing the bar within kSmearMargin, are compared: there the bar never was
+// while the line was open, whereas inside the smear a device that samples
+// time per pixel is noisy. A scan sheared the same way, or not at all, shows
+// the bar where the mirror has none.
+ExpectedImage mirroredOutsideSmear(const Image &image, bool rows)
+{
+  if (!image.valid())
+    return {};
+  const uint32_t w = image.width, h = image.height;
+  auto px = [&](const Image &im, uint32_t x, uint32_t y) {
+    return &im.rgba[(size_t(y) * w + x) * 4];
+  };
+  Image mirror = image;
+  for (uint32_t y = 0; y < h; ++y)
+    for (uint32_t x = 0; x < w; ++x) {
+      const uint8_t *src =
+          rows ? px(image, x, h - 1 - y) : px(image, w - 1 - x, y);
+      std::copy(src, src + 4, &mirror.rgba[(size_t(y) * w + x) * 4]);
+    }
+  const uint8_t *bg = px(mirror, 0, 0);
+  auto shows = [&](uint32_t x, uint32_t y) {
+    const uint8_t *p = px(mirror, x, y);
+    for (int c = 0; c < 3; ++c)
+      if (std::abs(int(p[c]) - int(bg[c])) > int(kBackgroundLevels))
+        return true;
+    return false;
+  };
+  Image mask = image;
+  std::fill(mask.rgba.begin(), mask.rgba.end(), uint8_t(255));
+  for (uint32_t y = 0; y < h; ++y)
+    for (uint32_t x = 0; x < w; ++x) {
+      if (!shows(x, y))
+        continue;
+      const uint32_t x0 = x > uint32_t(kSmearMargin) ? x - kSmearMargin : 0;
+      const uint32_t y0 = y > uint32_t(kSmearMargin) ? y - kSmearMargin : 0;
+      const uint32_t x1 = std::min(w - 1, x + kSmearMargin);
+      const uint32_t y1 = std::min(h - 1, y + kSmearMargin);
+      for (uint32_t my = y0; my <= y1; ++my)
+        for (uint32_t mx = x0; mx <= x1; ++mx) {
+          uint8_t *m = &mask.rgba[(size_t(my) * w + mx) * 4];
+          m[0] = m[1] = m[2] = 0;
+        }
+    }
+  return maskedBy(std::move(mirror), std::move(mask));
 }
 
 // Registration ///////////////////////////////////////////////////////////////
@@ -827,16 +903,18 @@ void registerIdenticalKeysTest(Catalog &catalog, const KindInfo &k)
 }
 
 // The rolling shutter: a bar moving across the frame, scanned along its
-// motion's perpendicular (rows: down and up; columns: right and left).
+// motion's perpendicular (rows: down and up; columns: right and left), with
+// a duration inside the shutter. Each direction shears the bar (rollingShear),
+// the reversed one the other way (mirroredOutsideSmear), and `none` doesn't.
 void registerRollingShutterTest(Catalog &catalog, bool rows)
 {
-  const V directions = rows ? V{Any("down"), Any("up"), Any("none")}
-                            : V{Any("right"), Any("left"), Any("none")};
+  const std::string first = rows ? "down" : "right";
+  const std::string reversed = rows ? "up" : "left";
   makeTest("camera", rows ? "rolling_shutter_rows" : "rolling_shutter_columns")
       .description(std::string("Checks that a rolling shutter scanning ")
           + (rows ? "rows (down and up)" : "columns (right and left)")
-          + " shows a bar moving across the scan where it was as each line "
-            "was open, sheared one way or the other by the direction.")
+          + " shears a bar moving across the scan, the opposite directions "
+            "the opposite way, and that `none` doesn't.")
       .build([rows](BuildContext &ctx) {
         return motionWorld(ctx, Kind::InstanceMotion, rollingSubject(rows));
       })
@@ -844,10 +922,19 @@ void registerRollingShutterTest(Catalog &catalog, bool rows)
         return motionCamera(ctx, Kind::InstanceMotion, rollingSubject(rows));
       })
       .simplified()
-      .permute("rollingShutterDirection", directions)
-      .permute("rollingShutterDuration", V{Any(0.f), Any(0.5f)})
+      .permute("rollingShutterDirection",
+          V{Any(first.c_str()), Any(reversed.c_str()), Any("none")})
+      .permute("rollingShutterDuration", V{Any(motion::kRollingDuration)})
       .permute("shutter", V{box1(0.f, 1.f)})
-      .expectExact("the bar is where the scan saw it",
+      .expectDerived("rollingShutterDirection",
+          reversed,
+          "`" + first + "` mirrored across the scan's middle line, where it "
+              + "shows nothing",
+          [first, rows](const Siblings &s) -> ExpectedImage {
+            return mirroredOutsideSmear(s.at(first), rows);
+          })
+      .expectExact("the bar is sheared across the scan, or not at all for "
+                   "`none`",
           [rows](ExactCheck &x) { rollingShear(x, rows); })
       .noGroundTruth()
       .covers(kRollingShutter)

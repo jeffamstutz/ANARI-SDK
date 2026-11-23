@@ -622,17 +622,26 @@ visionaray where it advertises the extension.
     only one covers to show it (blended: about half at one sample per pixel,
     so the check holds without accumulation); an instant shutter shows the subject where
     it was. Identical keys render as no motion, with the shutter open.
-48. **The rolling shutter's schedule, as the CTS reads it.** With shutter
-    `[0, 1]`, lines open one after another, the first at the shutter's start
-    and the last closing at its end, each open for `rollingShutterDuration`;
-    `down` scans from the top row, `up` from the bottom, `right` from the
-    left column, `left` from the right. The spec gives the parameters
+48. **The rolling shutter is checked only where every schedule agrees.**
+    The spec gives `rollingShutterDirection` and `rollingShutterDuration`
     ("the open time per line, clamped to [0, shutter.upper-shutter.lower]")
-    but not the schedule; this is the reading under which a duration equal
-    to the shutter is a global shutter and 0 the sharpest roll. visionaray
-    reads it differently (line starts offset by the duration, each line open
-    for the whole shutter, `down` starting at the bottom) and fails; that is
-    a question for the working group as much as for visionaray.
+    but not when each line opens, nor which edge a direction starts from;
+    readings differ (visionaray delays each line's start by its share of the
+    duration and keeps it open for the whole shutter, `down` starting at the
+    bottom row). So the Tests use a duration strictly inside the shutter
+    (0.5 of `[0, 1]`), where any reading shears, and check three things that
+    hold under any: the bar's centre moves one way across bands of lines at
+    10, 50 and 90 % of the frame, by at least 3 % of its travel plus a pixel
+    at each step (sheared); `none` moves it by no more than that (no shear);
+    and the reversed direction (`up`, `left`) is a derived expectation, the
+    first one (`down`, `right`) mirrored across the scan's middle line,
+    compared only where the mirror shows background at least 3 pixels from
+    the bar, so it must shear the other way and the noisy inside of the smear
+    isn't judged. The schedule is a question for the working group; the
+    checks tighten once the spec answers. The synthetic tests pass two
+    schedules (lines open one after another over the shutter, each for the
+    duration, `down` from the top row; and visionaray's) and fail no shear,
+    the same shear both ways and a sheared `none`.
 49. **A moving camera leaves its frame at the spec's defaults** (at the
     origin, looking down -z, +y up), so whether a device applies the motion
     keys to `position`/`direction`/`up` or uses them as the camera's

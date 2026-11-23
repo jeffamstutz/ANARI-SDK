@@ -134,6 +134,19 @@ struct Fixture
     return any;
   }
 
+  // Whether every exact check of the Case holding `values` passed (and there
+  // is at least one).
+  bool exactPasses(const SelfCheckResults &r, const Values &values) const
+  {
+    const size_t i = index(values);
+    for (const auto &o : r.exact[i]) {
+      INFO(o.assertion.detail);
+      if (!o.assertion.passed)
+        return false;
+    }
+    return !r.exact[i].empty();
+  }
+
   // Whether every Case passes; the first failure's Case and assertion are
   // reported.
   bool allPass(const SelfCheckResults &r) const
@@ -260,24 +273,54 @@ float2 shutterFrom(const std::string &text)
   return float2(0.f, 0.f);
 }
 
-// The rolling-shutter Tests' bar, scanned as `direction` with `duration`.
-Image rollingFrame(bool rows, const std::string &direction, float duration)
+// Two readings of the rolling shutter's line schedule, which the spec doesn't
+// give (ADR-0010 48); the Tests must pass both. `s` is a line's place in scan
+// order (0 for the first line, 1 for the last).
+enum class Reading
+{
+  // The working-group proposal: lines open one after another over shutter
+  // [0, 1], the first at its start and the last closing at its end, each
+  // open for the duration; `down` starts at the top row, `up` at the bottom,
+  // `right` at the left column, `left` at the right.
+  Proposal,
+  // anari-visionaray's (dco/Camera.h): a line opens `s` times the duration
+  // after the shutter's start and stays open for the whole shutter (the bar
+  // holds its last key after time 1); `down` starts at the bottom row.
+  Visionaray,
+};
+
+// A line's place in scan order from its pixel centre (row or column, Image
+// convention: row 0 at the bottom) in a frame `extent` lines long.
+float scanOrder(
+    Reading reading, const std::string &direction, float line, float extent)
+{
+  const float f = line / extent;
+  const bool fromTopOrRight = direction == "left"
+      || (direction == "down" && reading == Reading::Proposal)
+      || (direction == "up" && reading == Reading::Visionaray);
+  return fromTopOrRight ? 1.f - f : f;
+}
+
+// The rolling-shutter Tests' bar, scanned as `direction` with `duration`
+// under `reading`; `none` is a global shutter.
+Image rollingFrame(
+    bool rows, Reading reading, const std::string &direction, float duration)
 {
   Image im = solid(kSize, kSize, 0, 0, 0, 255);
   auto box = [rows](float t) {
+    t = std::clamp(t, 0.f, 1.f);
     return projectedBox(motion::barFrom(rows)
             + t * (motion::barTo(rows) - motion::barFrom(rows)),
         motion::barHalfExtent(rows));
   };
-  const bool global = direction == "none";
   for (uint32_t y = 0; y < kSize; ++y)
     for (uint32_t x = 0; x < kSize; ++x) {
       float t0 = 0.f, t1 = 1.f;
-      if (!global) {
+      if (direction != "none") {
         const float line = rows ? y + 0.5f : x + 0.5f;
-        const float s = motion::rollingScanOrder(direction, line, float(kSize));
-        t0 = s * (1.f - duration);
-        t1 = t0 + duration;
+        const float s = scanOrder(reading, direction, line, float(kSize));
+        t0 = reading == Reading::Proposal ? s * (1.f - duration) : s * duration;
+        t1 = reading == Reading::Proposal ? t0 + duration : t0 + 1.f;
       }
       setPixel(im, x, y, blended(t0, t1, x + 0.5f, y + 0.5f, box));
     }
@@ -471,38 +514,61 @@ TEST_CASE("camera/shutter's default is [0.5, 0.5]", "[cts][motion]")
 }
 
 TEST_CASE(
-    "a rolling shutter shears the bar by its scan direction", "[cts][motion]")
+    "a rolling shutter shears the bar, the reversed scan the other "
+    "way, under any line schedule",
+    "[cts][motion]")
 {
   for (const bool rows : {true, false}) {
     const std::string id =
         rows ? "camera/rolling_shutter_rows" : "camera/rolling_shutter_columns";
     INFO(id);
     Fixture f(id);
+    CHECK_FALSE(f.test->usesGroundTruth());
     const std::string first = rows ? "down" : "right";
-    const std::string second = rows ? "up" : "left";
-    auto render = [&](const std::map<std::string, std::string> &swap) {
-      return [&, swap](const Values &v) {
+    const std::string reversed = rows ? "up" : "left";
+    // Renders each Case's direction as `swap` says (as itself otherwise).
+    auto render = [&](Reading reading,
+                      const std::map<std::string, std::string> &swap) {
+      return [&, reading, swap](const Values &v) {
         std::string direction = v.at("rollingShutterDirection");
         const auto it = swap.find(direction);
         if (it != swap.end())
           direction = it->second;
-        return rollingFrame(
-            rows, direction, std::stof(v.at("rollingShutterDuration")));
+        return rollingFrame(rows,
+            reading,
+            direction,
+            std::stof(v.at("rollingShutterDuration")));
       };
     };
-    CHECK(f.allPass(f.judge(render({}))));
+    const Values atFirst{{"rollingShutterDirection", first}};
+    const Values atReversed{{"rollingShutterDirection", reversed}};
+    const Values atNone{{"rollingShutterDirection", "none"}};
 
-    // Scans the other way.
-    const auto reversed = f.judge(render({{first, second}, {second, first}}));
-    CHECK_FALSE(f.passes(reversed,
-        {{"rollingShutterDirection", first}, {"rollingShutterDuration", "0"}}));
-    CHECK_FALSE(f.passes(reversed,
-        {{"rollingShutterDirection", second},
-            {"rollingShutterDuration", "0"}}));
+    for (const Reading reading : {Reading::Proposal, Reading::Visionaray}) {
+      INFO((reading == Reading::Proposal ? "proposal" : "visionaray"));
+      CHECK(f.allPass(f.judge(render(reading, {}))));
 
-    // Ignores the rolling shutter: a global shutter for every direction.
-    const auto global = f.judge(render({{first, "none"}, {second, "none"}}));
-    CHECK_FALSE(f.passes(global,
-        {{"rollingShutterDirection", first}, {"rollingShutterDuration", "0"}}));
+      // Scans the reversed direction the same way as the first: the same
+      // shear both ways.
+      const auto sameSense = f.judge(render(reading, {{reversed, first}}));
+      CHECK(f.passes(sameSense, atFirst));
+      CHECK(f.exactPasses(sameSense, atReversed));
+      CHECK_FALSE(f.passes(sameSense, atReversed));
+
+      // Ignores the rolling shutter: a global shutter for every direction.
+      const auto global =
+          f.judge(render(reading, {{first, "none"}, {reversed, "none"}}));
+      CHECK_FALSE(f.exactPasses(global, atFirst));
+      CHECK_FALSE(f.exactPasses(global, atReversed));
+
+      // Ignores it only for the reversed direction.
+      const auto oneWay = f.judge(render(reading, {{reversed, "none"}}));
+      CHECK_FALSE(f.exactPasses(oneWay, atReversed));
+      CHECK_FALSE(f.passes(oneWay, atReversed));
+
+      // Shears where it shouldn't: `none` scans like the first direction.
+      const auto noneSheared = f.judge(render(reading, {{"none", first}}));
+      CHECK_FALSE(f.exactPasses(noneSheared, atNone));
+    }
   }
 }
