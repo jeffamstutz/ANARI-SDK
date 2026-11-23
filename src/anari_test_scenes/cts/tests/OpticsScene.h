@@ -28,9 +28,9 @@ inline CameraProjection camera()
   return c;
 }
 
-// A square plate facing the camera: a bright square of half extent `half`,
-// framed (depth of field) by a dark border out to half extent `outer`, in the
-// plane through `centre`.
+// A square plate facing the camera, in the plane through `centre`: a square
+// of half extent `half`, and (depth of field only) a dark border around it
+// out to half extent `outer`.
 struct Plate
 {
   math::float3 centre;
@@ -55,12 +55,13 @@ inline const std::array<Plate, 2> kFocusPlates = {
 
 // The aperture of the Cases focused on one plate. Through a thin lens of this
 // radius (in world units) focused on one plate, the other blurs by a disk of
-// 1/35 of the frame's height in radius (7.4 pixels at 256).
-inline constexpr float kApertureRadius = 0.1f;
+// 1/29 of the frame's height in radius (8.9 pixels at 256). Read as a
+// diameter, half that still blurs past the Test's bound.
+inline constexpr float kApertureRadius = 0.12f;
 // The aperture of the Cases focused at the spec's default distance, 1: both
-// plates blur (radius 1/38 and 1/23 of the frame's height), each within its
+// plates blur (radius 1/33 and 1/20 of the frame's height), each within its
 // border.
-inline constexpr float kDefaultFocusApertureRadius = 0.06f;
+inline constexpr float kDefaultFocusApertureRadius = 0.07f;
 inline constexpr float kDefaultFocusDistance = 1.f;
 
 // Stereo ///////////////////////////////////////////////////////////////////

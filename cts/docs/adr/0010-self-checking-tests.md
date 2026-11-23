@@ -661,9 +661,10 @@ visionaray where it advertises the extension.
 `KHR_CAMERA_DEPTH_OF_FIELD` and `KHR_CAMERA_STEREO` are covered by
 `tests/optics.cpp`, on the perspective camera. The spec gives each two
 parameters and a line of description, no model, so each check holds under
-every reasonable reading. Depth of field is validated on halcyon's `quality`
-renderer, visrtx, barney and visionaray; stereo, which no installed device
-advertises, by synthetic images (`tests/unit/test_cts_optics.cpp`).
+every reasonable reading. Depth of field was run on the installed devices
+that advertise it (halcyon, visrtx, barney, visionaray; results in ticket
+10's answer); stereo, which no installed device advertises, is validated by
+synthetic images (`tests/unit/test_cts_optics.cpp`).
 
 51. **Depth of field is judged by edge width, unit-free.** A bright square
     in a dark border (so its edges lie in its plane and the background is
@@ -671,9 +672,12 @@ advertises, by synthetic images (`tests/unit/test_cts_optics.cpp`).
     edge, the profile across it (mean of the square's middle rows) rises
     from 10 % to 90 % within 2.5 pixels when sharp, and over at least 0.2 of
     the square's half extent (4.4 pixels at 256) when blurred; a thin lens of
-    the Test's aperture, in world units, spreads it over about 10. The
-    blurred bound doesn't depend on the aperture's unit or how the lens is
-    sampled, only on the blur being visible. The square stays centred where
+    the Test's apertures (0.12, and 0.07 focused at 1), read as a radius in
+    world units, spreads it over 10 to 18, and read as a diameter over 5 to
+    9. The spec doesn't give `apertureRadius` a unit ("size of the
+    aperture"); the apertures are large enough that either reading passes,
+    and a much smaller unit would fail (a question for the working group).
+    The bound doesn't depend on how the lens is sampled. The square stays centred where
     the pinhole puts it (within 1.5 pixels, halfway between its two edges'
     halfway points): a thin lens blurs a point around its pinhole image, and
     the symmetric measure is unmoved by the output transfer (sRGB, tone
@@ -704,20 +708,24 @@ advertises, by synthetic images (`tests/unit/test_cts_optics.cpp`).
     are apart along the right vector. `none` (and `stereoMode` unset, a
     derived expectation) shows no disparity; `interpupillaryDistance` 0 makes
     `left` and `right` the mono image (Variant); unset, it is 0.0635 (Variant
-    with the explicit value).
+    with the explicit value; its disparity, 2.3 pixels at 256 against a
+    tolerance of 1.1, catches no default or a far one, not a near one such as
+    0.065).
 54. **`sideBySide` and `topBottom` are checked per half, not as a
     concatenation.** The spec says the left eye is at the top for
     `topBottom` and nothing else: not which half holds which eye for
     `sideBySide`, nor how an eye's image fits its half (squeezed from the
-    full frame, or rendered at the half's size and aspect). A derived
+    full frame, rendered at the half's size and aspect, or at the full
+    frame's aspect and letterboxed). A derived
     expectation (`hconcat(left, right)` at half width) would hold under one
     fit only. So each half must show both plates, at the mono camera's rows
-    (`topBottom`: halved, in its half), with the near plate offset from the
+    (`topBottom`: halved, in its half; `sideBySide` letterboxed: halved about
+    the middle row), with the near plate offset from the
     far one by between half and all of the eye's disparity (half: squeezed
-    across, or rendered at the half's aspect for `topBottom`); `topBottom`'s
+    across, letterboxed, or rendered at the half's aspect for `topBottom`); `topBottom`'s
     top half is the left eye's way, and `sideBySide`'s halves are offset
     opposite ways. The synthetic tests pass parallel, off-axis and toed-in
-    eyes converging at 1, 2 and 4, both fits and both `sideBySide` orders,
+    eyes converging at 1, 2 and 4, the three fits and both `sideBySide` orders,
     and fail a mono device, swapped eyes, eyes apart along `up`, one eye in
     both halves, the right eye on top, `topBottom` laid out side by side, an
     unset `stereoMode` other than `none`, and wrong zero and default

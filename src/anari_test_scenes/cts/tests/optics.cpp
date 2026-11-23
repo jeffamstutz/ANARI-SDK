@@ -189,8 +189,9 @@ anari::Camera focusCamera(BuildContext &ctx)
 // about one).
 constexpr double kSharpRise = 2.5;
 // A blurred edge rises over at least this share of the bright square's half
-// extent (0.2: 4.4 pixels at 256; a thin lens of the Test's aperture spreads
-// it over about 10).
+// extent (0.2: 4.4 pixels at 256; a thin lens of the Test's apertures, read
+// as a radius in world units, spreads it over 10 to 12, and over 5 to 6
+// read as a diameter).
 constexpr double kBlurredRise = 0.2;
 // The bright square's centre, halfway between where its two edges are
 // halfway risen, is within this many pixels of where the pinhole puts it: a
@@ -482,7 +483,8 @@ enum class Fit
 };
 
 // One eye's image in the pixels `box` ([x0, y0, x1, y1)): both plates show,
-// at the rows `row(y)` maps the mono camera's to, and the near plate is
+// at the rows one of `rows` maps the mono camera's to (the same one for both
+// plates), and the near plate is
 // offset from the far one by `disparity` (Frame) or, in a half, by between
 // half and all of it the same way (an eye's image may be fitted to its half
 // by squeezing it or at the full frame's scale; the spec doesn't say), or
@@ -494,7 +496,7 @@ std::optional<double> checkEye(ExactCheck &x,
     const StereoGeometry &g,
     double disparity,
     Fit fit,
-    const std::function<double(double)> &row)
+    const std::vector<std::function<double(double)>> &rows)
 {
   const Sighting nearPlate = sight(color, box[0], box[1], box[2], box[3], true);
   const Sighting farPlate = sight(color, box[0], box[1], box[2], box[3], false);
@@ -509,15 +511,26 @@ std::optional<double> checkEye(ExactCheck &x,
       && shown;
   if (!shown)
     return std::nullopt;
+  // The candidate row map closest to where the plates are.
   const double middle = 0.5 * x.frameSize().height;
+  double nearRow = 0.0, farRow = 0.0, best = -1.0;
+  for (const auto &row : rows) {
+    const double n = std::fabs(nearPlate.y - row(g.nearAt.y));
+    const double f = std::fabs(farPlate.y - row(g.farAt.y));
+    if (best < 0.0 || n + f < best) {
+      best = n + f;
+      nearRow = n;
+      farRow = f;
+    }
+  }
   x.measure(
       "pixels from the near plate's row in " + where + " to the mono camera's",
-      std::fabs(nearPlate.y - row(g.nearAt.y)),
+      nearRow,
       Limit::AtMost,
       rowTolerance(g.nearAt.y - middle));
   x.measure(
       "pixels from the far plate's row in " + where + " to the mono camera's",
-      std::fabs(farPlate.y - row(g.farAt.y)),
+      farRow,
       Limit::AtMost,
       rowTolerance(g.farAt.y - middle));
   const double offset = nearPlate.x - farPlate.x;
@@ -554,7 +567,7 @@ std::optional<double> checkEye(ExactCheck &x,
 
 // The stereo check: the frame (`none`, `left`, `right`) or each of its halves
 // (`sideBySide`, `topBottom`) shows its eye's image, by the near plate's
-// offset from the far one (ADR-0010 53).
+// offset from the far one (ADR-0010 53-54).
 void stereoCheck(ExactCheck &x)
 {
   const std::string mode = x.values().getString("stereoMode", "unset");
@@ -567,7 +580,8 @@ void stereoCheck(ExactCheck &x)
   }
   const auto color = x.rgba(Channel::Color);
   const uint32_t w = x.frameSize().width, h = x.frameSize().height;
-  const auto same = [](double y) { return y; };
+  const std::vector<std::function<double(double)>> same = {
+      [](double y) { return y; }};
   if (mode == "none" || mode == "unset" || mode == "left" || mode == "right") {
     const double disparity = mode == "left" ? g->disparity
         : mode == "right"                   ? -g->disparity
@@ -584,7 +598,13 @@ void stereoCheck(ExactCheck &x)
   }
   if (mode == "sideBySide") {
     // The spec doesn't say which half holds which eye: the halves hold
-    // opposite eyes, the near plate offset opposite ways.
+    // opposite eyes, the near plate offset opposite ways. An eye's image
+    // keeps the frame's rows (squeezed across, or rendered at the half's
+    // aspect), or is letterboxed at the frame's aspect (rows halved about
+    // the middle).
+    const std::vector<std::function<double(double)>> sideRows = {
+        [](double y) { return y; },
+        [h](double y) { return 0.5 * h + 0.5 * (y - 0.5 * h); }};
     const auto inLeft = checkEye(x,
         color,
         "the left half",
@@ -592,7 +612,7 @@ void stereoCheck(ExactCheck &x)
         *g,
         g->disparity,
         Fit::HalfEitherEye,
-        same);
+        sideRows);
     const auto inRight = checkEye(x,
         color,
         "the right half",
@@ -600,7 +620,7 @@ void stereoCheck(ExactCheck &x)
         *g,
         g->disparity,
         Fit::HalfEitherEye,
-        same);
+        sideRows);
     if (inLeft && inRight)
       x.measure(
           "the near plate's offset in the left half times that in the "
@@ -620,7 +640,7 @@ void stereoCheck(ExactCheck &x)
         *g,
         g->disparity,
         Fit::Half,
-        [h](double y) { return double(h - h / 2) + 0.5 * y; });
+        {[h](double y) { return double(h - h / 2) + 0.5 * y; }});
     checkEye(x,
         color,
         "the bottom half (right eye)",
@@ -628,18 +648,10 @@ void stereoCheck(ExactCheck &x)
         *g,
         -g->disparity,
         Fit::Half,
-        [](double y) { return 0.5 * y; });
+        {[](double y) { return 0.5 * y; }});
     return;
   }
   x.measure("the Case names a stereo mode", 0.0, Limit::AtLeast, 1.0);
-}
-
-V strings(std::initializer_list<const char *> values)
-{
-  V out;
-  for (const char *v : values)
-    out.emplace_back(Any(v));
-  return out;
 }
 
 } // namespace
@@ -677,70 +689,53 @@ void registerOpticsTests(Catalog &catalog)
       .requireFeatures(kSupportMatteTriangle)
       .registerInto(catalog);
 
-  makeTest("camera", "stereo")
-      .description(
-          "Checks that each stereo mode shows its eye's image (in the frame, "
-          "or in each half for sideBySide and topBottom) by the near plate's "
-          "offset from the far one, and that an unset stereoMode is `none`.")
-      .build(stereoWorld)
-      .camera([](BuildContext &ctx, const scenes::Bounds &) {
-        return stereoCamera(ctx);
-      })
+  // What the stereo Tests share: the scene, the camera, the check.
+  auto stereoTest = [](const char *name, const char *description) {
+    auto t = makeTest("camera", name);
+    t.description(description)
+        .build(stereoWorld)
+        .camera([](BuildContext &ctx, const scenes::Bounds &) {
+          return stereoCamera(ctx);
+        })
+        .noGroundTruth()
+        .covers(kStereo)
+        .requireFeatures(kSupportMatteTriangle);
+    return t;
+  };
+  const char *kStereoLabel =
+      "each eye's image shows the near plate offset from the far one by that "
+      "eye's disparity";
+
+  stereoTest("stereo",
+      "Checks that each stereo mode shows its eye's image (in the frame, or "
+      "in each half for sideBySide and topBottom) by the near plate's offset "
+      "from the far one, and that an unset stereoMode is `none`.")
       .permute("stereoMode",
-          strings(
-              {"none", "left", "right", "sideBySide", "topBottom", "unset"}))
+          {"none", "left", "right", "sideBySide", "topBottom", "unset"})
       .permute(
           "interpupillaryDistance", V{Any(optics::kInterpupillaryDistance)})
       .expectDerived("stereoMode",
           "unset",
           "`none`: the spec's default stereoMode",
           [](const Siblings &s) -> ExpectedImage { return s.at("none"); })
-      .expectExact(
-          "each eye's image shows the near plate offset from the far "
-          "one by that eye's disparity",
-          stereoCheck)
-      .noGroundTruth()
-      .covers(kStereo)
-      .requireFeatures(kSupportMatteTriangle)
+      .expectExact(kStereoLabel, stereoCheck)
       .registerInto(catalog);
 
-  makeTest("camera", "stereo_zero_ipd")
-      .description(
-          "Checks that with an interpupillaryDistance of 0 the left and right "
-          "eyes see what the mono camera does.")
-      .build(stereoWorld)
-      .camera([](BuildContext &ctx, const scenes::Bounds &) {
-        return stereoCamera(ctx);
-      })
-      .variant("stereoMode", strings({"none", "left", "right"}))
+  stereoTest("stereo_zero_ipd",
+      "Checks that with an interpupillaryDistance of 0 the left and right "
+      "eyes see what the mono camera does.")
+      .variant("stereoMode", {"none", "left", "right"})
       .permute("interpupillaryDistance", V{Any(0.f)})
-      .expectExact(
-          "each eye's image shows the near plate offset from the far "
-          "one by that eye's disparity",
-          stereoCheck)
-      .noGroundTruth()
-      .covers(kStereo)
-      .requireFeatures(kSupportMatteTriangle)
+      .expectExact(kStereoLabel, stereoCheck)
       .registerInto(catalog);
 
-  makeTest("camera", "stereo_default_ipd")
-      .description(
-          "Checks that an unset interpupillaryDistance is the spec's default, "
-          "0.0635.")
-      .build(stereoWorld)
-      .camera([](BuildContext &ctx, const scenes::Bounds &) {
-        return stereoCamera(ctx);
-      })
-      .permute("stereoMode", strings({"left"}))
+  stereoTest("stereo_default_ipd",
+      "Checks that an unset interpupillaryDistance is the spec's default, "
+      "0.0635.")
+      .permute("stereoMode", {"left"})
       .variant("interpupillaryDistance",
           V{Any(optics::kDefaultInterpupillaryDistance), none()})
-      .expectExact(
-          "each eye's image shows the near plate offset from the far "
-          "one by that eye's disparity",
-          stereoCheck)
-      .noGroundTruth()
-      .covers(kStereo)
-      .requireFeatures(kSupportMatteTriangle)
+      .expectExact(kStereoLabel, stereoCheck)
       .registerInto(catalog);
 }
 

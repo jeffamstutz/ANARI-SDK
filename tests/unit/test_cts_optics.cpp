@@ -21,7 +21,6 @@
 #include "cts/tests/OpticsScene.h"
 // std
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <functional>
 #include <map>
@@ -30,7 +29,6 @@
 #include <vector>
 
 using namespace anari::cts;
-using anari::math::float2;
 using anari::math::float3;
 using cts_test::Rgba;
 using cts_test::solid;
@@ -140,6 +138,7 @@ struct Fixture
         }
       }
       for (const auto &o : r.relations) {
+        // A partner of another Case's relation takes part in it too.
         if (o.assertion.evaluated
             && std::find(o.partners.begin(), o.partners.end(), i)
                 != o.partners.end())
@@ -191,6 +190,7 @@ struct ThinLens
   // The focus distance it uses when the Case leaves it unset.
   float defaultFocus{optics::kDefaultFocusDistance};
   bool ignoresAperture{false};
+  float apertureScale{1.f}; // the aperture it uses for the Case's
   std::optional<float> fixedFocus; // focuses here whatever the Case says
   float shift{0.f}; // pixels a blurred plate moves right
   bool gamma{false}; // writes sRGB-like (gamma 2.2) levels
@@ -216,6 +216,7 @@ Image focusFrame(const Values &v, const ThinLens &lens)
     if (name == "focus_one")
       focus = optics::kDefaultFocusDistance;
   }
+  aperture *= lens.apertureScale;
   if (lens.ignoresAperture)
     aperture = 0.f;
   if (lens.fixedFocus)
@@ -264,6 +265,7 @@ enum class HalfFit
 {
   Squeeze, // the full frame's image, squeezed to the half
   Aspect, // rendered at the half's size and aspect
+  Letterbox, // rendered at the full frame's aspect, centred in the half
 };
 
 // How a synthetic device renders the stereo Tests.
@@ -285,8 +287,12 @@ struct StereoDevice
   bool zeroIpdIgnored{false}; // takes 0 as unset
 };
 
-const Rgba kNearColor{230, 38, 25, 255};
-const Rgba kFarColor{25, 64, 230, 255};
+// A scene colour as the 8-bit levels a device writes.
+Rgba levels(const float3 &c)
+{
+  auto l = [](float v) { return uint8_t(std::lround(255.f * v)); };
+  return {l(c.x), l(c.y), l(c.z), 255};
+}
 
 // One eye's image, `eye` the signed offset along the camera's right vector
 // (negative: the left eye), in a frame of `size`.
@@ -319,7 +325,8 @@ Image eyeImage(FrameSize size, float eye, const StereoDevice &dev)
         y0 = std::min(y0, q->y);
         y1 = std::max(y1, q->y);
       }
-    const Rgba c = p == &optics::kStereoNear ? kNearColor : kFarColor;
+    const Rgba c = levels(p == &optics::kStereoNear ? optics::kStereoNearColor
+                                                    : optics::kStereoFarColor);
     for (uint32_t y = 0; y < size.height; ++y)
       for (uint32_t x = 0; x < size.width; ++x) {
         const float cov = coverage(x, y, x0, y0, x1, y1, 0.f);
@@ -352,6 +359,22 @@ Image squeeze(const Image &im, bool columns)
   return out;
 }
 
+// `im` at half size (every other pixel), centred in a frame half as wide
+// (`columns`) or half as tall as `im`, the rest black.
+Image letterbox(const Image &im, bool columns)
+{
+  const Image small = squeeze(squeeze(im, true), false);
+  const uint32_t w = columns ? im.width / 2 : im.width;
+  const uint32_t h = columns ? im.height : im.height / 2;
+  Image out = solid(w, h, 0, 0, 0, 255);
+  const uint32_t ox = (w - small.width) / 2, oy = (h - small.height) / 2;
+  for (uint32_t y = 0; y < small.height; ++y)
+    std::copy_n(&small.rgba[size_t(y) * small.width * 4],
+        small.width * 4,
+        &out.rgba[(size_t(y + oy) * w + ox) * 4]);
+  return out;
+}
+
 Image stereoFrame(const Values &v, const StereoDevice &dev)
 {
   std::string mode = v.at("stereoMode");
@@ -380,6 +403,8 @@ Image stereoFrame(const Values &v, const StereoDevice &dev)
   auto half = [&](float eye) {
     if (dev.fit == HalfFit::Squeeze)
       return squeeze(eyeImage(full, eye, dev), columns);
+    if (dev.fit == HalfFit::Letterbox)
+      return letterbox(eyeImage(full, eye, dev), columns);
     return eyeImage(
         columns ? FrameSize{kSize / 2, kSize} : FrameSize{kSize, kSize / 2},
         eye,
@@ -406,6 +431,10 @@ TEST_CASE("depth of field: a thin lens passes, under any output transfer",
   Fixture f("camera/depth_of_field");
   CHECK(f.allPass(
       f.judge([](const Values &v) { return focusFrame(v, ThinLens{}); })));
+  ThinLens diameter; // reads apertureRadius as a diameter: half the blur
+  diameter.apertureScale = 0.5f;
+  CHECK(f.allPass(
+      f.judge([&](const Values &v) { return focusFrame(v, diameter); })));
   ThinLens gamma;
   gamma.gamma = true;
   CHECK(f.allPass(
@@ -474,7 +503,8 @@ TEST_CASE("stereo: every convergence and half fit passes", "[cts][optics]")
     for (const auto convergence :
         {Convergence::Parallel, Convergence::OffAxis, Convergence::ToeIn})
       for (const float distance : {1.f, optics::kNearDepth, 4.f})
-        for (const auto fit : {HalfFit::Squeeze, HalfFit::Aspect})
+        for (const auto fit :
+            {HalfFit::Squeeze, HalfFit::Aspect, HalfFit::Letterbox})
           for (const bool rightLeft : {false, true}) {
             StereoDevice dev;
             dev.convergence = convergence;
