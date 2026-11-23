@@ -47,6 +47,9 @@ struct RunOptions
   // resolve against the device's declared parameter metadata.
   std::vector<RendererParam> rendererParams;
   DeviceSpec device;
+  // generate: clear ground_truth/ first, so a different Reference device
+  // replaces the recorded one instead of being refused (ADR-0005).
+  bool replaceGroundTruth{false};
   // When set, run() runs only the Case with this Case::qualifiedId() (in
   // this process: this is how an isolated Case runs, ADR-0009).
   std::string onlyCase;
@@ -72,6 +75,11 @@ struct RunSummary
   // Why the device could not render the probe frame (DeviceProbe.h); empty
   // when it could. When set, no Case ran and the counts are zero.
   std::string deviceFailure;
+  // generate: why it refused to write (Reference.h referenceConflict()): the
+  // workdir's Ground truth is from a different device and
+  // RunOptions::replaceGroundTruth was not set. When set, nothing was written
+  // and the counts are zero.
+  std::string referenceConflict;
 };
 
 // Build, render, and score Cases against ground truth, writing images and
@@ -93,7 +101,10 @@ struct Runner
 
   // Render every selected Case and save its channels under ground_truth/,
   // and record the Reference device (RunOptions::device, with
-  // `referenceFeatures`) beside them (Reference.h). Does not score or write
+  // `referenceFeatures`) beside them (Reference.h). Refuses, writing nothing,
+  // with RunSummary::referenceConflict set, when the record names a different
+  // device, unless RunOptions::replaceGroundTruth clears ground_truth/ first
+  // (ADR-0005). Does not score or write
   // sidecars (ADR-0005). A shared (Variant) Ground
   // truth file is written from its first Variant value's Case only, and the
   // device's own Variants are checked for equivalence (a disagreement is

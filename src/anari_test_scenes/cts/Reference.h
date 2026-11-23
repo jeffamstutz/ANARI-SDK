@@ -7,6 +7,7 @@
 #include "Workdir.h"
 // std
 #include <optional>
+#include <string>
 
 // The Reference device (ADR-0005): the device `generate` renders Ground truth
 // with by default, and the record of the one it used. The record reads and
@@ -29,6 +30,23 @@ bool writeReference(const Workdir &workdir, const DeviceSpec &reference);
 
 // The device the last `generate` used, if it left a record.
 std::optional<DeviceSpec> readReference(const Workdir &workdir);
+
+// Whether two specs name the same Reference: library, device subtype and
+// renderer. The extensions are not part of the identity.
+bool sameReference(const DeviceSpec &a, const DeviceSpec &b);
+
+// "library (device/renderer)", how messages name a Reference.
+std::string referenceLabel(const DeviceSpec &reference);
+
+// Why `generate` with `reference` must not add to the workdir's Ground truth:
+// the record names a different device, whose files would stay beside the new
+// ones (ADR-0005). Empty when there is no record or it names the same device.
+std::string referenceConflict(
+    const Workdir &workdir, const DeviceSpec &reference);
+
+// Remove ground_truth/ and everything in it, the record included. False on a
+// filesystem error.
+bool clearGroundTruth(const Workdir &workdir);
 
 } // namespace cts
 } // namespace anari

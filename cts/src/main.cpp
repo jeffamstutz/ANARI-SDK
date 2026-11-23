@@ -83,6 +83,9 @@ struct Options
   uint32_t height = 256;
   std::string renderer = "default";
   bool rendererGiven{false}; // -r/--renderer was passed
+  // generate: clear ground_truth/ first, even when it holds a different
+  // Reference device's Ground truth (ADR-0005).
+  bool replaceGroundTruth{false};
   float ambientRadiance = 1.f;
   // Device-agnostic renderer parameter overrides (repeatable --renderer-param
   // NAME=VALUE), applied to every rendered Case's renderer.
@@ -139,6 +142,9 @@ options:
   --device <lib>       Reference device library for generate (default:
                        halcyon with its preview renderer; helide, with a
                        notice, when halcyon can't be loaded)
+  --replace            generate: clear ground_truth/ first. Without it,
+                       generate refuses when ground_truth/ holds another
+                       device's (library, subtype or renderer) Ground truth
   --width <n>          render width (default: 256)
   --height <n>         render height (default: 256)
   -r, --renderer <subtype>
@@ -251,6 +257,8 @@ Options parseOptions(int argc, char **argv, int start)
       o.accumulationFrames = parseDim(next(), o.accumulationFrames);
     else if (a == "--no-accumulation")
       o.accumulationFrames = 1;
+    else if (a == "--replace")
+      o.replaceGroundTruth = true;
     else if (a == "--denoise")
       o.denoise = true;
     else if (a == "--stdin")
@@ -552,9 +560,16 @@ int cmdGenerate(const Options &o)
   ro.denoise = o.denoise;
   ro.rendererParams = o.rendererParams;
   ro.device = {deviceName, "default", renderer};
+  ro.replaceGroundTruth = o.replaceGroundTruth;
   Runner runner(d, Workdir(o.workdir), ro);
 
   auto s = runner.generate(catalog, Filter{o.filter}, features);
+  if (!s.referenceConflict.empty()) {
+    anari::release(d, d);
+    anari::unloadLibrary(lib);
+    std::cerr << "error: " << s.referenceConflict << "\n";
+    return 2;
+  }
   if (!s.deviceFailure.empty()) {
     anari::release(d, d);
     anari::unloadLibrary(lib);

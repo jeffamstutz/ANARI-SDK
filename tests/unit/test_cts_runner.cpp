@@ -34,6 +34,7 @@
 #include <fstream>
 #include <functional>
 #include <limits>
+#include <map>
 #include <memory>
 #include <set>
 #include <sstream>
@@ -1347,6 +1348,131 @@ TEST_CASE("run says when the Reference device lacked a Case's extension",
     CHECK(ra.reference.library.empty());
     CHECK(rb.skipReason == kNoGroundTruthReason);
     CHECK(summary.referenceLacks == 0);
+  }
+
+  std::filesystem::remove_all(root, ec);
+  anari::release(d, d);
+  anari::unloadLibrary(lib);
+}
+
+// Every file under `dir` (relative path -> contents), to show a refused
+// generate left it as it was.
+std::map<std::string, std::string> snapshotFiles(
+    const std::filesystem::path &dir)
+{
+  std::map<std::string, std::string> files;
+  if (!std::filesystem::exists(dir))
+    return files;
+  for (const auto &entry : std::filesystem::recursive_directory_iterator(dir))
+    if (entry.is_regular_file())
+      files[std::filesystem::relative(entry.path(), dir).generic_string()] =
+          readFile(entry.path());
+  return files;
+}
+
+TEST_CASE("generate keeps one Reference device per workdir's Ground truth",
+    "[cts][runner][reference][helide]")
+{
+  anari::Library lib = anari::loadLibrary("helide", statusFunc, nullptr);
+  if (!lib) {
+    WARN("helide library not available; skipping Reference test");
+    return;
+  }
+  anari::Device d = anari::newDevice(lib, "default");
+  REQUIRE(d != nullptr);
+  anari::commitParameters(d, d);
+
+  const auto root =
+      std::filesystem::temp_directory_path() / "cts_runner_one_reference_test";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+
+  Catalog catalog;
+  for (const char *name : {"first", "second"})
+    makeTest("demo", name)
+        .description("One Ground truth file.")
+        .build(buildTriangleWorld)
+        .groundTruth("the test compares images")
+        .registerInto(catalog);
+  const auto gtOf = [](const char *name) { return caseOf("demo", name, {}); };
+
+  RunOptions opts;
+  opts.width = 32;
+  opts.height = 32;
+  opts.device = {"helide", "default", "default"};
+  const Workdir wd(root);
+  {
+    Runner earlier(d, wd, opts);
+    const auto s = earlier.generate(catalog, Filter{"demo/"}, {"X"});
+    REQUIRE(s.referenceConflict.empty());
+    REQUIRE(s.passed == 2);
+  }
+  const auto firstGt = wd.groundTruthImagePath(gtOf("first"), Channel::Color);
+  const auto secondGt = wd.groundTruthImagePath(gtOf("second"), Channel::Color);
+  REQUIRE(std::filesystem::exists(firstGt));
+  REQUIRE(std::filesystem::exists(secondGt));
+
+  const auto generateAs = [&](DeviceSpec device, bool replace, Filter filter) {
+    RunOptions o = opts;
+    o.device = std::move(device);
+    o.replaceGroundTruth = replace;
+    Runner runner(d, wd, o);
+    return runner.generate(catalog, filter, {"Y"});
+  };
+
+  SECTION("a different device is refused and nothing is written")
+  {
+    const auto before = snapshotFiles(root);
+    for (const DeviceSpec &other : {DeviceSpec{"other", "default", "default"},
+             DeviceSpec{"helide", "subtype", "default"},
+             DeviceSpec{"helide", "default", "pathtracer"}}) {
+      const auto s = generateAs(other, false, Filter{"demo/first"});
+      CHECK(s.total == 0);
+      CHECK(s.passed == 0);
+      CHECK(s.referenceConflict.find("helide (default/default)")
+          != std::string::npos);
+      CHECK(s.referenceConflict.find(other.library + " (" + other.device + "/"
+                + other.renderer + ")")
+          != std::string::npos);
+      CHECK(snapshotFiles(root) == before);
+    }
+  }
+
+  SECTION("replacing clears the earlier device's Ground truth first")
+  {
+    std::filesystem::create_directories(firstGt.parent_path() / "stale");
+    std::ofstream(firstGt.parent_path() / "stale" / "x.png") << "stale";
+    const auto s =
+        generateAs({"other", "default", "preview"}, true, Filter{"demo/first"});
+    CHECK(s.referenceConflict.empty());
+    CHECK(s.passed == 1);
+    CHECK(std::filesystem::exists(firstGt));
+    CHECK_FALSE(std::filesystem::exists(secondGt));
+    CHECK_FALSE(std::filesystem::exists(firstGt.parent_path() / "stale"));
+    const auto record = readReference(wd);
+    REQUIRE(record);
+    CHECK(record->library == "other");
+    CHECK(record->renderer == "preview");
+    CHECK(record->extensions == std::vector<std::string>{"Y"});
+  }
+
+  SECTION("the same device regenerating a subset keeps the other files")
+  {
+    const auto secondBytes = readFile(secondGt);
+    std::filesystem::remove(firstGt);
+    const auto s = generateAs(opts.device, false, Filter{"demo/first"});
+    CHECK(s.referenceConflict.empty());
+    CHECK(s.passed == 1);
+    CHECK(std::filesystem::exists(firstGt));
+    CHECK(readFile(secondGt) == secondBytes);
+  }
+
+  SECTION("replacing with the same device also starts afresh")
+  {
+    const auto s = generateAs(opts.device, true, Filter{"demo/first"});
+    CHECK(s.referenceConflict.empty());
+    CHECK(std::filesystem::exists(firstGt));
+    CHECK_FALSE(std::filesystem::exists(secondGt));
   }
 
   std::filesystem::remove_all(root, ec);

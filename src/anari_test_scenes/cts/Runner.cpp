@@ -666,6 +666,20 @@ RunSummary Runner::generate(const Catalog &catalog,
     const Filter &filter,
     const std::set<std::string> &referenceFeatures)
 {
+  // What a run needs to tell a Case the Reference can't render from one
+  // generate wasn't run for.
+  DeviceSpec reference = m_options.device;
+  reference.extensions.assign(
+      referenceFeatures.begin(), referenceFeatures.end());
+  // One device's Ground truth per workdir, so the record is true of every
+  // file: a different device replaces it all or is refused before anything
+  // is written.
+  if (!m_options.replaceGroundTruth) {
+    RunSummary refused;
+    refused.referenceConflict = referenceConflict(m_workdir, reference);
+    if (!refused.referenceConflict.empty())
+      return refused;
+  }
   resolveCapabilities(referenceFeatures);
   if (!m_workdir.writeGitignore())
     return workdirFailureSummary(catalog, filter);
@@ -673,24 +687,11 @@ RunSummary Runner::generate(const Catalog &catalog,
   summary.deviceFailure = probeOnce();
   if (!summary.deviceFailure.empty())
     return summary;
-  // What a run needs to tell a Case the Reference can't render from one
-  // generate wasn't run for.
-  DeviceSpec reference = m_options.device;
-  reference.extensions.assign(
-      referenceFeatures.begin(), referenceFeatures.end());
-  // The record names one device; Ground truth an earlier generate left with
-  // another stays, so the workdir would mix them.
-  if (const auto earlier = readReference(m_workdir); earlier
-      && (earlier->library != reference.library
-          || earlier->device != reference.device
-          || earlier->renderer != reference.renderer))
-    std::cerr << "warning: " << m_workdir.groundTruthDir().string()
-              << " holds Ground truth from " << earlier->library << " ("
-              << earlier->device << "/" << earlier->renderer
-              << "); the record now names " << reference.library << " ("
-              << reference.device << "/" << reference.renderer
-              << "), so remove the directory first unless the earlier "
-                 "Ground truth is all replaced\n";
+  if (m_options.replaceGroundTruth && !clearGroundTruth(m_workdir)) {
+    std::cerr << "error: could not clear "
+              << m_workdir.groundTruthDir().string() << "\n";
+    return workdirFailureSummary(catalog, filter);
+  }
   if (!writeReference(m_workdir, reference))
     std::cerr << "warning: could not write "
               << m_workdir.referenceRecordPath().string() << "\n";
