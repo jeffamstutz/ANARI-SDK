@@ -402,9 +402,15 @@ TestBuilder &notShadedByPreview(
 }
 
 // A lobe adds light to a highlight or a rim of the sphere, a small part of the
-// frame, so a bound value that is only a little different from a constant
-// changes well under the default 1 % of the pixels; 0.3 % (about 200 pixels)
-// is still far above the render's noise, which changes none.
+// frame, so a bound value that is only a little different from a constant can
+// change under the default 1 % of the pixels. The axes measured to do so carry
+// a margin of 0.3 % (about 200 pixels at 256x256), set by ADR-0010 item 65's
+// rule: above the noise floor, the 0.2 % a Candidate the convergence guard
+// admits may still change between frames N and 2N (measured 0 on both devices
+// below at --accumulation 256 and 1024), and below the smallest effect
+// measured on these axes, 0.41 % (ADR-0010 item 66). Each call states its
+// axes' smallest effect over all pairs, measured on 2026-11-24 at 256x256 and
+// --accumulation 1024 on halcyon `quality` and visrtx `quality`.
 constexpr double kLobeEffectMargin = 0.003;
 
 TestBuilder &lobeEffectMargins(
@@ -559,8 +565,10 @@ void registerMaterialTests(Catalog &catalog)
             "clearcoatNormal", sampler(1), "ANARI_KHR_SAMPLER_IMAGE2D");
     notShadedByPreviewOrHelide(
         test, {"clearcoat", "clearcoatRoughness", "clearcoatNormal"});
-    lobeEffectMargins(
-        test, {"clearcoat", "clearcoatRoughness", "clearcoatNormal"});
+    // Smallest effect, halcyon quality / visrtx quality: clearcoat 0.41 % /
+    // 1.63 % (attribute0 vs 1), clearcoatRoughness 2.05 % / 0.83 % (sampler
+    // vs 0.3). clearcoatNormal (4.3 % / 17.7 %) clears the default 1 %.
+    lobeEffectMargins(test, {"clearcoat", "clearcoatRoughness"});
     test.groundTruth("the shading of a PBR lobe has no analytic answer")
         .covers(kPbr)
         .requireFeatures(kSupportTriangle)
@@ -621,7 +629,6 @@ void registerMaterialTests(Catalog &catalog)
         .rendererParam("ignoreAmbientLighting", "false")
         .permute("ior", V{unsetBinding(), constant(2.42f)});
     notShadedByHelide(test, {"ior"});
-    lobeEffectMargins(test, {"ior"});
     test.groundTruth("the shading of a PBR lobe has no analytic answer")
         .covers(kPbr)
         .requireFeatures(kSupportTriangle)
@@ -714,8 +721,11 @@ void registerMaterialTests(Catalog &catalog)
             "iridescenceThickness", sampler(1), "ANARI_KHR_SAMPLER_IMAGE1D");
     notShadedByPreviewOrHelide(
         test, {"iridescence", "iridescenceIor", "iridescenceThickness"});
-    lobeEffectMargins(
-        test, {"iridescence", "iridescenceIor", "iridescenceThickness"});
+    // Smallest effect, halcyon quality / visrtx quality: iridescence 0.54 % /
+    // 1.70 % (attribute0 vs 1). iridescenceIor (1.9 % / 28 %) and
+    // iridescenceThickness (3.3 % / 3.5 %, halcyon's bound values aside:
+    // cts-device-findings 15) clear the default 1 %.
+    lobeEffectMargins(test, {"iridescence"});
     test.groundTruth("the shading of a PBR lobe has no analytic answer")
         .covers(kPbr)
         .requireFeatures(kSupportTriangle)
@@ -760,7 +770,6 @@ void registerMaterialTests(Catalog &catalog)
         .permute("normal", V{unsetBinding(), sampler(1)})
         .requireFeatureFor("normal", sampler(1), "ANARI_KHR_SAMPLER_IMAGE2D");
     notShadedByHelide(test, {"metallic", "roughness", "normal"});
-    lobeEffectMargins(test, {"metallic", "roughness", "normal"});
     test.groundTruth("the shading of a PBR lobe has no analytic answer")
         .covers(kPbr)
         .requireFeatures(kSupportTriangle)
@@ -831,7 +840,6 @@ void registerMaterialTests(Catalog &catalog)
         .requireFeatureFor(
             "sheenRoughness", sampler(1), "ANARI_KHR_SAMPLER_IMAGE1D");
     notShadedByPreviewOrHelide(test, {"sheenColor", "sheenRoughness"});
-    lobeEffectMargins(test, {"sheenColor", "sheenRoughness"});
     test.groundTruth("the shading of a PBR lobe has no analytic answer")
         .covers(kPbr)
         .requireFeatures(kSupportTriangle)
@@ -874,6 +882,9 @@ void registerMaterialTests(Catalog &catalog)
         .requireFeatureFor(
             "specularColor", sampler(0), "ANARI_KHR_SAMPLER_IMAGE2D");
     notShadedByPreviewOrHelide(test, {"specular", "specularColor"});
+    // Smallest effect, halcyon quality / visrtx quality: specular 0.81 % /
+    // 1.19 % (attribute0 vs 1; 1.00 % on visrtx's default renderer),
+    // specularColor 0.61 % / 0.62 % (attribute0 vs unset).
     lobeEffectMargins(test, {"specular", "specularColor"});
     test.groundTruth("the shading of a PBR lobe has no analytic answer")
         .covers(kPbr)
@@ -950,7 +961,6 @@ void registerMaterialTests(Catalog &catalog)
         .requireFeatureFor(
             "transmission", sampler(0), "ANARI_KHR_SAMPLER_IMAGE1D");
     notShadedByPreviewOrHelide(test, {"transmission"});
-    lobeEffectMargins(test, {"transmission"});
     test.groundTruth("the shading of a PBR lobe has no analytic answer")
         .covers(kPbr)
         .requireFeatures(kSupportTriangle)

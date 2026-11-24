@@ -92,7 +92,9 @@ struct TestBuilder
       std::string library,
       std::vector<std::string> renderers,
       std::string reason);
-  // The minimum changed fraction an effect of this axis must reach.
+  // The minimum changed fraction an effect of this axis must reach. Only with
+  // its axis's smallest effect and noise floor, measured on two devices,
+  // written beside the call (ADR-0010 item 65).
   TestBuilder &effectMargin(std::string axis, double minFraction);
   // The maximum changed fraction (and per-pixel tolerance, in 8-bit levels)
   // an equivalence of this Variant axis allows.

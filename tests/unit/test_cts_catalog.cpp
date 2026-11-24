@@ -9,6 +9,7 @@
 #include "cts/Catalog.h"
 #include "cts/Expansion.h"
 #include "cts/Filter.h"
+#include "cts/Relations.h"
 #include "cts/TestBuilder.h"
 #include "cts/Value.h"
 // anari
@@ -438,6 +439,35 @@ TEST_CASE("every built-in Test has a human-readable description",
       CHECK_FALSE(test.description.empty());
     }
   }
+}
+
+// ADR-0010 item 65: an effect-margin override is set between the noise floor
+// a converged Candidate may still carry (the equivalence maximum, which the
+// convergence guard admits) and the default effect minimum, and only on the
+// axes whose measured effect needs it (item 66).
+TEST_CASE("effect-margin overrides sit in the gap and only where measured",
+    "[cts][catalog][margin]")
+{
+  Catalog catalog;
+  registerBuiltinTests(catalog);
+  const SelfCheckDefaults defaults;
+  std::set<std::string> overridden;
+  for (const auto &test : catalog.tests()) {
+    for (const auto &[axis, margin] : test.effectMargins) {
+      DYNAMIC_SECTION(test.id() << " " << axis)
+      {
+        CHECK(margin > defaults.equivalenceMax);
+        CHECK(margin < defaults.effectMin);
+      }
+      overridden.insert(test.id() + " " + axis);
+    }
+  }
+  CHECK(overridden
+      == std::set<std::string>{"material/pbr_clearcoat clearcoat",
+          "material/pbr_clearcoat clearcoatRoughness",
+          "material/pbr_iridescence iridescence",
+          "material/pbr_specular specular",
+          "material/pbr_specular specularColor"});
 }
 
 TEST_CASE("isSupported requires every feature to be present", "[cts][features]")
