@@ -24,7 +24,8 @@ usesGroundTruth/groundTruthEvaluated/groundTruthReason; additive to v4:
 extensions it lacked, and `device.rendererExtensions` and
 `rendererMissingFeatures`, what the run's renderer reported of itself and the
 missing extensions it lacked though the device advertised them; this reader
-shows them only through `skipReason`) and warns on a mismatch. A failed assertion is printed as detail text, whatever its kind; no
+shows them only through `skipReason`) and warns on a mismatch. A failed
+assertion is printed as detail text, whatever its kind; no
 image layout is done for it.
 """
 

@@ -313,10 +313,10 @@ void Runner::resolveCapabilities(const std::set<std::string> &deviceFeatures)
   // the renderer reported, which the Cases gate on when it reported any.
   m_options.device.extensions.assign(
       deviceFeatures.begin(), deviceFeatures.end());
-  m_gating = gatingExtensions(m_options.device);
+  m_gatingExtensions = gatingExtensions(m_options.device);
   m_rendererSubtype =
       resolveRendererSubtype(m_device, m_options.device.renderer);
-  const auto &features = m_gating;
+  const auto &features = m_gatingExtensions;
   m_effectiveAccumulationFrames =
       (m_options.accumulationFrames > 1
           && features.count("ANARI_KHR_FRAME_ACCUMULATION"))
@@ -457,7 +457,7 @@ Runner::SceneObjects Runner::buildScene(
 
 std::string Runner::featureSkipReason(const TestDef &test, const Case &c) const
 {
-  const auto missing = missingFeatures(test, c, m_gating);
+  const auto missing = missingFeatures(test, c, m_gatingExtensions);
   return cts::featureSkipReason(missing,
       rendererMissingFeatures(m_options.device, missing),
       m_rendererSubtype);
@@ -468,12 +468,10 @@ void Runner::writeFeatureSkip(
 {
   CaseResult result = caseResult(test, c);
   result.verdict = Verdict::Skipped;
-  result.missingFeatures = missingFeatures(test, c, m_gating);
+  result.missingFeatures = missingFeatures(test, c, m_gatingExtensions);
   result.rendererMissingFeatures =
       rendererMissingFeatures(m_options.device, result.missingFeatures);
-  result.skipReason = cts::featureSkipReason(result.missingFeatures,
-      result.rendererMissingFeatures,
-      m_rendererSubtype);
+  result.skipReason = featureSkipReason(test, c);
   recordResult(c, result, summary);
 }
 
@@ -897,7 +895,7 @@ void Runner::runRenderTest(
   if (!any)
     return;
 
-  if (!isSupported(test, m_gating)) {
+  if (!isSupported(test, m_gatingExtensions)) {
     for (size_t i = 0; i < cases.size(); ++i) {
       if (!chosen[i])
         continue;
@@ -934,7 +932,7 @@ void Runner::runRenderTest(
   // neither rendered nor related, as a selected Case or as a partner.
   std::vector<bool> gated(cases.size(), false);
   for (size_t i = 0; i < cases.size(); ++i) {
-    if (!toRender[i] || isSupported(test, cases[i], m_gating))
+    if (!toRender[i] || isSupported(test, cases[i], m_gatingExtensions))
       continue;
     gated[i] = true;
     toRender[i] = false;
@@ -1049,7 +1047,7 @@ void Runner::generateTest(
     count += (chosen[i] = matches(filter, test, cases[i])) ? 1 : 0;
   summary.total += count;
   // Behavioural and fully self-checked Tests have no Ground truth.
-  if (!test.usesGroundTruth() || !isSupported(test, m_gating)) {
+  if (!test.usesGroundTruth() || !isSupported(test, m_gatingExtensions)) {
     summary.skipped += count;
     return;
   }
@@ -1096,7 +1094,7 @@ void Runner::generateTest(
       continue;
     // A Case needing an extension the Reference device lacks has no Ground
     // truth (and the Candidate's run skips it, or fails it).
-    if (!isSupported(test, cases[i], m_gating)) {
+    if (!isSupported(test, cases[i], m_gatingExtensions)) {
       renders[i].state = CaseRender::State::Unsupported;
       renders[i].error = featureSkipReason(test, cases[i]);
       continue;
@@ -1184,7 +1182,7 @@ void Runner::runBehaviorTest(
       continue;
     summary.total++;
 
-    if (!isSupported(test, c, m_gating)) {
+    if (!isSupported(test, c, m_gatingExtensions)) {
       writeFeatureSkip(test, c, summary);
       continue;
     }

@@ -11,7 +11,7 @@ namespace cts {
 namespace {
 
 // "<prefix>: a, b", or empty for no names.
-std::string listed(
+std::string prefixedList(
     const std::string &prefix, const std::vector<std::string> &names)
 {
   if (names.empty())
@@ -57,18 +57,26 @@ std::vector<std::string> rendererMissingFeatures(
   return out;
 }
 
+std::vector<std::string> deviceMissingFeatures(
+    const std::vector<std::string> &missing,
+    const std::vector<std::string> &rendererMissing)
+{
+  std::vector<std::string> out;
+  for (const auto &f : missing)
+    if (std::find(rendererMissing.begin(), rendererMissing.end(), f)
+        == rendererMissing.end())
+      out.push_back(f);
+  return out;
+}
+
 std::string featureSkipReason(const std::vector<std::string> &missing,
     const std::vector<std::string> &rendererMissing,
     const std::string &renderer)
 {
-  std::vector<std::string> deviceMissing;
-  for (const auto &f : missing)
-    if (std::find(rendererMissing.begin(), rendererMissing.end(), f)
-        == rendererMissing.end())
-      deviceMissing.push_back(f);
   const std::string device =
-      listed("device is missing a required feature", deviceMissing);
-  const std::string ofRenderer = listed(
+      prefixedList("device is missing a required feature",
+          deviceMissingFeatures(missing, rendererMissing));
+  const std::string ofRenderer = prefixedList(
       "renderer " + renderer + " lacks a required feature", rendererMissing);
   if (device.empty())
     return ofRenderer;
@@ -94,17 +102,15 @@ std::vector<std::string> queryRendererExtensions(
 {
   if (!device)
     return {};
-  const auto *info = static_cast<const char *const *>(anariGetObjectInfo(device,
-      ANARI_RENDERER,
-      resolveRendererSubtype(device, renderer).c_str(),
-      "extension",
-      ANARI_STRING_LIST));
+  const std::string subtype = resolveRendererSubtype(device, renderer);
+  const auto *info = static_cast<const char *const *>(anariGetObjectInfo(
+      device, ANARI_RENDERER, subtype.c_str(), "extension", ANARI_STRING_LIST));
   if (info && info[0])
     return toSortedList(info);
 
   // Copied before the renderer is released: the list may be its own.
   std::vector<std::string> out;
-  auto r = anari::newObject<anari::Renderer>(device, renderer.c_str());
+  auto r = anari::newObject<anari::Renderer>(device, subtype.c_str());
   if (!r)
     return out;
   anari::commitParameters(device, r);

@@ -22,7 +22,9 @@ namespace anari {
 namespace cts {
 
 // The extensions Cases gate on: `device.rendererExtensions` when the renderer
-// reported any, else `device.extensions`.
+// reported any, else `device.extensions`. A renderer's list is taken as
+// complete (geometry, materials, frame channels too, as halcyon's and
+// helide's are), not as only its renderer-scoped extensions.
 std::set<std::string> gatingExtensions(const DeviceSpec &device);
 
 // Of `missing`, those the device advertises but the renderer didn't report:
@@ -30,6 +32,11 @@ std::set<std::string> gatingExtensions(const DeviceSpec &device);
 // nothing.
 std::vector<std::string> rendererMissingFeatures(
     const DeviceSpec &device, const std::vector<std::string> &missing);
+
+// Of `missing`, those not in `rendererMissing`: what the device lacks.
+std::vector<std::string> deviceMissingFeatures(
+    const std::vector<std::string> &missing,
+    const std::vector<std::string> &rendererMissing);
 
 // Why a Case is skipped for `missing`: the device's missing extensions, then
 // those of them `rendererMissing` holds as the renderer's, named by its

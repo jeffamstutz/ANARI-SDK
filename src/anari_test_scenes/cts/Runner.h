@@ -229,10 +229,10 @@ struct Runner
       const TestDef &test, const Case &c, CaseResult &result) const;
 
   // Record the device's advertised extensions in RunOptions::device, resolve
-  // what Cases gate on (m_gating: the renderer's own extensions when it
-  // reported any) and the renderer's subtype, and resolve the requested
-  // accumulation/denoise options against m_gating. Accumulation is gated off
-  // when ANARI_KHR_FRAME_ACCUMULATION is absent; denoise is applied
+  // what Cases gate on (m_gatingExtensions: the renderer's own extensions when
+  // it reported any) and the renderer's subtype, and resolve the requested
+  // accumulation/denoise options against m_gatingExtensions. Accumulation is
+  // gated off when ANARI_KHR_FRAME_ACCUMULATION is absent; denoise is applied
   // unconditionally (see RunOptions::denoise). Called once at the start of
   // generate()/run().
   void resolveCapabilities(const std::set<std::string> &deviceFeatures);
@@ -260,12 +260,12 @@ struct Runner
       anari::Renderer renderer, const std::vector<RendererParam> &params);
 
   // Why Case `c` is skipped for the required extensions absent from
-  // m_gating: the device's, or the renderer's (named by its subtype).
+  // m_gatingExtensions: the device's, or the renderer's (named by its subtype).
   std::string featureSkipReason(const TestDef &test, const Case &c) const;
 
   // Write a "missing required feature" skip sidecar for a Case, naming the
-  // required features absent from m_gating and which of them the renderer
-  // lacks, and tally it.
+  // required features absent from m_gatingExtensions and which of them the
+  // renderer lacks, and tally it.
   void writeFeatureSkip(
       const TestDef &test, const Case &c, RunSummary &summary);
 
@@ -321,7 +321,7 @@ struct Runner
 
   // What Cases gate on (RendererExtensions.h gatingExtensions()), and the
   // renderer subtype a skip names; set by resolveCapabilities().
-  std::set<std::string> m_gating;
+  std::set<std::string> m_gatingExtensions;
   std::string m_rendererSubtype;
   uint32_t m_effectiveAccumulationFrames{1};
   // Whether the device advertises KHR_FRAME_ACCUMULATION: the guard runs only

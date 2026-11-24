@@ -526,21 +526,16 @@ int cmdCheckProperties(const Options &o)
       std::cout << "  (" << skippedCases << " of " << cases.size()
                 << " Cases skipped)";
     // What the device lacks, then what only its renderer lacks.
-    auto print = [](const std::string &label,
-                     const std::vector<std::string> &features) {
+    auto printLabelled = [](const std::string &label,
+                             const std::vector<std::string> &features) {
       if (features.empty())
         return;
       std::cout << "  " << label << ":";
       for (const auto &f : features)
         std::cout << " " << f;
     };
-    std::vector<std::string> deviceMissing;
-    for (const auto &f : missing)
-      if (std::find(rendererMissing.begin(), rendererMissing.end(), f)
-          == rendererMissing.end())
-        deviceMissing.push_back(f);
-    print("missing", deviceMissing);
-    print("renderer " + renderer + " lacks", rendererMissing);
+    printLabelled("missing", deviceMissingFeatures(missing, rendererMissing));
+    printLabelled("renderer " + renderer + " lacks", rendererMissing);
     std::cout << "\n";
   }
   std::cout << "\n"

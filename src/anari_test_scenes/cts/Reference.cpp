@@ -19,7 +19,7 @@ using json = nlohmann::json;
 constexpr int kReferenceRecordVersion = 1;
 
 // The strings of array `key`, or none.
-std::vector<std::string> strings(const json &j, const char *key)
+std::vector<std::string> readStrings(const json &j, const char *key)
 {
   std::vector<std::string> out;
   if (const auto e = j.find(key); e != j.end() && e->is_array())
@@ -65,9 +65,9 @@ std::optional<DeviceSpec> readReference(const Workdir &workdir)
   reference.library = j.value("library", "");
   reference.device = j.value("device", "default");
   reference.renderer = j.value("renderer", "default");
-  reference.extensions = strings(j, "extensions");
+  reference.extensions = readStrings(j, "extensions");
   // Absent from a record older than it: the renderer reported none.
-  reference.rendererExtensions = strings(j, "rendererExtensions");
+  reference.rendererExtensions = readStrings(j, "rendererExtensions");
   if (reference.library.empty())
     return std::nullopt;
   return reference;
