@@ -79,7 +79,8 @@ options:
   --width <n>          render width (default: 256)
   --height <n>         render height (default: 256)
   -r, --renderer <subtype>
-                       renderer subtype (default: default)
+                       renderer subtype (default: default; generate with
+                       halcyon: preview)
   --ambientRadiance <value>
                        baseline renderer ambientRadiance (default: 1)
   -p, --renderer-param NAME=VALUE

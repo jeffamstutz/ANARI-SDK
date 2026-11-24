@@ -574,8 +574,8 @@ int cmdGenerate(const Options &o)
     d = loadDevice(deviceName, lib);
   if (!d)
     return 2;
-  const std::string renderer =
-      o.rendererGiven ? o.renderer : referenceRenderer(deviceName);
+  const std::string renderer = referenceRenderer(deviceName,
+      o.rendererGiven ? std::optional<std::string>(o.renderer) : std::nullopt);
   const auto features = deviceExtensions(lib, "default");
   const DeviceSpec device = runDeviceSpec(d, deviceName, renderer);
   warnIfDenoiseUnsupported(device, features, o.denoise);
@@ -603,6 +603,12 @@ int cmdGenerate(const Options &o)
                 << earlier->library << " -r " << earlier->renderer << ")";
     std::cerr << "\n";
     return 2;
+  }
+  if (!s.referenceRecordFailure.empty()) {
+    anari::release(d, d);
+    anari::unloadLibrary(lib);
+    std::cerr << "error: " << s.referenceRecordFailure << "\n";
+    return 1;
   }
   if (!s.deviceFailure.empty()) {
     anari::release(d, d);

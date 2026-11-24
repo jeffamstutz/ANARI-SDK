@@ -386,10 +386,14 @@ TEST_CASE("generate names halcyon's renderer preview whenever -r is omitted",
 {
   // halcyon's `default` is an alias for `preview`, but the record compares
   // names, so `generate` and `generate --device halcyon` must record one.
-  CHECK(std::string(referenceRenderer(kDefaultReferenceLibrary)) == "preview");
-  CHECK(std::string(referenceRenderer("halcyon")) == "preview");
-  CHECK(std::string(referenceRenderer(kFallbackReferenceLibrary)) == "default");
-  CHECK(std::string(referenceRenderer("visrtx")) == "default");
+  CHECK(referenceRenderer(kDefaultReferenceLibrary) == "preview");
+  CHECK(referenceRenderer("halcyon") == "preview");
+  CHECK(referenceRenderer(kFallbackReferenceLibrary) == "default");
+  CHECK(referenceRenderer("visrtx") == "default");
+  // -r wins, `default` included.
+  CHECK(referenceRenderer("halcyon", "quality") == "quality");
+  CHECK(referenceRenderer("halcyon", "default") == "default");
+  CHECK(referenceRenderer("helide", "default") == "default");
 }
 
 // Artifact publication ///////////////////////////////////////////////////////

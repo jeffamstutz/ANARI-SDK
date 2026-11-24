@@ -99,7 +99,7 @@ renderer lacks it`), and `-r quality` runs it. helide's renderer reports the
 device's list, so nothing changes there.
 
 `generate` without `--device` uses halcyon's `preview` renderer (unless `-r`
-names another; `--device halcyon` without `-r` uses `preview` too,
+names another; `--device halcyon` without `-r` uses `preview` too, see
 `referenceRenderer()`), and helide's default renderer, with a notice, when
 halcyon can't be loaded (ADR-0005). It records the device, renderer and
 extensions in `ground_truth/reference.json` (failing, exit 1, if it can't),

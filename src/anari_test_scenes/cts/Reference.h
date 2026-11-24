@@ -19,13 +19,16 @@ namespace cts {
 // helide stands in when halcyon can't be loaded (it is off by default in the
 // SDK's build).
 inline constexpr const char *kDefaultReferenceLibrary = "halcyon";
+inline constexpr const char *kDefaultReferenceRenderer = "preview";
 inline constexpr const char *kFallbackReferenceLibrary = "helide";
 
-// The renderer `generate` uses with `library` when -r names none: halcyon's
-// `preview` whether or not halcyon was named (its `default` is an alias for
-// `preview`, but the record compares names, so one name keeps `generate` and
-// `generate --device halcyon` in one workdir), else the device's `default`.
-const char *referenceRenderer(const std::string &library);
+// The renderer `generate` uses with `library`: `requested` (-r) when given;
+// else halcyon's `preview` whether or not halcyon was named (its `default` is
+// an alias for `preview`, but the record compares names, so one name keeps
+// `generate` and `generate --device halcyon` in one workdir); else the
+// device's `default`.
+std::string referenceRenderer(const std::string &library,
+    const std::optional<std::string> &requested = std::nullopt);
 
 // Write the device `generate` used, with the extensions it advertised and
 // those its renderer reported (its Cases gated on the latter when any), to

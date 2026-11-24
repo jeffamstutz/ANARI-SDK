@@ -64,8 +64,10 @@ with no `-r`, `generate` uses halcyon's `preview` renderer whether or not
 `generate --device halcyon` recording `default` was refused in a workdir a
 plain `generate` had filled. Other devices still default to `default`. If
 `reference.json` can't be written, `generate` fails every selected Case and
-renders none (exit 1) rather than warning, since a workdir without a record
-would not be checked by later `generate`s.
+renders none (exit 1, even when the filter selects no Case) rather than
+warning, since a workdir without a record would not be checked by later
+`generate`s. With `--replace`, `ground_truth/` has already been cleared by
+then, as `--replace` asked.
 
 **Update (Cases gate on the run's renderer):** a renderer may report its own
 extensions (object introspection's `extension`, or the renderer's

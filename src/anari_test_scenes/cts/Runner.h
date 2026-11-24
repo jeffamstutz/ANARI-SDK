@@ -83,6 +83,10 @@ struct RunSummary
   // RunOptions::replaceGroundTruth was not set. When set, nothing was written
   // and the counts are zero.
   std::string referenceConflict;
+  // generate: why ground_truth/reference.json couldn't be written. When set,
+  // no Case was rendered and every selected Case counts as failed; it is set
+  // even when the filter selects none, so the caller can still fail.
+  std::string referenceRecordFailure;
 };
 
 // Build, render, and score Cases against ground truth, writing images and
@@ -110,11 +114,12 @@ struct Runner
   // `referenceFeatures`. Refuses, writing nothing,
   // with RunSummary::referenceConflict set, when the record names a different
   // device, unless RunOptions::replaceGroundTruth clears ground_truth/ first.
-  // Fails every selected Case, rendering none, if the record can't be
-  // written. Does not score or write sidecars (ADR-0005). A shared (Variant)
-  // Ground truth file is written from its first Variant value's Case only,
-  // and the device's own Variants are checked for equivalence (a disagreement
-  // is reported, RunSummary::variantDisagreements). Skips `.noGroundTruth()`
+  // Fails every selected Case, rendering none, with
+  // RunSummary::referenceRecordFailure set, if the record can't be written.
+  // Does not score or write sidecars (ADR-0005). A shared (Variant) Ground
+  // truth file is written from its first Variant value's Case only, and the
+  // device's own Variants are checked for equivalence (a disagreement is
+  // reported, RunSummary::variantDisagreements). Skips `.noGroundTruth()`
   // Tests. Stops before the first Case, with RunSummary::deviceFailure set,
   // if the device can't render the probe frame.
   RunSummary generate(const Catalog &catalog,

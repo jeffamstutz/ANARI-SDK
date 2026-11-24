@@ -1468,13 +1468,13 @@ TEST_CASE("generate keeps one Reference device per workdir's Ground truth",
 
   SECTION("plain generate and generate --device halcyon share a workdir")
   {
-    // What cmdGenerate uses when -r is omitted: the defaulted device, then
-    // the device named with --device.
-    const DeviceSpec defaulted{kDefaultReferenceLibrary,
+    // Plain `generate` (the default library, no -r), then `generate --device
+    // halcyon --filter ...` (no -r), as cmdGenerate names their renderers.
+    const DeviceSpec plain{kDefaultReferenceLibrary,
         "default",
         referenceRenderer(kDefaultReferenceLibrary)};
+    REQUIRE(generateAs(plain, true, Filter{"demo/"}).passed == 2);
     const DeviceSpec named{"halcyon", "default", referenceRenderer("halcyon")};
-    REQUIRE(generateAs(defaulted, true, Filter{"demo/"}).passed == 2);
     const auto s = generateAs(named, false, Filter{"demo/first"});
     CHECK(s.referenceConflict.empty());
     CHECK(s.passed == 1);
@@ -1482,6 +1482,10 @@ TEST_CASE("generate keeps one Reference device per workdir's Ground truth",
     REQUIRE(record);
     CHECK(record->library == "halcyon");
     CHECK(record->renderer == "preview");
+    // Recording halcyon's alias instead, as before, is refused.
+    CHECK_FALSE(
+        generateAs({"halcyon", "default", "default"}, false, Filter{"demo/"})
+            .referenceConflict.empty());
   }
 
   SECTION("a failed record write fails the generate")
@@ -1492,9 +1496,15 @@ TEST_CASE("generate keeps one Reference device per workdir's Ground truth",
     std::filesystem::create_directories(wd.referenceRecordPath());
     const auto s = generateAs(opts.device, false, Filter{"demo/first"});
     CHECK(s.referenceConflict.empty());
+    CHECK(s.referenceRecordFailure.find(wd.referenceRecordPath().string())
+        != std::string::npos);
     CHECK(s.passed == 0);
     CHECK(s.failed == 1);
     CHECK(s.total == 1);
+    // A filter selecting no Case still reports the failure.
+    const auto none = generateAs(opts.device, false, Filter{"no/such"});
+    CHECK_FALSE(none.referenceRecordFailure.empty());
+    CHECK(none.total == 0);
   }
 
   SECTION("replacing with the same device also starts afresh")

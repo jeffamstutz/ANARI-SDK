@@ -31,9 +31,13 @@ std::vector<std::string> readStrings(const json &j, const char *key)
 
 } // namespace
 
-const char *referenceRenderer(const std::string &library)
+std::string referenceRenderer(
+    const std::string &library, const std::optional<std::string> &requested)
 {
-  return library == kDefaultReferenceLibrary ? "preview" : "default";
+  if (requested)
+    return *requested;
+  return library == kDefaultReferenceLibrary ? kDefaultReferenceRenderer
+                                             : "default";
 }
 
 bool writeReference(const Workdir &workdir, const DeviceSpec &reference)
