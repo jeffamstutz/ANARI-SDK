@@ -205,7 +205,9 @@ ctsReport.py              reads the results tree too; retained only for the PDF
 - `FrameAccumulation.{h,cpp}` — the `KHR_FRAME_ACCUMULATION` behaviour check
   behind `frame/progressive_rendering`: convergence towards a many-render
   image, restart after a world change, and `refinementProgress` where reported.
-  It drives an `AccumulationTarget`, so stub frames unit-test it.
+  It drives an `AccumulationTarget`, so stub frames unit-test it. The Test
+  runs through a pinhole and, where the renderer lists depth of field,
+  through a lens whose aperture needs sampling (ADR-0010 67).
 - `FrameFormats.{h,cpp}` — resolves a Case's per-Channel output `ANARIDataType`
   from its `frame_<channel>_type` axis (color/albedo/normal); pure + unit-tested.
 - `RendererExtensions.{h,cpp}` — what a run gates Cases on (ADR-0005): the

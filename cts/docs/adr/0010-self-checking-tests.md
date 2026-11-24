@@ -1018,3 +1018,35 @@ within 0.012 of the spec's, towards the silhouette up to 0.46 over.
     axis out) or visrtx. A highlight shifted by another cause (a different
     light or normal) can still pass a 0.3 % check on these five axes; the
     margin admits what the measurements allow, no more.
+
+## A sampled Case for frame accumulation (ticket 31)
+
+67. **`frame/progressive_rendering` also runs through a lens.** Its scene, a
+    soup of matte triangles under one directional light, needs sampling only
+    at the triangles' edges and only on a renderer that jitters pixel
+    positions, so a renderer that samples pixel centres renders it the same
+    every time and passes as "converged in one render" whether or not it
+    accumulates. A `lens` axis adds a `depth_of_field` Case beside the
+    `pinhole` one: the same scene and framing, through a thin lens of
+    `apertureRadius` 0.05 of the camera's distance to the scene's centre,
+    focused at half that distance, in front of every triangle. That blurs
+    every edge by a disk 0.043 of the frame's height in radius (11 pixels at
+    256; half that if a device reads the radius as a diameter, item 51), so a
+    renderer that implements depth of field samples its aperture, and its
+    first render is noise that only accumulation removes. The Case gates on
+    `KHR_CAMERA_DEPTH_OF_FIELD` (per Case, against the renderer's own list,
+    ADR-0005); the three phases run on it unchanged. Measured
+    on 2026-11-24 at 256x256 (mean difference to the 16-render image after
+    1 and after 4 renders, in levels): halcyon `quality` 36.6 and 21.3
+    (0.58x), visrtx `default` 31.5 and 19.8 (0.63x), visrtx `quality` 31.5
+    and 19.9 (0.63x), visionaray 33.2 and 14.7 (0.44x), all passing; the
+    first render is over 100 times the converged floor (0.25 levels) on
+    each, and the ratios are the same at 128 and 512. The `pinhole` Case
+    measures as before (halcyon `quality` 0.17x, visrtx 0.48x). halcyon's
+    `preview` renderer and helide skip both Cases, as they don't list
+    `KHR_FRAME_ACCUMULATION`. A renderer that renders one aperture sample per
+    render and never accumulates fails the Case (`test_cts_accumulation.cpp`
+    models it); one that returns the same noisy frame on every render
+    without changes, and restarts on a change, still passes as converged:
+    without an image to compare with, that is a deterministic renderer
+    (ticket 14's follow-up).
