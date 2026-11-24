@@ -545,31 +545,26 @@ BehaviorResult checkProgressiveRendering(anari::Device d,
 constexpr const char *kLensAxis = "lens";
 constexpr const char *kPinhole = "pinhole";
 constexpr const char *kDepthOfField = "depth_of_field";
-// The lens, in fractions of the camera's distance to the scene's centre (the
-// triangles lie in one plane facing the camera). Focused at half that
-// distance, a thin lens of radius 0.05 of it blurs every edge by a disk 0.05
-// of the distance in radius, 0.043 of the frame's height at the default fovy
-// (11 pixels at 256), or half that if a device reads `apertureRadius` as a
-// diameter (ADR-0010 51).
-constexpr float kLensFocus = 0.5f;
-constexpr float kLensAperture = 0.05f;
+// The lens's focus distance and aperture radius, as fractions of the
+// camera's distance to the scene's centre; the blur they give is in
+// ADR-0010 67.
+constexpr float kLensFocusFraction = 0.5f;
+constexpr float kLensApertureFraction = 0.05f;
 
 // The default framing (the Runner's, from the world's bounds), through the
 // Case's lens.
 anari::Camera progressiveCamera(BuildContext &ctx, const scenes::Bounds &bounds)
 {
-  const auto view = cameraFromBounds(bounds);
-  CameraProjection projection;
-  projection.type = CameraProjection::Type::Perspective;
-  projection.position = view.position;
-  projection.direction = view.direction;
-  projection.up = view.up;
+  const CameraProjection projection = projectionFromBounds(bounds);
   auto d = ctx.device();
   auto camera = ctx.newCamera(projection);
   if (ctx.getString(kLensAxis, kPinhole) == kDepthOfField) {
-    const float distance = anari::math::length(view.at - view.position);
-    anari::setParameter(d, camera, "apertureRadius", kLensAperture * distance);
-    anari::setParameter(d, camera, "focusDistance", kLensFocus * distance);
+    const float distance = anari::math::length(
+        0.5f * (bounds[0] + bounds[1]) - projection.position);
+    anari::setParameter(
+        d, camera, "apertureRadius", kLensApertureFraction * distance);
+    anari::setParameter(
+        d, camera, "focusDistance", kLensFocusFraction * distance);
   }
   anari::commitParameters(d, camera);
   return camera;
@@ -850,7 +845,7 @@ void registerFrameTests(Catalog &catalog)
       .description(
           "Checks that frame accumulation converges across renders, restarts "
           "after a world change, and reports a sane refinementProgress, "
-          "through a pinhole and, where depth of field is advertised, "
+          "through a pinhole and, where the renderer lists depth of field, "
           "through a lens whose aperture needs sampling.")
       .build([](BuildContext &ctx) {
         return triangleSurfaceWorld(ctx, float3(0.7f, 0.5f, 0.3f), 8);

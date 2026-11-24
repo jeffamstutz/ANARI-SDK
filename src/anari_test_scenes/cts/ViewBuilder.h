@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "CameraProjection.h"
 #include "anari/anari_cpp.hpp"
 #include "anari_test_scenes.h"
 // std
@@ -16,8 +17,12 @@ namespace cts {
 anari::Renderer newRenderer(
     anari::Device d, const std::string &subtype = "default");
 
-anari::scenes::Camera cameraFromBounds(
-    const anari::scenes::Bounds &bounds);
+anari::scenes::Camera cameraFromBounds(const anari::scenes::Bounds &bounds);
+
+// The perspective projection of cameraFromBounds() at the spec's default
+// fovy and an aspect of 1 (BuildContext::newCamera sets the frame's): the
+// Runner's default framing.
+CameraProjection projectionFromBounds(const anari::scenes::Bounds &bounds);
 
 struct PerspectiveCameraOptions
 {

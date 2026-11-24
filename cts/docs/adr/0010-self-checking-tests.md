@@ -1029,7 +1029,9 @@ within 0.012 of the spec's, towards the silhouette up to 0.46 over.
     accumulates. A `lens` axis adds a `depth_of_field` Case beside the
     `pinhole` one: the same scene and framing, through a thin lens of
     `apertureRadius` 0.05 of the camera's distance to the scene's centre,
-    focused at half that distance, in front of every triangle. That blurs
+    focused at half that distance, in front of every triangle (its own
+    camera hook, not `optics.cpp`'s, which is fixed to that scene's plates:
+    this Case keeps the Runner's framing of the triangles). That blurs
     every edge by a disk 0.043 of the frame's height in radius (11 pixels at
     256; half that if a device reads the radius as a diameter, item 51), so a
     renderer that implements depth of field samples its aperture, and its

@@ -12,6 +12,7 @@
 #include "cts/Expansion.h"
 #include "cts/Filter.h"
 #include "cts/FrameAccumulation.h"
+#include "cts/Value.h"
 // std
 #include <algorithm>
 #include <cstdint>
@@ -346,7 +347,11 @@ TEST_CASE(
   for (const auto &c : cases) {
     INFO(c.id());
     ids.insert(c.id());
-    const bool lens = c.id().find("depth_of_field") != std::string::npos;
+    const bool lens =
+        std::any_of(c.values.begin(), c.values.end(), [](const CaseValue &v) {
+          return v.axisName == "lens"
+              && anyToString(v.value) == "depth_of_field";
+        });
     CHECK(isSupported(t, c, device) == !lens);
     if (lens)
       CHECK(missingFeatures(t, c, device)

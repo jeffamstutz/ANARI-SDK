@@ -32,6 +32,17 @@ scenes::Camera cameraFromBounds(const scenes::Bounds &bounds)
   return camera;
 }
 
+CameraProjection projectionFromBounds(const scenes::Bounds &bounds)
+{
+  const auto view = cameraFromBounds(bounds);
+  CameraProjection projection;
+  projection.type = CameraProjection::Type::Perspective;
+  projection.position = view.position;
+  projection.direction = view.direction;
+  projection.up = view.up;
+  return projection;
+}
+
 anari::Camera makePerspectiveCamera(anari::Device d,
     const scenes::Camera &camera,
     const PerspectiveCameraOptions &options)

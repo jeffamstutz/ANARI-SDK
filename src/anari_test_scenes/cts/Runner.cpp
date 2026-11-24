@@ -154,11 +154,7 @@ anari::Camera defaultCamera(anari::Device d,
   // The spec's default, set explicitly so project() doesn't depend on the
   // device's default.
   camOpts.fovy = CameraProjection{}.fovy;
-  projection = CameraProjection{};
-  projection.type = CameraProjection::Type::Perspective;
-  projection.position = camDesc.position;
-  projection.direction = camDesc.direction;
-  projection.up = camDesc.up;
+  projection = projectionFromBounds(bounds);
   projection.fovy = *camOpts.fovy;
   projection.aspect = camOpts.aspect.value_or(1.f);
   return makePerspectiveCamera(d, camDesc, camOpts);
