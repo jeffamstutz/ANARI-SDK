@@ -23,8 +23,10 @@ usesGroundTruth/groundTruthEvaluated/groundTruthReason; additive to v4:
 `reference` and `referenceMissingFeatures`, the Reference device and the
 extensions it lacked, and `device.rendererExtensions` and
 `rendererMissingFeatures`, what the run's renderer reported of itself and the
-missing extensions it lacked though the device advertised them; this reader
-shows them only through `skipReason`) and warns on a mismatch. A failed
+missing extensions it lacked though the device advertised them, and
+`notGuarded`, why the convergence guard didn't run, absent when unrecorded;
+this reader shows them only through `skipReason`, and `notGuarded` not at
+all) and warns on a mismatch. A failed
 assertion is printed as detail text, whatever its kind; no
 image layout is done for it.
 """

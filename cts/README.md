@@ -93,7 +93,7 @@ options:
                        earlier. Effect and equivalence checks need a converged
                        image: a Test fails with "not converged" until the
                        count is high enough (convergence guard, ADR-0010)
-  --no-accumulation    render each channel once (the guard still runs)
+  --no-accumulation    render each channel once (no guard: "not guarded")
   --denoise            set the renderer denoise parameter
   --stdin              read newline-separated filter patterns from stdin (run)
   --verbose            print ANARI warnings
@@ -158,6 +158,31 @@ device-specific names live in the CTS. Overrides apply over the baseline but
 before a renderer Test's own configuration, so such a Test still wins on
 conflict. As with `--ambientRadiance`, use the same overrides for `generate` and
 `run` when they affect the compared image.
+
+### Accumulation and the convergence guard
+
+Effect and equivalence checks compare a Case's image with its siblings', so
+they need images that have stopped changing: noise alone changes more than
+1 % of the pixels, which passes every effect check. The convergence guard
+(ADR-0010) therefore keeps accumulating each Case those checks read for as
+many frames again as it rendered, and fails them with "not converged at N
+frames" when more than 0.2 % of the pixels still change. The fix is a higher
+`--accumulation`; the default, 16, is enough for a deterministic renderer
+(halcyon `preview`, helide). Counts measured at 256x256:
+
+| Renderer | `--accumulation` that passes the guard |
+| --- | --- |
+| halcyon `quality` | 256 (the guard fails 85 Tests at 16, 29 at 64, 6 at 128) |
+| visrtx `quality` | 256 (every PBR lobe Test fails at 16; frames 256 and 512 agree) |
+
+The guard can't run, and the report says so ("not guarded", with the reason,
+on each Case whose effect or equivalence checks ran without it), when the
+renderer lacks `ANARI_KHR_FRAME_ACCUMULATION`, when the run renders one frame
+(`--accumulation 1` or `--no-accumulation`), or when the Test has no color
+Channel. Its checks then count only if the renderer's images are converged in
+one render, which the CTS can't show. A renderer that stops refining while
+still noisy passes the guard as well; configuring a converged Candidate is the
+operator's job.
 
 ### Running a slice
 

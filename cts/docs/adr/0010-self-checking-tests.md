@@ -427,32 +427,46 @@ without the parameter doing anything.
     expectations) require the Candidate's image to be converged to within τ at
     the run's accumulation count (`--accumulation`). Getting there is the
     operator's job.
-29. **The guard:** for each Test with an evaluated relational assertion and a
-    color Channel, the runner renders the baseline Case (the first Case in
-    expansion order), keeps accumulating for as many frames again, and requires
-    the changed fraction between the two color images to be within the
-    equivalence maximum (0.2 %, τ = 8). *Rejected:* two fresh renders (many
-    renderers seed deterministically, so two fresh renders can be identical
-    while still noisy). The guard frame has `accumulation` on even when the run
-    renders once, so it can keep refining. It runs only on a device that
-    advertises `KHR_FRAME_ACCUMULATION`; one without it passes trivially and
-    records nothing. A Test with no color Channel is not guarded (depth and ID
-    Channels are never accumulated). Exact checks are not guarded either: they
-    carry their own tolerances.
-30. **If the guard fails,** every evaluated relational assertion of the Test
-    is recorded failed with the reason "not converged at N frames (changed
-    fraction X %, ...); raise `--accumulation`", the check's own finding kept
-    after it. They are never dropped and never passed. The guard's own
-    `convergence` assertion (Sidecar: `score` the changed fraction, `threshold`
-    the maximum, `framesRendered`, `refinementProgress` if reported) sits on
-    the baseline Case, or on the first selected Case when the filter excludes
-    it, and the report counts "convergence" as its own failure kind.
+29. **The guard:** every Case an evaluated relational assertion reads (the
+    Case it sits on and its partners) is guarded, once, in its own render:
+    after the Case's color image is read at the run's accumulation, the same
+    frame keeps accumulating for as many frames again, and the changed
+    fraction between the two images must be within the equivalence maximum
+    (0.2 %, τ = 8). The image measured is the one the assertions compare.
+    *Rejected:* two fresh renders (many renderers seed deterministically, so
+    two fresh renders can be identical while still noisy); guarding only the
+    baseline Case (ticket 18's first form: a Case that converges more slowly
+    than the baseline went unguarded); a separate guard render per Case (it
+    rendered the Case twice over for nothing the Case's own frame can't
+    show). Exact checks are not guarded: they carry their own tolerances.
+    (Ticket 32, 2026-11-24.)
+30. **Where the guard can't run, the Case says so.** It needs a renderer
+    that lists `KHR_FRAME_ACCUMULATION` (the device's list when the renderer
+    reports none), a run that accumulates more than one frame, and a color
+    Channel (depth and ID Channels are never accumulated). Otherwise no
+    accumulation is forced on (`--accumulation 1` renders one frame) and
+    each Case with an evaluated relational assertion records why in the
+    Sidecar's `notGuarded` (additive in v4); the text and HTML reports count
+    and show it. Such a Case's effect checks are only as good as the
+    renderer's images are converged in one render, which the CTS can't show.
+    **If the guard fails** on a Case, every evaluated relational assertion
+    reading it is recorded failed with the reason "not converged at N frames
+    (changed fraction X %, ...); raise `--accumulation`", prefixed "Case
+    <id>:" when it is a partner's, the check's own finding kept after it;
+    assertions reading only converged Cases keep their result. They are
+    never dropped and never passed. A render error in the guard's own frames
+    fails them with that error, not as "not converged". The `convergence`
+    assertion (Sidecar: `score` the changed fraction, `threshold` the
+    maximum, `framesRendered`, `refinementProgress` if reported) sits on the
+    guarded Case or, for a support render, on the first selected Case with a
+    relation reading it, naming it in `relatedCases`; the report counts
+    "convergence" as its own failure kind.
 31. **`refinementProgress` is the stop condition, not the proof.** When the
     frame reports it, accumulation stops at 1 or at the run's accumulation
     count, whichever comes first, so `--accumulation` is a cap; when it isn't
-    reported, exactly that many frames are rendered. The guard still runs for
-    every device. A device that reported 1 and then changed beyond τ has
-    contradicted itself, and the detail says so.
+    reported, exactly that many frames are rendered. The guard still runs
+    wherever item 30 lets it. A device that reported 1 and then changed
+    beyond τ has contradicted itself, and the detail says so.
 32. **Known gap, documented, not fixed:** a device that *stops refining while
     still noisy* (a low sample limit) gives a stable image, passes the guard,
     and can still pass effect checks on noise. Neither continued accumulation
@@ -474,6 +488,33 @@ passes it on all 68 guarded Tests (0.00 % changed). Wall time, default
 `quality` renderer fails the guard on 66 Cases at `--accumulation 1` (about 10
 to 13 % of pixels change in the next frame), 60 at 16, 26 at 64, 1 at 128 and
 none at 256, which is the count that passes it on every Test.
+
+Re-measured on 2026-11-24 with every read Case guarded (ticket 32), full
+Catalog at 256x256, no Ground truth, before and after the change in one
+sitting:
+
+| Run | passed/failed/skipped | Wall time before | after |
+| --- | --- | ---: | ---: |
+| halcyon `preview`, `--accumulation 16` | 584/32/285 | 9.0 s | 9.4 s |
+| helide, `--accumulation 16` | 465/59/377 | 5.8 s | 5.9 s |
+| halcyon `quality`, `--accumulation 256` | 627/35/239 | 151.6 s | 132.6 s |
+
+No verdict changed. halcyon `preview` doesn't list
+`KHR_FRAME_ACCUMULATION` (ticket 24), and helide doesn't advertise it, so
+neither ran a guard before or after; now 599 and 507 of their Cases record
+"not guarded" with that reason. On `quality` at 256 the guard went from 101
+Cases (one per Test) to 636, all passing; 7 Cases of depth- or ID-only Tests
+record "no color Channel". The run got faster, not slower: guarding a Case
+costs as many frames again in the frame it already rendered, where the old
+guard rendered the baseline afresh, its scene rebuilt, for twice the frames.
+A Case that no recorded assertion reads (an axis opted out on the device)
+still pays the extra frames, since which Cases are read is known only after
+the relational pass; its measurement is dropped. `durationMs` excludes the
+guard's frames. At `--accumulation` 16, 64 and 128 `quality` fails the guard
+on 509, 80 and 15 Cases (85, 29 and 6 Tests); at 128 six Tests now fail where
+the baseline guard caught one, the Cases that converge more slowly than the
+baseline. Wall times were measured with one run at a time; repeats of the
+same binary differed by up to 5 s on `quality` and 1.5 s on `preview`.
 
 One metric for assertions and the guard; a second for magnitude (decided
 2026-11-24). Relational assertions and this guard use changed fraction only
@@ -1018,6 +1059,21 @@ within 0.012 of the spec's, towards the silhouette up to 0.46 over.
     axis out) or visrtx. A highlight shifted by another cause (a different
     light or normal) can still pass a 0.3 % check on these five axes; the
     margin admits what the measurements allow, no more.
+
+    A no-op pair on each of those five axes (a constant equal to the spec's
+    default against unset: clearcoat, clearcoatRoughness, iridescence and
+    specular 0, specularColor (1, 1, 1)), measured on 2026-11-24 at 256x256
+    (ticket 32): halcyon `quality` at `--accumulation` 16 and 256, visrtx
+    `quality` at 16 and 256, and halcyon `preview` and helide, which don't
+    accumulate. Every pair changed 0 pixels; the two images were
+    byte-identical on halcyon `quality` and visrtx `quality` even at 16
+    frames, where visrtx fails the guard. Both seed deterministically, so a
+    no-op pair draws the same samples and its noise cancels exactly,
+    converged or not.
+    The no-op floor is therefore 0 and bounds nothing about residual noise;
+    the floor of item 65 stays the guard's measure, at least 0.2 %. On a
+    renderer that is "not guarded" (item 30) the 0.3 % margin has only this
+    0 behind it.
 
 ## A sampled Case for frame accumulation (ticket 31)
 

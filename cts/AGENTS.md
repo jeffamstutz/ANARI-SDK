@@ -195,13 +195,16 @@ ctsReport.py              reads the results tree too; retained only for the PDF
 - `CameraProjection.{h,cpp}` — what a Case's camera does to a world point
   (perspective or orthographic, with its image region), for `project()`.
 - `ConvergenceGuard.{h,cpp}` — the convergence guard (ADR-0010, "Convergence
-  guard"): the accumulation stop condition (`accumulationDone`), the guard's
-  decision (`judgeConvergence`) and failing a Test's relational assertions
-  when it fails (`failRelationsNotConverged`); pure + unit-tested. The runner
-  renders the baseline Case twice (`Runner::measureConvergence`). Relational
-  assertions need a converged Candidate: raise `--accumulation` until the
-  `convergence` assertions pass. A device that stops refining while still
-  noisy is not caught (operator's responsibility).
+  guard"): the accumulation stop condition (`accumulationDone`), why the guard
+  can't run (`notGuardedReason`, recorded as the Sidecar's `notGuarded`), the
+  decision on one Case (`judgeConvergence`) and guarding every Case a
+  relational assertion reads, failing those that read an unconverged one
+  (`guardRelations`); pure + unit-tested. The runner measures each Case in its
+  own render, accumulating its color frame again once its image is read
+  (`Runner::renderChannels`). Relational assertions need a converged
+  Candidate: raise `--accumulation` until the `convergence` assertions pass
+  (`cts/README.md` lists measured counts). A device that stops refining while
+  still noisy is not caught (operator's responsibility).
 - `FrameAccumulation.{h,cpp}` — the `KHR_FRAME_ACCUMULATION` behaviour check
   behind `frame/progressive_rendering`: convergence towards a many-render
   image, restart after a world change, and `refinementProgress` where reported.
@@ -494,4 +497,7 @@ unknown", which is what it was. Renderer-level gating added
 `device.rendererExtensions` (what the run's renderer reported) and
 `rendererMissingFeatures` (the missing extensions the device advertised but
 the renderer lacked); an older Sidecar gated on the device alone, which is
-what their absence means.
+what their absence means. The convergence guard added `notGuarded` (why it
+didn't run for the Case's relational assertions, empty when it ran); it is
+written by every run and absent from an older Sidecar, which the readers
+keep as "unrecorded" rather than "guarded", so it needed no bump.
