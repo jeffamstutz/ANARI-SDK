@@ -53,7 +53,8 @@ share one ground-truth image, written from the first value's Case.
 
 **Derived expectation**:
 What one value of an axis must render, as a pure image function over its
-sibling Cases (same values on every other axis) with a one-line description:
+sibling Cases (same values on every other axis), which may also read the
+Case's own values on those axes, with a one-line description:
 `.expectDerived(axis, value, description, fn)`, e.g. `sideBySide` is `left`
 and `right` side by side, or `imageRegion` set is the crop of the unset
 Case's frame. The Case is checked for Equivalence with the image (only the

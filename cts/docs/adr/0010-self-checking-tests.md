@@ -193,7 +193,10 @@ frame sizes.
     Values are named by their string form, as in Case ids (`"none"` for
     unset). The function runs once per Channel. A sibling it reads that
     didn't render (or was skipped) fails the assertion with the reason; the
-    assertion names the siblings it read.
+    assertion names the siblings it read. It may also read the Case's own
+    values on the other axes (`s.values()`, a BuildContext), for an
+    expected image that depends on them (ticket 29: the transmittance at
+    the Case's `unitDistance`).
 
 14. **Variant is its identity shorthand.** A Variant axis's non-first values
     carry the expectation "the first value's image, unchanged", evaluated by
@@ -854,7 +857,7 @@ floor of about 10 levels per pixel at 4096 frames (the convergence guard
 passes), so 19 % of pixels differ from its own structuredRegular render: the
 equivalences can't be judged on it.
 
-## The `unitDistance` transmittance relation (ticket 25)
+## A slab's transmittance and the `unitDistance` relation (tickets 25, 29)
 
 `volume/volume`'s effect check fails a device that ignores `unitDistance`,
 not one that applies it with the wrong exponent. The spec's one exact
@@ -864,7 +867,7 @@ fraction of light which is absorbed while traveling a `unitDistance` length
 through the volume will be `opacity`". Through a uniform slab of thickness L
 that makes the transmittance T(u) = (1 - opacity)^(L/u), so halving
 `unitDistance` squares it. Appendix C's ray march says the same but is
-informative; the relation stands on 5.12.1.
+informative; both checks below stand on 5.12.1.
 
 61. **Transmittance is solved per pixel from two backgrounds.** A pixel
     through the slab is E + T B in linear colour, whatever the slab emits
@@ -880,13 +883,14 @@ informative; the relation stands on 5.12.1.
     render over black plus T(u)^2, in linear colour (the Test's frame is
     sRGB-encoded 8 bits, decoded and re-encoded), judged a few pixels inside
     the silhouette (`interiorMask`), where no pixel is partly slab.
-62. **It checks the relation, not T itself.** The relation holds for any
-    thickness and step count a device marches, as long as they don't depend
-    on `unitDistance` (T(u) = a^(1/u) for any a), so it doesn't depend on
-    how a device clips the march to the bounds or jitters the first sample.
-    An absolute T would; the Test doesn't check it. One view is enough: the
-    field is uniform, so there is no layout across or along the view to
-    check (the two-view rule is about a field's layout).
+62. **The relation holds whatever the march.** It holds for any thickness
+    and step count a device marches, as long as they don't depend on
+    `unitDistance` (T(u) = a^(1/u) for any a), so it doesn't depend on how a
+    device clips the march to the bounds or jitters the first sample. The
+    absolute T does, and is checked too (64), with a tolerance that allows
+    for it. One view is enough: the field is uniform, so there is no layout
+    across or along the view to check (the two-view rule is about a field's
+    layout).
 63. **Default tolerance, justified by the quantisation.** With each of the
     three input pixels anywhere within half a level of its true value, the
     expected pixel is off by at most 2.2 levels at these T and colours,
@@ -899,6 +903,29 @@ informative; the relation stands on 5.12.1.
     square root in the exponent as negatives on synthetic images, and a
     slab of another thickness as a positive.
 
+64. **The absolute T: the u render over white is derived from the one over
+    black.** Its expected image is P(u, black) + (1 - opacity)^(L/u) per
+    pixel and colour component in linear colour (L = 2, opacity 0.5: 0.5,
+    0.63 and 0.71 at u = 2, 3 and 4), in the same interior mask. That is T
+    solved per pixel against the spec's value; T(u/2) follows from it and
+    the relation. The default tolerance holds here too: τ = 8 levels is
+    |T - T_spec| up to 0.049 at u = 2 (the tightest; 0.055 at 3, 0.058 at 4)
+    on the most affected component, which is
+    - the slab marched up to 0.28 short or 0.30 long at u = 2 (about 14 %
+      of its thickness, more than a cell, 0.25), so a device that clips the
+      march to the bounds or jitters its first sample by up to a step
+      passes;
+    - about 7 times the spread of the deterministic devices (within 0.003 of
+      T_spec, quantisation) and 1.8 times halcyon `quality`'s per-pixel
+      Monte Carlo spread at `--accumulation 256` (0.028);
+    - under visionaray's bias at every u (0.104, 0.084 and 0.069 at u = 2,
+      3 and 4; measured below).
+    Quantisation of the black render adds under a level. Unit tests run a
+    march half a cell short as a positive, and as negatives a slab marched
+    3 thick, T biased as visionaray's (as if 1.45 thick; the relation holds
+    for both) and `opacity` read as absorbed per world unit, not per
+    `unitDistance` (T = 0.25 at every u).
+
 Measured on 2026-11-24 at 256 (accumulation 16 unless stated): helide and
 halcyon (`preview`) pass all 12 Cases with every pixel within 1 level of
 the expected image (also at 200 on helide); halcyon `quality` passes at
@@ -909,7 +936,17 @@ so near the silhouette they leave the slab through its sides
 (cts-device-findings 16). visionaray obeys the relation on average (the
 expected image is within 0.3 levels of its render, mean over the slab), but
 its T varies from pixel to pixel by about 0.03 across a slab the spec makes
-uniform, and is about 0.6 where the spec's is 0.5 at u = 2 (an absolute T
-the Test doesn't check); `2_halfU_white` fails with 0.36 % of its pixels
-over τ (up to 12 levels), the same at `--accumulation` 1024 and 4096, so it
-is not noise.
+uniform, and is about 0.6 where the spec's is 0.5 at u = 2;
+`2_halfU_white` fails with 0.36 % of its pixels over τ (up to 12 levels),
+the same at `--accumulation` 1024 and 4096, so it is not noise.
+
+With the absolute T (64), measured on 2026-11-24 at 256: helide, halcyon
+`preview` and visrtx (`--accumulation 64`) render the same images, T within
+0.003 of the spec's at every u, and pass all 12 Cases; halcyon `quality`
+(`--accumulation 256`) has the right mean (within 0.003) with a per-pixel
+spread of 0.028 and passes all 12. visionaray (`--accumulation 1024`)
+fails `u_white` at every u: its mean T is 0.604, 0.714 and 0.776 against
+0.5, 0.63 and 0.71 (67 to 100 % of the masked pixels over τ). helide_gpu
+fails `u_white` at every u (63 to 68 %), from the same orthographic rays
+as `2_halfU_white` (cts-device-findings 16): in the frame's centre its T is
+within 0.012 of the spec's, towards the silhouette up to 0.46 over.
