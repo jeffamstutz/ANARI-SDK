@@ -471,6 +471,16 @@ passes it on all 68 guarded Tests (0.00 % changed). Wall time, default
 to 13 % of pixels change in the next frame), 60 at 16, 26 at 64, 1 at 128 and
 none at 256, which is the count that passes it on every Test.
 
+One metric for assertions and the guard; a second for magnitude (decided
+2026-11-24). Relational assertions and this guard use changed fraction only
+(decision 5). `frame/progressive_rendering`'s accumulation behaviour check
+(ticket 14) uses `meanAbsoluteDifference` in `Metrics.cpp` instead, because it
+measures how far noise shrinks, which a count of pixels past τ can't see once
+the noise falls below τ. That metric is for behaviour checks that measure
+magnitude, never for an effect, equivalence, exact check or this guard, so the
+two definitions of "converged" stay apart: the guard's (still changing past τ)
+and the accumulation check's (mean difference shrinking).
+
 ## Converting the existing Tests (ticket 04)
 
 Every Permutation of the catalog now has its effect check judged, and a Test
