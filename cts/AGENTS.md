@@ -399,7 +399,10 @@ that needs another frame size than the run's gets `.frameSize(...)`
 (`regionFrameSize` for a normalized region). Pick values whose effect shows in a good share of
 the frame (the default minimum is 1 % of pixels changed by more than 8 levels);
 rework the scene rather than loosen it (`.effectMargin`) when a change is too
-subtle, and opt an axis out (`.noEffectCheck(axis, reason)`, or `.noEffectCheckOn(axis,
+subtle. An `.effectMargin` or `.equivalenceTolerance` override needs its
+measurements on two devices written beside it (ADR-0010 item 65 for margins,
+the volume-equivalence section for tolerances; the PBR lobe margin, item 66,
+is the example). Opt an axis out (`.noEffectCheck(axis, reason)`, or `.noEffectCheckOn(axis,
 library, renderers, reason)` for a device known not to render the parameter) only when its
 effect can't be judged by image difference.
 

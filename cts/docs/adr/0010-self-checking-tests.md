@@ -395,7 +395,8 @@ between volumes is framed so the default tolerance holds.
   a looser tolerance. The cell-centered Test did not need one.
 - A per-axis `.equivalenceTolerance` remains possible (decision 5), but only
   with the measured spread on at least two devices stated beside it and a
-  stated margin below the failure the Test targets.
+  stated margin below the failure the Test targets. `.effectMargin` has the
+  mirror rule (item 65).
 
 Measured on 2026-11-17 with the default tolerance (0.2 %, τ = 8), each view
 on its own, gating removed on helide and halcyon, which don't implement the
@@ -567,8 +568,8 @@ declares what it compares against Ground truth. What the conversion decided:
     ambient term and, where the Test doesn't vary it, `roughness 0.3`;
     `iridescenceThickness` is in nanometres (constant 400, a 100 to 800
     attribute, a sampler scaled to 800 through `outTransform`). A lobe changes
-    a highlight, a small part of the frame, so the lobe axes carry an effect
-    margin of 0.3 % (about 200 pixels; a render's noise changes none).
+    a highlight, a small part of the frame, so the lobe axes measured below
+    1 % carry an effect margin of 0.3 % (about 200 pixels; items 65 and 66).
     `thickness` and the attenuation axes are opted out everywhere, since no
     renderer in the SDK or visrtx shows them on a thin surface.
 44. **`noEffectCheckOn(axis, library, renderers, reason)`** opts an axis out
@@ -953,3 +954,64 @@ fails `u_white` at every u: its mean T is 0.604, 0.714 and 0.776 against
 fails `u_white` at every u (63 to 68 %), from the same orthographic rays
 as `2_halfU_white` (cts-device-findings 16): in the frame's centre its T is
 within 0.012 of the spec's, towards the silhouette up to 0.46 over.
+
+## Effect-margin overrides (ticket 30)
+
+65. **An `.effectMargin` override states its measurements, as an
+    `.equivalenceTolerance` override does.** It stands only with two numbers
+    written beside it: the smallest effect the axis produces, over every pair
+    the Test evaluates, measured on at least two devices that render the
+    parameter (converged, at the default frame size); and the noise floor it
+    must clear. The noise floor is the larger of what the same Case changes
+    between frames N and 2N on those devices (the convergence guard's
+    measure, item 29; two fresh renders are no measure, since devices seed
+    deterministically) and the equivalence maximum, 0.2 %, which the guard
+    lets a Candidate carry. The margin sits between the two, and only the
+    axes measured below the default 1 % on some device carry it: an axis
+    that clears 1 % everywhere keeps the default. A pair a device fails for
+    a filed device bug is left out of the smallest effect and named. Below
+    the equivalence maximum a margin would lose the gap between the two
+    kinds of check (Calibrated defaults); `tests/unit/test_cts_catalog.cpp`
+    checks that every override lies between 0.2 % and 1 % and names the
+    overridden axes.
+66. **The PBR lobe margin, measured.** On 2026-11-24 at 256x256 and
+    `--accumulation 1024`, on halcyon `quality`, visrtx `quality` and
+    visrtx's default renderer, the smallest effect per lobe axis over all its
+    pairs was:
+
+    | Test | Axis | halcyon `quality` | visrtx `quality` | visrtx `default` |
+    | --- | --- | ---: | ---: | ---: |
+    | `pbr_clearcoat` | clearcoat | 0.41 % | 1.63 % | 1.25 % |
+    | | clearcoatRoughness | 2.05 % | 0.83 % | 0.64 % |
+    | | clearcoatNormal | 4.32 % | 17.65 % | 16.27 % |
+    | `pbr_ior` | ior | 2.01 % | 3.43 % | 2.15 % |
+    | `pbr_iridescence` | iridescence | 0.54 % | 1.70 % | 1.41 % |
+    | | iridescenceIor | 1.92 % | 28.17 % | 27.21 % |
+    | | iridescenceThickness | 3.30 %\* | 3.51 % | 3.31 % |
+    | `pbr_metallic_roughness` | metallic | 10.33 % | 12.69 % | 11.08 % |
+    | | roughness | 4.83 % | 7.21 % | 4.88 % |
+    | | normal | 26.99 % | 26.04 % | 25.60 % |
+    | `pbr_sheen` | sheenColor | 11.57 % | 12.57 % | 11.45 % |
+    | | sheenRoughness | 11.15 % | 12.02 % | 11.62 % |
+    | `pbr_specular` | specular | 0.81 % | 1.19 % | 1.00 % |
+    | | specularColor | 0.61 % | 0.62 % | 0.60 % |
+    | `pbr_transmission` | transmission | 18.08 % | 18.39 % | 14.56 % |
+
+    \* halcyon `quality` renders a bound thickness as the constant, so its
+    three bound-vs-constant pairs change nothing and fail
+    (cts-device-findings 15); 3.30 % is its smallest other pair.
+
+    The same Cases changed 0 pixels between frames N and 2N on both devices
+    at `--accumulation` 256 and 1024 (the guard's measure), so the noise
+    floor is the guard's 0.2 %. For scale, halcyon `quality` at 16 frames
+    differs from its 1024-frame image by up to 0.98 % of pixels on these
+    Tests and visrtx `quality` by up to 8.5 %, which the guard fails as not
+    converged. The margin stays 0.3 %, between 0.2 % and the smallest effect,
+    0.41 %, on the five axes below 1 % somewhere: clearcoat,
+    clearcoatRoughness, iridescence, specular and specularColor. The other
+    ten (all at least 1.9 %) went back to the default 1 %, which changed no
+    verdict on halcyon (`preview`, `quality`), helide (which opts every lobe
+    axis out) or visrtx. A highlight shifted by another cause (a different
+    light or normal) can still pass a 0.3 % check on these five axes; the
+    margin admits what the measurements allow, no more.
+
