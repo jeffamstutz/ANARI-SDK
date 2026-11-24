@@ -618,7 +618,9 @@ TEST_CASE(
   CHECK_FALSE(f.allPass(f.judge(render(0.7f, 0.f), camera)));
 }
 
-TEST_CASE("halving unitDistance must square a uniform slab's transmittance",
+TEST_CASE(
+    "a uniform slab's transmittance must be (1 - opacity)^(L/u), and halving "
+    "unitDistance must square it",
     "[cts][volumes]")
 {
   Fixture f("volume/unit_distance_transmittance");
@@ -650,6 +652,27 @@ TEST_CASE("halving unitDistance must square a uniform slab's transmittance",
       return colorOnly(im);
     };
   };
+  // Whether the derived expectation of `value` ("u_white": the absolute T;
+  // "halfU_white": the relation) passed at each u.
+  auto verdicts = [&](const SelfCheckResults &r, const char *value) {
+    std::vector<bool> passed;
+    for (const char *u : {"2", "3", "4"}) {
+      const size_t i = f.index({{"u", u}, {"render", value}});
+      bool evaluated = false, held = true;
+      for (const auto &o : r.relations)
+        if (o.caseIndex == i && o.assertion.kind == kEquivalenceAssertion
+            && o.assertion.evaluated) {
+          INFO("u " << u << " " << value << ": " << o.assertion.detail);
+          evaluated = true;
+          held = held && o.assertion.passed;
+        }
+      REQUIRE(evaluated);
+      passed.push_back(held);
+    }
+    return passed;
+  };
+  const std::vector<bool> everyU{true, true, true};
+  const std::vector<bool> noU{false, false, false};
   // Every assertion holds (the u Cases over black are only ever the earlier
   // partner of an effect, so they carry none of their own).
   auto allHold = [](const SelfCheckResults &r) {
@@ -663,38 +686,55 @@ TEST_CASE("halving unitDistance must square a uniform slab's transmittance",
       }
     return evaluated > 0;
   };
-  // Thickness 2, opacity 0.5.
-  auto beer = [](float d) { return std::pow(0.5f, 2.f / d); };
+  // Thickness L through the slab, opacity 0.5: T = 0.5^(L/u).
+  auto beer = [](float d, float L = 2.f) { return std::pow(0.5f, L / d); };
+  auto uOf = [](float u, bool half) { return half ? 0.5f * u : u; };
+  CHECK(allHold(
+      f.judge(render([&](float u, bool half) { return beer(uOf(u, half)); }))));
+  // A march half a cell (0.125) short, as a device clipping the march to the
+  // bounds or jittering its first sample might: within the tolerance.
   CHECK(allHold(f.judge(
-      render([&](float u, bool half) { return beer(half ? 0.5f * u : u); }))));
+      render([&](float u, bool half) { return beer(uOf(u, half), 1.875f); }))));
 
-  // The relation holds for any thickness and number of steps a device marches,
-  // as long as they don't depend on unitDistance.
-  CHECK(allHold(f.judge(render([&](float u, bool half) {
-    return std::pow(beer(half ? 0.5f * u : u), 1.2f);
-  }))));
+  // The relation holds for any thickness and number of steps a device
+  // marches, as long as they don't depend on unitDistance; the absolute T
+  // fails a slab marched as 3 thick.
+  {
+    const auto r = f.judge(
+        render([&](float u, bool half) { return beer(uOf(u, half), 3.f); }));
+    CHECK(verdicts(r, "halfU_white") == everyU);
+    CHECK(verdicts(r, "u_white") == noU);
+  }
+  // T biased as visionaray's (about 0.6 where the spec gives 0.5 at u = 2, as
+  // if the slab were 1.45 thick): the relation holds, the absolute T fails.
+  {
+    const auto r = f.judge(
+        render([&](float u, bool half) { return beer(uOf(u, half), 1.45f); }));
+    CHECK(verdicts(r, "halfU_white") == everyU);
+    CHECK(verdicts(r, "u_white") == noU);
+  }
+  // `opacity` read as the fraction absorbed per world unit, not per
+  // unitDistance: T = 0.5^L whatever u is.
+  {
+    const auto r = f.judge(render([&](float, bool) { return beer(1.f); }));
+    CHECK(verdicts(r, "u_white") == noU);
+  }
 
   // The u/2 render over white fails its derived expectation, at every u.
-  auto halfUWhiteFails = [&](const SelfCheckResults &r) {
-    for (const char *u : {"2", "3", "4"}) {
-      INFO("u " << u);
-      const size_t i = f.index({{"u", u}, {"render", "halfU_white"}});
-      bool failed = false;
-      for (const auto &o : r.relations)
-        if (o.caseIndex == i && o.assertion.kind == kEquivalenceAssertion
-            && o.assertion.evaluated && !o.assertion.passed)
-          failed = true;
-      CHECK(failed);
-    }
-  };
   // unitDistance ignored: the u/2 slab is as transparent as the u one.
-  halfUWhiteFails(f.judge(render([&](float u, bool) { return beer(u); })));
+  CHECK(verdicts(f.judge(render([&](float u, bool) { return beer(u); })),
+            "halfU_white")
+      == noU);
   // Absorbance scaled linearly: halving unitDistance doubles 1 - T.
-  halfUWhiteFails(f.judge(render([&](float u, bool half) {
+  CHECK(verdicts(f.judge(render([&](float u, bool half) {
     return half ? std::max(0.f, 2.f * beer(u) - 1.f) : beer(u);
-  })));
+  })),
+            "halfU_white")
+      == noU);
   // The exponent's unitDistance under a square root (u/2 gives T^sqrt(2)).
-  halfUWhiteFails(f.judge(render([&](float u, bool half) {
+  CHECK(verdicts(f.judge(render([&](float u, bool half) {
     return half ? std::pow(beer(u), std::sqrt(2.f)) : beer(u);
-  })));
+  })),
+            "halfU_white")
+      == noU);
 }

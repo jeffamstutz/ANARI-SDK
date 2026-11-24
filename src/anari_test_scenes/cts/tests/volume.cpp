@@ -174,7 +174,7 @@ anari::World cellCenteredWorld(BuildContext &ctx, ViewAxis view)
   return world;
 }
 
-// ---- the unitDistance transmittance relation -------------------------------
+// ---- a slab's transmittance and the unitDistance relation ------------------
 //
 // The spec (5.12.1): the fraction of light absorbed while travelling
 // `unitDistance` through the volume is `opacity`, the particles' density
@@ -183,8 +183,9 @@ anari::World cellCenteredWorld(BuildContext &ctx, ViewAxis view)
 // squares it: T(u/2) = T(u)^2 (Appendix C's ray march, informative, gives the
 // same). A pixel through the slab is E + T B in linear colour, whatever the
 // slab emits (E) or the background is (B), so two backgrounds, black and
-// white, give T per pixel: T = P(white) - P(black). The u/2 render over white
-// must then be its render over black plus T(u)^2.
+// white, give T per pixel: T = P(white) - P(black). The u render over white
+// must then be its render over black plus (1 - opacity)^(L / u), and the u/2
+// render over white its render over black plus T(u)^2.
 
 // The slab: a uniform field over [-1, 1]^3, seen down -z (thickness 2) with
 // the volume equivalences' framing (VolumeScene.h). The opacity and
@@ -192,6 +193,7 @@ anari::World cellCenteredWorld(BuildContext &ctx, ViewAxis view)
 // well, and the dim colour keeps the emission from swamping T over white
 // (ADR-0010).
 constexpr float kSlabOpacity = 0.5f;
+constexpr float kSlabThickness = 2.f;
 const float3 kSlabColor(0.4f, 0.2f, 0.1f);
 
 // The `render` axis: unitDistance u or u/2, over a black or a white
@@ -245,11 +247,45 @@ anari::World unitDistanceSlab(BuildContext &ctx)
   return world;
 }
 
-// The u/2 render over white, from the other three (sRGB-encoded 8-bit, the
-// Test's colour format): per pixel and colour component, in linear colour,
-// P(u/2, black) + T(u)^2 with T(u) = P(u, white) - P(u, black). Judged only
-// a few pixels inside the slab's silhouette, where a pixel is wholly slab or
-// wholly background.
+// A pixel's 8-bit sRGB-encoded component (the Test's colour format) in
+// linear colour, and back.
+float linearOf(uint8_t v)
+{
+  return srgbDecodedValue(v / 255.f);
+}
+
+uint8_t encodedOf(float linear)
+{
+  return uint8_t(
+      std::lround(srgbEncodedValue(std::clamp(linear, 0.f, 1.f)) * 255.f));
+}
+
+// Judged only a few pixels inside the slab's silhouette, where a pixel is
+// wholly slab or wholly background.
+ExpectedImage insideSlab(Image image)
+{
+  const uint32_t w = image.width, h = image.height;
+  return maskedBy(std::move(image), volume_scene::interiorMask(w, h, 0.f));
+}
+
+// The u render over white, from the u render over black: per pixel and
+// colour component, in linear colour, P(u, black) + (1 - opacity)^(L / u).
+ExpectedImage uOverWhite(const Siblings &s)
+{
+  const float u = s.values().get<float>("u", 2.f);
+  const float t = std::pow(1.f - kSlabOpacity, kSlabThickness / u);
+  Image out = s.at(kUBlack);
+  for (size_t i = 0; i < out.rgba.size(); i += 4) {
+    for (size_t c = 0; c < 3; ++c)
+      out.rgba[i + c] = encodedOf(linearOf(out.rgba[i + c]) + t);
+    out.rgba[i + 3] = 255;
+  }
+  return insideSlab(std::move(out));
+}
+
+// The u/2 render over white, from the other three: per pixel and colour
+// component, in linear colour, P(u/2, black) + T(u)^2 with
+// T(u) = P(u, white) - P(u, black).
 ExpectedImage halfUOverWhite(const Siblings &s)
 {
   const Image &uBlack = s.at(kUBlack);
@@ -261,27 +297,24 @@ ExpectedImage halfUOverWhite(const Siblings &s)
   Image out = halfBlack;
   for (size_t i = 0; i < out.rgba.size(); i += 4) {
     for (size_t c = 0; c < 3; ++c) {
-      const float t = std::clamp(srgbDecodedValue(uWhite.rgba[i + c] / 255.f)
-              - srgbDecodedValue(uBlack.rgba[i + c] / 255.f),
+      const float t = std::clamp(
+          linearOf(uWhite.rgba[i + c]) - linearOf(uBlack.rgba[i + c]),
           0.f,
           1.f);
-      const float v = std::clamp(
-          srgbDecodedValue(halfBlack.rgba[i + c] / 255.f) + t * t, 0.f, 1.f);
-      out.rgba[i + c] = uint8_t(std::lround(srgbEncodedValue(v) * 255.f));
+      out.rgba[i + c] = encodedOf(linearOf(halfBlack.rgba[i + c]) + t * t);
     }
     out.rgba[i + 3] = 255;
   }
-  return maskedBy(std::move(out),
-      volume_scene::interiorMask(uBlack.width, uBlack.height, 0.f));
+  return insideSlab(std::move(out));
 }
 
 void registerUnitDistanceTest(Catalog &catalog)
 {
   makeTest("volume", "unit_distance_transmittance")
       .description(
-          "Checks that halving a volume's unitDistance squares a uniform "
-          "slab's transmittance, solved per pixel from renders over a black "
-          "and a white background.")
+          "Checks a uniform slab's transmittance, solved per pixel from "
+          "renders over a black and a white background: (1 - opacity)^(L / "
+          "unitDistance), and squared by halving unitDistance.")
       .build(unitDistanceSlab)
       .camera([](BuildContext &ctx, const scenes::Bounds &) {
         auto c = ctx.newCamera(volume_scene::viewCamera(ViewAxis::Z));
@@ -298,6 +331,11 @@ void registerUnitDistanceTest(Catalog &catalog)
       // T(u) = 0.5^(2/u): 0.5, 0.63 and 0.71; at u/2 0.25, 0.40 and 0.5.
       .permute("u", {2.f, 3.f, 4.f})
       .permute("render", {kUBlack, kUWhite, kHalfUBlack, kHalfUWhite})
+      .expectDerived("render",
+          kUWhite,
+          "the u render over black plus (1 - opacity)^(L/u), the "
+          "transmittance 5.12.1 gives (linear colour)",
+          uOverWhite)
       .expectDerived("render",
           kHalfUWhite,
           "the u/2 render over black plus T(u)^2, T(u) being the u render "

@@ -65,15 +65,17 @@ using BehaviorFn = std::function<BehaviorResult(anari::Device,
 
 // The renders a derived expectation is computed from (ADR-0010): the Case's
 // siblings on the axis (the Cases holding the same values on every other
-// axis), one Channel at a time.
+// axis), one Channel at a time, and the Case's own axis values.
 class Siblings
 {
  public:
   using Lookup = std::function<const Image &(const std::string &value)>;
 
-  Siblings(Channel channel, Lookup lookup)
-      : m_channel(channel), m_lookup(std::move(lookup))
+  // It keeps a reference to `values`: no temporaries.
+  Siblings(Channel channel, Lookup lookup, const BuildContext &values)
+      : m_channel(channel), m_lookup(std::move(lookup)), m_values(values)
   {}
+  Siblings(Channel, Lookup, BuildContext &&) = delete;
 
   // The image of the sibling holding `value` on the axis (its string form,
   // as in Case ids: "none" for unset). Throws when there is no such sibling
@@ -89,9 +91,17 @@ class Siblings
     return m_channel;
   }
 
+  // The Case's axis values (shared by its siblings on every other axis), for
+  // an expectation that depends on them: values().get<float>("u", 2.f).
+  const BuildContext &values() const
+  {
+    return m_values;
+  }
+
  private:
   Channel m_channel;
   Lookup m_lookup;
+  const BuildContext &m_values;
 };
 
 // A pure image function over a Case's siblings: the image (and optional mask)

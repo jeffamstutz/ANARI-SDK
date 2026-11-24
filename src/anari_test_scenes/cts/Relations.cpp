@@ -307,12 +307,16 @@ RelationOutcome equivalence(const TestDef &test,
   const DerivedFn &fn =
       expectation.declared ? expectation.declared->fn : identity;
 
+  BuildContext values;
+  for (const auto &cv : cases[later].values)
+    values.set(cv.axisName, cv.value);
+
   std::vector<ExpectedImage> expected(test.channels.size());
   try {
     for (channelIndex = 0; channelIndex < test.channels.size();
          ++channelIndex) {
       channel = test.channels[channelIndex];
-      expected[channelIndex] = fn(Siblings(channel, lookup));
+      expected[channelIndex] = fn(Siblings(channel, lookup, values));
       if (!expected[channelIndex].image.valid())
         throw SiblingUnavailable(std::string("the expectation gave no ")
             + channelName(channel) + " image");

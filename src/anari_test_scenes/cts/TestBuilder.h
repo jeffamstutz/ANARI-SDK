@@ -100,7 +100,8 @@ struct TestBuilder
       std::string axis, double maxFraction, int tau);
   // What `value` (its string form, as in Case ids) of `axis` must render:
   // an image function over its siblings (the Cases holding the same values
-  // on every other axis), compared with the equivalence tolerance. The
+  // on every other axis) and the Case's own values on those axes
+  // (Siblings::values()), compared with the equivalence tolerance. The
   // description says in one line what the expected image is. The value takes
   // no part in the axis's effect pairs. Throws std::invalid_argument for an
   // undeclared axis, a value the axis doesn't hold, or a repeated value.
