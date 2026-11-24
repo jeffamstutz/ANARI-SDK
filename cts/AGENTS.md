@@ -102,8 +102,8 @@ device's list, so nothing changes there.
 names another; `--device halcyon` without `-r` uses `preview` too, see
 `referenceRenderer()`), and helide's default renderer, with a notice, when
 halcyon can't be loaded (ADR-0005). It records the device, renderer and
-extensions in `ground_truth/reference.json` (failing, exit 1, if it can't),
-and refuses (exit 2, nothing written) when that
+extensions in the Reference record, `ground_truth/reference.json` (failing,
+exit 1, if it can't), and refuses (exit 2, nothing written) when that
 record names a different library, device subtype or renderer (the record
 also holds the renderer's own extensions, which its Cases gated on), unless
 `--replace` clears `ground_truth/` first; the same device regenerating a slice
@@ -242,7 +242,7 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   indistinguishable ones against the allow-list. The allow-list itself is
   `tests/IndistinguishableGroundTruth.cpp`.
 - `Reference.{h,cpp}` — the default Reference device and its helide fallback
-  (ADR-0005), and the record `generate` writes of the one it used
+  (ADR-0005), and the Reference record `generate` writes of the one it used
   (`ground_truth/reference.json`: library, device, renderer, extensions),
   with `referenceConflict()`, the reason `generate` refuses to mix devices in
   one workdir, and `clearGroundTruth()` for `--replace`; `run` reads the

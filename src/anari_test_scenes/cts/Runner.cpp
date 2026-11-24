@@ -692,8 +692,7 @@ RunSummary Runner::generate(const Catalog &catalog,
   if (!writeReference(m_workdir, reference)) {
     RunSummary failed = workdirFailureSummary(catalog, filter);
     failed.referenceRecordFailure = "could not write "
-        + m_workdir.referenceRecordPath().string()
-        + " (the record of the Reference device)";
+        + m_workdir.referenceRecordPath().string() + " (the Reference record)";
     return failed;
   }
   for (const TestDef *test : catalog.filter(filter))

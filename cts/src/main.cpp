@@ -550,6 +550,57 @@ int cmdCheckProperties(const Options &o)
   return 0;
 }
 
+// generate on a loaded Reference device; cmdGenerate owns the device and
+// releases it on every path.
+int generateWith(const Options &o,
+    anari::Library lib,
+    anari::Device d,
+    const std::string &deviceName)
+{
+  const std::string renderer = referenceRenderer(deviceName,
+      o.rendererGiven ? std::optional<std::string>(o.renderer) : std::nullopt);
+  const auto features = deviceExtensions(lib, "default");
+  const DeviceSpec device = runDeviceSpec(d, deviceName, renderer);
+  warnIfDenoiseUnsupported(device, features, o.denoise);
+
+  auto catalog = buildCatalog();
+  RunOptions ro;
+  ro.width = o.width;
+  ro.height = o.height;
+  ro.ambientRadiance = o.ambientRadiance;
+  ro.accumulationFrames = o.accumulationFrames;
+  ro.denoise = o.denoise;
+  ro.rendererParams = o.rendererParams;
+  ro.device = device;
+  ro.replaceGroundTruth = o.replaceGroundTruth;
+  Runner runner(d, Workdir(o.workdir), ro);
+
+  auto s = runner.generate(catalog, Filter{o.filter}, features);
+  if (!s.referenceConflict.empty()) {
+    std::cerr << "error: " << s.referenceConflict
+              << ". Pass --replace to clear it and generate afresh";
+    if (const auto earlier = readReference(Workdir(o.workdir)))
+      std::cerr << ", or generate with the recorded device (--device "
+                << earlier->library << " -r " << earlier->renderer << ")";
+    std::cerr << "\n";
+    return 2;
+  }
+  if (!s.referenceRecordFailure.empty()) {
+    std::cerr << "error: " << s.referenceRecordFailure << "\n";
+    return 1;
+  }
+  if (!s.deviceFailure.empty())
+    return deviceFailed("generate", deviceName, s.deviceFailure);
+  std::cout << "generate (" << deviceName << ", renderer " << renderer
+            << "): " << s.passed << " generated, " << s.skipped << " skipped, "
+            << s.failed << " failed (of " << s.total << ")\n";
+  if (s.variantDisagreements > 0)
+    std::cout << "  " << s.variantDisagreements
+              << " Variant equivalence(s) failed on the Reference device "
+                 "itself (see the warnings above)\n";
+  return s.failed > 0 ? 1 : 0;
+}
+
 int cmdGenerate(const Options &o)
 {
   // The default Reference device, or helide when it can't be loaded, so a
@@ -574,58 +625,10 @@ int cmdGenerate(const Options &o)
     d = loadDevice(deviceName, lib);
   if (!d)
     return 2;
-  const std::string renderer = referenceRenderer(deviceName,
-      o.rendererGiven ? std::optional<std::string>(o.renderer) : std::nullopt);
-  const auto features = deviceExtensions(lib, "default");
-  const DeviceSpec device = runDeviceSpec(d, deviceName, renderer);
-  warnIfDenoiseUnsupported(device, features, o.denoise);
-
-  auto catalog = buildCatalog();
-  RunOptions ro;
-  ro.width = o.width;
-  ro.height = o.height;
-  ro.ambientRadiance = o.ambientRadiance;
-  ro.accumulationFrames = o.accumulationFrames;
-  ro.denoise = o.denoise;
-  ro.rendererParams = o.rendererParams;
-  ro.device = device;
-  ro.replaceGroundTruth = o.replaceGroundTruth;
-  Runner runner(d, Workdir(o.workdir), ro);
-
-  auto s = runner.generate(catalog, Filter{o.filter}, features);
-  if (!s.referenceConflict.empty()) {
-    anari::release(d, d);
-    anari::unloadLibrary(lib);
-    std::cerr << "error: " << s.referenceConflict
-              << ". Pass --replace to clear it and generate afresh";
-    if (const auto earlier = readReference(Workdir(o.workdir)))
-      std::cerr << ", or generate with the recorded device (--device "
-                << earlier->library << " -r " << earlier->renderer << ")";
-    std::cerr << "\n";
-    return 2;
-  }
-  if (!s.referenceRecordFailure.empty()) {
-    anari::release(d, d);
-    anari::unloadLibrary(lib);
-    std::cerr << "error: " << s.referenceRecordFailure << "\n";
-    return 1;
-  }
-  if (!s.deviceFailure.empty()) {
-    anari::release(d, d);
-    anari::unloadLibrary(lib);
-    return deviceFailed("generate", deviceName, s.deviceFailure);
-  }
-  std::cout << "generate (" << deviceName << ", renderer " << renderer
-            << "): " << s.passed << " generated, " << s.skipped << " skipped, "
-            << s.failed << " failed (of " << s.total << ")\n";
-  if (s.variantDisagreements > 0)
-    std::cout << "  " << s.variantDisagreements
-              << " Variant equivalence(s) failed on the Reference device "
-                 "itself (see the warnings above)\n";
-
+  const int status = generateWith(o, lib, d, deviceName);
   anari::release(d, d);
   anari::unloadLibrary(lib);
-  return s.failed > 0 ? 1 : 0;
+  return status;
 }
 
 int cmdRun(const Options &o)

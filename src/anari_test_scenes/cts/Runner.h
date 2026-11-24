@@ -83,9 +83,10 @@ struct RunSummary
   // RunOptions::replaceGroundTruth was not set. When set, nothing was written
   // and the counts are zero.
   std::string referenceConflict;
-  // generate: why ground_truth/reference.json couldn't be written. When set,
-  // no Case was rendered and every selected Case counts as failed; it is set
-  // even when the filter selects none, so the caller can still fail.
+  // generate: why the Reference record (ground_truth/reference.json) couldn't
+  // be written. When set, no Case was rendered and every selected Case counts
+  // as failed; it is set even when the filter selects none, so the caller can
+  // still fail.
   std::string referenceRecordFailure;
 };
 

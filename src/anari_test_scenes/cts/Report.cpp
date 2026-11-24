@@ -160,8 +160,7 @@ std::optional<DeviceSpec> runDevice(
   if (devices.size() > 1) {
     warnings << "warning: mixed device identities in one run:";
     for (const auto &[id, dev] : devices)
-      warnings << " " << dev.library << " (" << dev.device << "/"
-               << dev.renderer << ")";
+      warnings << " " << deviceSpecLabel(dev);
     warnings << "\n";
     return std::nullopt;
   }
@@ -173,21 +172,24 @@ std::optional<DeviceSpec> runDevice(
 std::optional<DeviceSpec> runReference(
     const std::map<std::string, CaseResult> &results, std::ostream &warnings)
 {
-  std::set<std::tuple<std::string, std::string, std::string>> references;
+  std::map<std::tuple<std::string, std::string, std::string>, DeviceSpec>
+      references;
   for (const auto &[key, r] : results)
     if (!r.reference.library.empty())
       references.insert(
-          {r.reference.library, r.reference.device, r.reference.renderer});
+          {{r.reference.library, r.reference.device, r.reference.renderer},
+              DeviceSpec{r.reference.library,
+                  r.reference.device,
+                  r.reference.renderer}});
   if (references.size() > 1) {
     warnings << "warning: mixed Reference devices in one run:";
-    for (const auto &[library, device, renderer] : references)
-      warnings << " " << library << " (" << device << "/" << renderer << ")";
+    for (const auto &[id, reference] : references)
+      warnings << " " << deviceSpecLabel(reference);
     warnings << "\n";
   }
   if (references.size() != 1)
     return std::nullopt;
-  const auto &[library, device, renderer] = *references.begin();
-  return DeviceSpec{library, device, renderer};
+  return references.begin()->second;
 }
 
 std::string deviceLabel(const std::map<std::string, CaseResult> &results,

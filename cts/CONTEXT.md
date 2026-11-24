@@ -122,6 +122,16 @@ records which one it used; a Case needing an extension it lacks has no Ground
 truth, and the run says so.
 _Avoid_: golden device
 
+**Reference record**:
+`ground_truth/reference.json`, which `generate` writes: the Reference device
+it used (library, device subtype, renderer), the extensions the device
+advertised and those its renderer reported. A later `generate` with a
+different device, subtype or renderer is refused unless `--replace` clears
+`ground_truth/`; `generate` fails if the record can't be written; `run`
+copies the identity into each Sidecar and reads the extensions to say a Case
+lacks Ground truth because the Reference lacked one (ADR-0005).
+_Avoid_: reference file, reference metadata
+
 **Candidate**:
 The device being tested: against itself (its Cases' Assertions) and, for a
 Test that has Ground truth, against the Reference device's images.

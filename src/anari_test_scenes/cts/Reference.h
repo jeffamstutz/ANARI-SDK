@@ -10,8 +10,8 @@
 #include <string>
 
 // The Reference device (ADR-0005): the device `generate` renders Ground truth
-// with by default, and the record of the one it used. The record reads and
-// writes files only.
+// with by default, and the Reference record of the one it used. The record
+// reads and writes files only.
 namespace anari {
 namespace cts {
 

@@ -136,7 +136,8 @@ python cts/ctsReport.py report myrun --pdf myrun.pdf         # PDF, if you want 
 
 Use the same `--ambientRadiance` value for `generate` and `run`; it is part of
 the rendering configuration being compared. `generate` records the Reference
-device and renderer it used in `ground_truth/reference.json`; the report shows
+device and renderer it used in its Reference record,
+`ground_truth/reference.json`; the report shows
 it next to the Candidate, and a Case whose required extension the Reference
 lacks is reported as `reference device (<name>) lacks <extension>` rather than
 as needing `generate`. A workdir holds one device's Ground truth: `generate`

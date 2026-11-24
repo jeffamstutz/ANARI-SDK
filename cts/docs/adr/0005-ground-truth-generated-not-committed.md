@@ -37,7 +37,8 @@ halcyon's `quality` path tracer was not chosen: it is slower and converges by
 sampling. halcyon needs ISPC and is off by default (`BUILD_HALCYON_DEVICE`), so
 when it can't be loaded `generate` prints a notice and uses helide's default
 renderer, and a minimal SDK build still generates. `generate` records the
-device, renderer and advertised extensions in `ground_truth/reference.json`.
+device, renderer and advertised extensions in the Reference record,
+`ground_truth/reference.json`.
 `run` copies that identity into each Sidecar (`reference`, additive in v4) and
 the report shows it next to the Candidate. A Case whose required extension the
 Reference lacked is skipped with `no ground truth: reference device (<name>)
