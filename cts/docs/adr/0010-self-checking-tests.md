@@ -881,7 +881,8 @@ informative; the relation stands on 5.12.1.
     three input pixels anywhere within half a level of its true value, the
     expected pixel is off by at most 2.2 levels at these T and colours,
     under τ = 8. The dim colour keeps the emission from swamping T over
-    white: on its most affected component, unitDistance ignored (T(u/2) =
+    white: on its most affected component (the changed fraction takes a
+    pixel's largest per-channel difference), unitDistance ignored (T(u/2) =
     T(u)) misses the expected image by 27-41 levels and absorbance scaled
     linearly (1 - T(u/2) = 2 (1 - T(u))) by 13-65 levels (ranges over u).
     Unit tests (`tests/unit/test_cts_volumes.cpp`) run those two and a

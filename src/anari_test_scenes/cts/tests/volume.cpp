@@ -187,9 +187,10 @@ anari::World cellCenteredWorld(BuildContext &ctx, ViewAxis view)
 // must then be its render over black plus T(u)^2.
 
 // The slab: a uniform field over [-1, 1]^3, seen down -z (thickness 2) with
-// the volume Tests' framing (VolumeScene.h). The opacity and unitDistances
-// keep T within [0.25, 0.71], where the 8-bit images resolve it well, and the
-// dim colour keeps the emission from swamping T over white (ADR-0010).
+// the volume equivalences' framing (VolumeScene.h). The opacity and
+// unitDistances keep T within [0.25, 0.71], where the 8-bit images resolve it
+// well, and the dim colour keeps the emission from swamping T over white
+// (ADR-0010).
 constexpr float kSlabOpacity = 0.5f;
 const float3 kSlabColor(0.4f, 0.2f, 0.1f);
 
@@ -200,19 +201,36 @@ const char *const kUWhite = "u_white";
 const char *const kHalfUBlack = "halfU_black";
 const char *const kHalfUWhite = "halfU_white";
 
+// What a `render` value sets: unitDistance u/2 (else u), a white background
+// (else black).
+struct SlabRender
+{
+  bool halfU{false};
+  bool white{false};
+};
+
+SlabRender slabRender(const BuildContext &ctx)
+{
+  const std::string r = ctx.getString("render", kUBlack);
+  return {
+      r == kHalfUBlack || r == kHalfUWhite, r == kUWhite || r == kHalfUWhite};
+}
+
 anari::World unitDistanceSlab(BuildContext &ctx)
 {
   auto d = ctx.device();
+  // Any grid holds a uniform field; 9 vertices a side make the device march
+  // the slab in a few steps or more.
   constexpr uint32_t n = 9;
   auto field = anari::newObject<anari::SpatialField>(d, "structuredRegular");
   anari::setParameter(d, field, "origin", float3(-1.f));
   anari::setParameter(d, field, "spacing", float3(2.f / float(n - 1)));
+  // One value everywhere, mapped by the transfer function to kSlabOpacity.
   std::vector<float> data(size_t(n) * n * n, 0.5f);
   anari::setParameterArray3D(d, field, "data", data.data(), n, n, n);
   anari::commitParameters(d, field);
 
-  const std::string render = ctx.getString("render", kUBlack);
-  const bool half = render == kHalfUBlack || render == kHalfUWhite;
+  const bool half = slabRender(ctx).halfU;
   const float u = ctx.get<float>("u", 2.f);
 
   auto vol = anari::newObject<anari::Volume>(d, "transferFunction1D");
@@ -276,8 +294,7 @@ void registerUnitDistanceTest(Catalog &catalog)
         return c;
       })
       .renderer([](BuildContext &ctx, anari::Renderer r) {
-        const std::string render = ctx.getString("render", kUBlack);
-        const bool white = render == kUWhite || render == kHalfUWhite;
+        const bool white = slabRender(ctx).white;
         anari::setParameter(ctx.device(),
             r,
             "background",
