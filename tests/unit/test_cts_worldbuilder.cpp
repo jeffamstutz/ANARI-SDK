@@ -292,6 +292,34 @@ TEST_CASE("world-build helpers produce error-free worlds",
     anari::release(d, world);
   }
 
+  SECTION("the structuredRegular helper's field spans [-1, 1] on every axis")
+  {
+    // Whatever the vertex count, its first vertex sits at -1 and its last at
+    // 1 (helide's field bounds run from origin to origin + (n - 1) spacing).
+    const std::array<uint32_t, 3> dimensions[] = {
+        {3, 3, 3}, {8, 8, 8}, {2, 5, 33}};
+    for (const auto &dims : dimensions) {
+      INFO("dimensions=" << dims[0] << "x" << dims[1] << "x" << dims[2]);
+      status.errors = 0;
+      auto field = makeStructuredRegularField(d, dims);
+      auto volume = makeVolume(d, field);
+      WorldContents contents;
+      contents.volumes = {volume};
+      auto world = assembleWorld(d, contents);
+      const auto b = worldBounds(d, world);
+      CHECK(status.errors == 0);
+      CHECK(b[0].x == Approx(-1.f));
+      CHECK(b[0].y == Approx(-1.f));
+      CHECK(b[0].z == Approx(-1.f));
+      CHECK(b[1].x == Approx(1.f));
+      CHECK(b[1].y == Approx(1.f));
+      CHECK(b[1].z == Approx(1.f));
+      anari::release(d, field);
+      anari::release(d, volume);
+      anari::release(d, world);
+    }
+  }
+
   SECTION("an instanced surface world builds cleanly")
   {
     status.errors = 0;

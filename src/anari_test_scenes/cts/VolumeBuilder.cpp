@@ -19,11 +19,14 @@ anari::SpatialField newStructuredRegularField(
   auto spatialField =
       anari::newObject<anari::SpatialField>(d, "structuredRegular");
   const FieldFn &function = field ? field : FieldFn(radialDistanceField);
-  auto coordinate = [](uint32_t index, uint32_t dimension) {
-    return dimension > 1
-        ? 2.f * static_cast<float>(index) / static_cast<float>(dimension - 1)
-            - 1.f
-        : 0.f;
+  // Vertex i sits at origin + i x spacing and the field ends at the last
+  // one, so n vertices span [-1, 1] at spacing 2 / (n - 1).
+  const math::float3 spacing(
+      dimensions[0] > 1 ? 2.f / static_cast<float>(dimensions[0] - 1) : 0.f,
+      dimensions[1] > 1 ? 2.f / static_cast<float>(dimensions[1] - 1) : 0.f,
+      dimensions[2] > 1 ? 2.f / static_cast<float>(dimensions[2] - 1) : 0.f);
+  auto coordinate = [](uint32_t index, float axisSpacing) {
+    return -1.f + static_cast<float>(index) * axisSpacing;
   };
 
   std::vector<float> data;
@@ -32,20 +35,15 @@ anari::SpatialField newStructuredRegularField(
   for (uint32_t z = 0; z < dimensions[2]; ++z) {
     for (uint32_t y = 0; y < dimensions[1]; ++y) {
       for (uint32_t x = 0; x < dimensions[0]; ++x) {
-        data.push_back(function(math::float3(coordinate(x, dimensions[0]),
-            coordinate(y, dimensions[1]),
-            coordinate(z, dimensions[2]))));
+        data.push_back(function(math::float3(coordinate(x, spacing.x),
+            coordinate(y, spacing.y),
+            coordinate(z, spacing.z))));
       }
     }
   }
 
   anari::setParameter(d, spatialField, "origin", math::float3(-1.f));
-  anari::setParameter(d,
-      spatialField,
-      "spacing",
-      math::float3(dimensions[0] ? 2.f / dimensions[0] : 0.f,
-          dimensions[1] ? 2.f / dimensions[1] : 0.f,
-          dimensions[2] ? 2.f / dimensions[2] : 0.f));
+  anari::setParameter(d, spatialField, "spacing", spacing);
   anari::setParameterArray3D(d,
       spatialField,
       "data",

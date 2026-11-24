@@ -489,8 +489,7 @@ const std::vector<Allowance> &builtinIndistinguishableAllowList()
       {"volume/volume", "color", "vec3", "vec4", kWithinThresholds},
       {"volume/volume", "filter", "nearest", "linear", kNoFieldFilter},
       {"volume/volume", "opacity", "array", "scalar", kWithinThresholds},
-      {"volume/volume", "unitDistance", "none", "0.1", kWithinThresholds},
-      {"volume/volume", "valueRange", "none", "0.25-0.75", kWithinThresholds}};
+      {"volume/volume", "unitDistance", "none", "0.1", kWithinThresholds}};
   return list;
 }
 

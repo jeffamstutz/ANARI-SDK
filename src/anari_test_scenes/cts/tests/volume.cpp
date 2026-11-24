@@ -219,16 +219,11 @@ SlabRender slabRender(const BuildContext &ctx)
 anari::World unitDistanceSlab(BuildContext &ctx)
 {
   auto d = ctx.device();
+  // One value everywhere, mapped by the transfer function to kSlabOpacity.
   // Any grid holds a uniform field; 9 vertices a side make the device march
   // the slab in a few steps or more.
-  constexpr uint32_t n = 9;
-  auto field = anari::newObject<anari::SpatialField>(d, "structuredRegular");
-  anari::setParameter(d, field, "origin", float3(-1.f));
-  anari::setParameter(d, field, "spacing", float3(2.f / float(n - 1)));
-  // One value everywhere, mapped by the transfer function to kSlabOpacity.
-  std::vector<float> data(size_t(n) * n * n, 0.5f);
-  anari::setParameterArray3D(d, field, "data", data.data(), n, n, n);
-  anari::commitParameters(d, field);
+  auto field =
+      makeStructuredRegularField(d, {9, 9, 9}, [](float3) { return 0.5f; });
 
   const bool half = slabRender(ctx).halfU;
   const float u = ctx.get<float>("u", 2.f);

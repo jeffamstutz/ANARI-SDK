@@ -13,6 +13,7 @@
 #include "../LightBuilder.h"
 #include "../SurfaceBuilder.h"
 #include "../TestBuilder.h"
+#include "../VolumeBuilder.h"
 #include "../WorldBuilder.h"
 #include "Categories.h"
 #include "NanoVdbGrid.h"
@@ -962,20 +963,7 @@ void registerFieldTests(Catalog &catalog)
         auto d = ctx.device();
         // 33^3 vertices over [-1, 1]^3, each holding its distance from the
         // origin.
-        auto field =
-            anari::newObject<anari::SpatialField>(d, "structuredRegular");
-        constexpr uint32_t n = 33;
-        const float spacing = 2.f / float(n - 1);
-        std::vector<float> data;
-        for (uint32_t k = 0; k < n; ++k)
-          for (uint32_t j = 0; j < n; ++j)
-            for (uint32_t i = 0; i < n; ++i)
-              data.push_back(math::length(float3(
-                  -1.f + i * spacing, -1.f + j * spacing, -1.f + k * spacing)));
-        anari::setParameter(d, field, "origin", float3(-1.f));
-        anari::setParameter(d, field, "spacing", float3(spacing));
-        anari::setParameterArray3D(d, field, "data", data.data(), n, n, n);
-        anari::commitParameters(d, field);
+        auto field = makeStructuredRegularField(d, {33, 33, 33});
         auto geom = anari::newObject<anari::Geometry>(d, "isosurface");
         anari::setParameter(d, geom, "field", field);
         if (ctx.getString("isovalue", "array") == "scalar") {
