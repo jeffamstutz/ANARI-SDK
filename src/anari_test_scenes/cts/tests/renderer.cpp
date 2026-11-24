@@ -67,23 +67,13 @@ void backgroundIsWhatWasSet(ExactCheck &x)
       3.0);
 }
 
-// An empty world: the background-only tests render no geometry.
-anari::World emptyWorld(BuildContext &ctx)
-{
-  return assembleWorld(ctx.device(), WorldContents{});
-}
-
 // A flat, head-on lit surface filling the frame of the screen camera.
 anari::World flatSurfaceWorld(BuildContext &ctx)
 {
   auto d = ctx.device();
   auto geom = makeScreenQuad(d);
-  auto mat = makeMatteMaterial(d, float3(0.7f, 0.5f, 0.3f));
-  auto surface = makeSurface(d, geom, mat);
-  auto world = makeScreenQuadWorld(d, surface);
+  auto world = makeMatteScreenQuadWorld(d, geom, float3(0.7f, 0.5f, 0.3f));
   anari::release(d, geom);
-  anari::release(d, mat);
-  anari::release(d, surface);
   return world;
 }
 
@@ -111,12 +101,7 @@ void flatSurfaceRenders(ExactCheck &x)
 
 // KHR_RENDERER_DENOISE adds `denoise` (BOOL) to the renderer; some renderer
 // subtype must list it.
-BehaviorResult checkDenoiseParameter(anari::Device d,
-    anari::World,
-    anari::Camera,
-    anari::Renderer,
-    uint32_t,
-    uint32_t)
+BehaviorResult checkDenoiseParameter(anari::Device d)
 {
   std::string checked;
   const char **subtypes = anariGetObjectSubtypes(d, ANARI_RENDERER);
@@ -230,7 +215,7 @@ void registerRendererTests(Catalog &catalog)
           "Checks that the device's introspection lists the renderer's "
           "denoise parameter.")
       .build(emptyWorld)
-      .behavior(checkDenoiseParameter)
+      .behavior(queryCheck(checkDenoiseParameter))
       .covers("ANARI_KHR_RENDERER_DENOISE")
       .requireFeature(kSupportPerspective)
       .registerInto(catalog);

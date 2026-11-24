@@ -52,5 +52,10 @@ anari::Camera makeScreenQuadCamera(anari::Device d);
 // so every point of the quad is shaded alike.
 anari::World makeScreenQuadWorld(anari::Device d, anari::Surface surface);
 
+// makeScreenQuadWorld() of `geometry` (not released) with a matte `color`
+// material, for the screen camera: a flat, head-on lit surface.
+anari::World makeMatteScreenQuadWorld(
+    anari::Device d, anari::Geometry geometry, anari::math::float3 color);
+
 } // namespace cts
 } // namespace anari

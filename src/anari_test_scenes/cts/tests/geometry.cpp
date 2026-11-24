@@ -628,12 +628,8 @@ anari::Geometry regionTriangleGeometry(
 // The world of one geometry, lit head-on, for the screen camera.
 anari::World regionWorld(anari::Device d, anari::Geometry geom)
 {
-  auto mat = makeMatteMaterial(d, float3(0.7f, 0.5f, 0.3f));
-  auto surface = makeSurface(d, geom, mat);
-  auto world = makeScreenQuadWorld(d, surface);
+  auto world = makeMatteScreenQuadWorld(d, geom, float3(0.7f, 0.5f, 0.3f));
   anari::release(d, geom);
-  anari::release(d, mat);
-  anari::release(d, surface);
   return world;
 }
 

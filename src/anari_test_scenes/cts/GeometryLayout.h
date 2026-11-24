@@ -7,6 +7,7 @@
 #include "anari/anari_cpp.hpp"
 #include "anari/anari_cpp/ext/linalg.h"
 // std
+#include <array>
 #include <cstdint>
 #include <string_view>
 #include <vector>
@@ -67,11 +68,9 @@ struct SegmentLayout
   std::vector<uint2> indices;
 };
 
-PrimitiveMode parsePrimitiveMode(
-    std::string_view mode);
+PrimitiveMode parsePrimitiveMode(std::string_view mode);
 
-TriangleLayout makeTriangleLayout(
-    TriangleShape shape,
+TriangleLayout makeTriangleLayout(TriangleShape shape,
     PrimitiveMode mode,
     int primitiveCount,
     bool unusedVertices = false);
@@ -90,11 +89,16 @@ CurveLayout makeCurveLayout(
 SegmentLayout makeSegmentLayout(
     PrimitiveMode mode, int primitiveCount, bool unusedVertices = false);
 
+// An equilateral triangle in the plane of `center` (constant z), pointing up
+// (+y): its top vertex `circumradius` above the centre, the other two below it
+// and to its left and right, in that order.
+std::array<math::float3, 3> equilateralTriangle(
+    math::float3 center, float circumradius);
+
 // The canonical equilateral-triangle Layout: three vertices per triangle in
 // soup order. Material tests use it to add their own attribute arrays without
 // depending on ANARI object publication.
-std::vector<math::float3> layoutTriangleSoup(
-    int primitiveCount);
+std::vector<math::float3> layoutTriangleSoup(int primitiveCount);
 
 } // namespace cts
 } // namespace anari

@@ -252,9 +252,10 @@ bool onQuadLight(float2 s)
 }
 
 // A ring light (a disc, with its default innerRadius 0) above the surface,
-// tilted so the camera and the surface are both inside its emission cone.
+// tilted so the camera and the surface are both inside its emission cone: it
+// faces 60 degrees from +z toward -y, (0, -sin 60, cos 60).
 const float3 kRingLightPosition(0.f, 0.2f, 0.5f);
-const float3 kRingLightDirection(0.f, -0.8660254f, 0.5f);
+const float3 kRingLightDirection(0.f, -std::sqrt(3.f) / 2.f, 0.5f);
 constexpr float kRingLightRadius = 0.2f;
 
 bool onRingLight(float2 s)

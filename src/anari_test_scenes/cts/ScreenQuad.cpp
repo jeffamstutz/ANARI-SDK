@@ -3,6 +3,7 @@
 
 #include "ScreenQuad.h"
 #include "LightBuilder.h"
+#include "SurfaceBuilder.h"
 #include "WorldBuilder.h"
 // std
 #include <array>
@@ -110,6 +111,17 @@ anari::World makeScreenQuadWorld(anari::Device d, anari::Surface surface)
   wc.lights = {light};
   auto world = assembleWorld(d, wc);
   anari::release(d, light);
+  return world;
+}
+
+anari::World makeMatteScreenQuadWorld(
+    anari::Device d, anari::Geometry geometry, float3 color)
+{
+  auto mat = makeMatteMaterial(d, color);
+  auto surface = makeSurface(d, geometry, mat);
+  auto world = makeScreenQuadWorld(d, surface);
+  anari::release(d, mat);
+  anari::release(d, surface);
   return world;
 }
 

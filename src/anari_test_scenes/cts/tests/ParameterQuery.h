@@ -3,9 +3,12 @@
 
 #pragma once
 
+#include "../TestDef.h"
 #include "anari/anari_cpp.hpp"
 // std
 #include <cstring>
+#include <functional>
+#include <utility>
 
 // Query-level checks: what a device's introspection says an object accepts.
 namespace anari {
@@ -28,6 +31,19 @@ inline bool listsParameter(anari::Device d,
         && parameters[i].type == type)
       return true;
   return false;
+}
+
+// A behaviour check that asks only the device's introspection, as the
+// BehaviorFn a query-only Test declares (with emptyWorld() as its build): the
+// world, camera, renderer and frame size the runner passes go unused.
+inline BehaviorFn queryCheck(std::function<BehaviorResult(anari::Device)> fn)
+{
+  return [fn = std::move(fn)](anari::Device d,
+             anari::World,
+             anari::Camera,
+             anari::Renderer,
+             uint32_t,
+             uint32_t) { return fn(d); };
 }
 
 } // namespace cts

@@ -60,15 +60,13 @@ mat4 placement(float x, float y, float angle, float scale)
       float4(x, y, 0.f, 1.f));
 }
 
-constexpr float kPi = 3.14159265f;
-
 // The four matrices of the Tests, one per quadrant.
 std::vector<mat4> quadrantMatrices()
 {
   return {placement(-0.5f, 0.5f, 0.f, 1.f),
-      placement(0.5f, 0.5f, 0.5f * kPi, 1.4f),
-      placement(-0.5f, -0.5f, kPi, 1.f),
-      placement(0.5f, -0.5f, -0.25f * kPi, 1.8f)};
+      placement(0.5f, 0.5f, 0.5f * float(M_PI), 1.4f),
+      placement(-0.5f, -0.5f, float(M_PI), 1.f),
+      placement(0.5f, -0.5f, -0.25f * float(M_PI), 1.8f)};
 }
 
 // Their instance ids when a Case gives one per instance, and the one id a

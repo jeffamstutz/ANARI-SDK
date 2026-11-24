@@ -11,6 +11,8 @@
 namespace anari {
 namespace cts {
 
+struct BuildContext;
+
 struct WorldContents
 {
   std::vector<anari::Surface> surfaces;
@@ -19,11 +21,13 @@ struct WorldContents
   std::vector<anari::Instance> instances;
 };
 
-anari::World assembleWorld(
-    anari::Device d, const WorldContents &contents);
+anari::World assembleWorld(anari::Device d, const WorldContents &contents);
 
-anari::scenes::Bounds worldBounds(
-    anari::Device d, anari::World world);
+// A committed world with nothing in it, as a Test's build: for Tests that
+// render only the background, and for query-only Tests, which render nothing.
+anari::World emptyWorld(BuildContext &ctx);
+
+anari::scenes::Bounds worldBounds(anari::Device d, anari::World world);
 
 } // namespace cts
 } // namespace anari

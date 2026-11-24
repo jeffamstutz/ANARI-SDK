@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "../GeometryLayout.h"
 #include "anari/anari_cpp/ext/linalg.h"
 // std
 #include <array>
@@ -21,17 +22,13 @@ namespace cts {
 
 using Triangle = std::array<math::float3, 3>;
 
-// A triangle in the plane z = 0 pointing up, centred at screen (sx, sy);
-// `halfSize` is in screen units (the frame is 1 across).
+// The Layout's equilateral triangle (equilateralTriangle()) in the plane
+// z = 0, centred at screen (sx, sy); `halfSize` (its circumradius) is in screen
+// units (the frame is 1 across).
 inline Triangle screenTriangle(float sx, float sy, float halfSize)
 {
-  constexpr float kSqrt3Over2 = 0.8660254f;
-  const float cx = 2.f * sx - 1.f;
-  const float cy = 2.f * sy - 1.f;
-  const float h = 2.f * halfSize;
-  return {math::float3(cx, cy + h, 0.f),
-      math::float3(cx - kSqrt3Over2 * h, cy - 0.5f * h, 0.f),
-      math::float3(cx + kSqrt3Over2 * h, cy - 0.5f * h, 0.f)};
+  return equilateralTriangle(
+      math::float3(2.f * sx - 1.f, 2.f * sy - 1.f, 0.f), 2.f * halfSize);
 }
 
 // The vertices of `triangles` as a triangle soup.

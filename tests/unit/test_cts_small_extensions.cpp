@@ -287,7 +287,7 @@ std::vector<Tri> quadrantTriangles()
   {
     float x, y, angle, scale;
   };
-  const float pi = 3.14159265f;
+  const float pi = float(M_PI);
   const Placement placements[4] = {{-0.5f, 0.5f, 0.f, 1.f},
       {0.5f, 0.5f, 0.5f * pi, 1.4f},
       {-0.5f, -0.5f, pi, 1.f},

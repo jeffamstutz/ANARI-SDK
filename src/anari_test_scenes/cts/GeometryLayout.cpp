@@ -288,6 +288,16 @@ PrimitiveMode parsePrimitiveMode(std::string_view mode)
       "unknown geometry primitive mode '" + std::string(mode) + "'");
 }
 
+std::array<math::float3, 3> equilateralTriangle(
+    math::float3 center, float circumradius)
+{
+  constexpr float kSqrt3Over2 = 0.8660254f; // sqrt(3) / 2, i.e. cos 30 deg
+  const float r = circumradius;
+  return {center + math::float3(0.f, r, 0.f),
+      center + math::float3(-r * kSqrt3Over2, -r * 0.5f, 0.f),
+      center + math::float3(r * kSqrt3Over2, -r * 0.5f, 0.f)};
+}
+
 std::vector<math::float3> layoutTriangleSoup(int primitiveCount)
 {
   validateSpecification(primitiveCount, PrimitiveMode::Soup, false);
@@ -295,13 +305,8 @@ std::vector<math::float3> layoutTriangleSoup(int primitiveCount)
   std::vector<math::float3> positions;
   positions.reserve(static_cast<size_t>(primitiveCount) * 3);
   for (int i = 0; i < primitiveCount; ++i) {
-    const math::float3 center = cellCenter(i, grid);
-    constexpr float kSqrt3Over2 = 0.8660254f;
-    positions.push_back(center + math::float3(0.f, kHalf, 0.f));
-    positions.push_back(
-        center + math::float3(-kHalf * kSqrt3Over2, -kHalf * 0.5f, 0.f));
-    positions.push_back(
-        center + math::float3(kHalf * kSqrt3Over2, -kHalf * 0.5f, 0.f));
+    const auto t = equilateralTriangle(cellCenter(i, grid), kHalf);
+    positions.insert(positions.end(), t.begin(), t.end());
   }
   return positions;
 }

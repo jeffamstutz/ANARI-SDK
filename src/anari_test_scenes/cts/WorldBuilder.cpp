@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "WorldBuilder.h"
+#include "BuildContext.h"
 
 namespace anari {
 namespace cts {
@@ -37,6 +38,11 @@ anari::World assembleWorld(anari::Device d, const WorldContents &contents)
   }
   anari::commitParameters(d, world);
   return world;
+}
+
+anari::World emptyWorld(BuildContext &ctx)
+{
+  return assembleWorld(ctx.device(), WorldContents{});
 }
 
 scenes::Bounds worldBounds(anari::Device d, anari::World world)

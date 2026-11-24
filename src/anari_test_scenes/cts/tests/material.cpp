@@ -123,7 +123,7 @@ anari::Geometry materialBaseGeometry(anari::Device d, int count)
 anari::Geometry materialSphereGeometry(anari::Device d)
 {
   constexpr int kLon = 32, kLat = 16;
-  constexpr float kPi = 3.14159265358979f;
+  constexpr float kPi = float(M_PI);
   auto point = [](int i, int j) {
     const float u = float(i) / kLon, v = float(j) / kLat;
     const float phi = 2.f * kPi * u, theta = kPi * v;

@@ -537,12 +537,7 @@ BehaviorResult checkProgressiveRendering(anari::Device d,
 // Rendering with it takes MPI ranks rendering in lockstep, which anariCts
 // doesn't run (the ptc device's own tests, ptc_*, do under mpiexec), so this
 // checks only what a device says it accepts.
-BehaviorResult checkMpiCommunicatorParameter(anari::Device d,
-    anari::World,
-    anari::Camera,
-    anari::Renderer,
-    uint32_t,
-    uint32_t)
+BehaviorResult checkMpiCommunicatorParameter(anari::Device d)
 {
   const bool listed = listsParameter(
       d, ANARI_FRAME, nullptr, "mpiCommunicator", ANARI_VOID_POINTER);
@@ -825,12 +820,10 @@ void registerFrameTests(Catalog &catalog)
       .description(
           "Checks that the device's introspection lists the frame's "
           "mpiCommunicator parameter.")
-      .build([](BuildContext &ctx) {
-        return triangleSurfaceWorld(ctx, float3(0.7f, 0.5f, 0.3f), 1);
-      })
-      .behavior(checkMpiCommunicatorParameter)
+      .build(emptyWorld)
+      .behavior(queryCheck(checkMpiCommunicatorParameter))
       .covers("ANARI_KHR_DATA_PARALLEL_MPI")
-      .requireFeatures(kSupportMatteTriangle)
+      .requireFeature(kSupportPerspective)
       .registerInto(catalog);
 }
 
