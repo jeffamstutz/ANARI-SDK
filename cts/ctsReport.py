@@ -19,8 +19,12 @@ The sidecar schema is versioned (schemaVersion); this reader targets version 4
 requiredFeatures, coveredFeatures, missingFeatures, device.extensions and
 catalogCoveredFeatures, the last only for the C++ report's per-extension
 matrix; v4 the self-checks: an `assertions` array, `resultImages`, and
-usesGroundTruth/groundTruthEvaluated/groundTruthReason) and warns on a
-mismatch. A failed assertion is printed as detail text, whatever its kind; no
+usesGroundTruth/groundTruthEvaluated/groundTruthReason; additive to v4:
+`reference` and `referenceMissingFeatures`, the Reference device and the
+extensions it lacked, and `device.rendererExtensions` and
+`rendererMissingFeatures`, what the run's renderer reported of itself and the
+missing extensions it lacked though the device advertised them; this reader
+shows them only through `skipReason`) and warns on a mismatch. A failed assertion is printed as detail text, whatever its kind; no
 image layout is done for it.
 """
 

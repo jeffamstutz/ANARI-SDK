@@ -118,7 +118,7 @@ anariCts check-properties helide --filter frame
 [run ] frame/frame_completion_callback
 [skip] frame/progressive_rendering  missing: ANARI_KHR_FRAME_ACCUMULATION
 ...
-13 runnable, 3 skipped on 'helide'
+13 runnable, 3 skipped on 'helide' (renderer default)
 ```
 
 ## List the extensions a device implements

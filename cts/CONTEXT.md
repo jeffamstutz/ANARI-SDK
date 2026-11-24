@@ -127,6 +127,17 @@ The device being tested: against itself (its Cases' Assertions) and, for a
 Test that has Ground truth, against the Reference device's images.
 _Avoid_: device under test, SUT
 
+**Advertised extensions**:
+The extensions a device reports (`anariGetDeviceExtensions`): what the
+Report's matrix calls "advertised". A Case runs only when the run's
+renderer has every extension it requires: the extensions the selected
+renderer reports of itself when it reports any, else the device's. A
+renderer can honour less than its device (halcyon's `preview` lacks depth of
+field and accumulation that the device advertises for `quality`); a Case
+needing such an extension is skipped as the renderer's gap ("renderer
+preview lacks ..."), not the device's (ADR-0005).
+_Avoid_: features (in prose; the code's `requiredFeatures` predates it)
+
 **Ground truth**:
 The expected reference image(s) a Case is compared against, produced by the
 Reference device. Optional per Test: declared with `.groundTruth(reason)`
@@ -168,8 +179,10 @@ verdict); a run whose device renders the Probe frame removes it.
 The machine-readable JSON file the C++ runner writes next to a Case's images:
 which axis values it ran, its per-channel metric scores and pass/fail verdict,
 its Assertions and whether its Ground truth was evaluated,
-any skip reason, timing, image paths, the producing device's identity and the
-extensions it advertised, the Test's required, primary and missing extensions,
+any skip reason, timing, image paths, the producing device's identity, the
+extensions it advertised and those its renderer reported, the Test's
+required, primary and missing extensions (and which of them only the
+renderer lacked),
 and the extensions the run's whole Catalog has a Test for. One per Case.
 _Avoid_: manifest, results file
 
@@ -189,7 +202,8 @@ Both include a per-extension matrix: for every canonical KHR extension, whether
 the device advertised it, the passed/failed/skipped Cases it is primary for, and
 a state (`passed` only when every Case was fully scored, `passed, Ground truth
 not evaluated`, `advertised, partly scored`, `failed`, `not advertised`,
-`advertised, no Ground truth`, `advertised, Reference device lacks it`, ...; `no Test` when the run's Catalog, as its
+`advertised, no Ground truth`, `advertised, Reference device lacks it`,
+`advertised, renderer lacks it`, ...; `no Test` when the run's Catalog, as its
 Sidecars record it, has no Test covering it), classified from the Cases'
 verdicts and Ground-truth flags. A leading `core` row counts the Cases of Tests
 that cover no extension. The text summary counts failures by kind (effect,

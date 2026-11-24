@@ -56,3 +56,25 @@ device. `--replace` clears `ground_truth/` first and then generates, so the
 record and the files agree. The same device regenerating (e.g. a `--filter`
 slice) adds to and overwrites its own Ground truth as before. A workdir with no
 record (older than the record) is not checked.
+
+**Update (Cases gate on the run's renderer):** a renderer may report its own
+extensions (object introspection's `extension`, or the renderer's
+`extension` property), and may honour less than its device: halcyon's
+device list is the union of its renderers', and `preview` doesn't claim
+`KHR_CAMERA_DEPTH_OF_FIELD` or `KHR_FRAME_ACCUMULATION`. `run`, `generate`
+and `check-properties` gate Cases (and per-Case gating) on the selected
+renderer's list when it reports one, and on the device's when it reports
+nothing (`RendererExtensions.h`); helide's renderer reports the device's
+list, so it behaves as before. Accumulation is gated the same way. A Case
+needing an extension the device advertises but the renderer lacks is
+skipped as `renderer <subtype> lacks a required feature: <extension>`, with
+the subtype resolved (`default` is the device's first renderer when it
+doesn't list `default`, so halcyon's reads `preview`); the Sidecar records
+the renderer's list (`device.rendererExtensions`) and those Cases' gap
+(`rendererMissingFeatures`), both additive in v4, and the matrix state is
+`advertised, renderer lacks it`. `generate` decides which Cases the
+Reference can render from the Reference renderer's list and records it in
+`reference.json` (`rendererExtensions`), so `run` says a Case lacks Ground
+truth because the Reference renderer lacked an extension even when its
+device advertises it. "Advertised" in the matrix still means the device
+advertises it.

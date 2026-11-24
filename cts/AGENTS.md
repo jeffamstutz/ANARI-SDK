@@ -90,11 +90,20 @@ only a Case with nothing to evaluate is skipped. `generate` writes a Variant's
 shared ground-truth file from its first value's Case, skips `.noGroundTruth()`
 Tests, and warns when the reference device's own Variants disagree.
 
+`run`, `generate` and `check-properties` gate Cases on the selected
+renderer's own extensions when it reports any, else on the device's
+(`RendererExtensions.h`, ADR-0005): `anariCts run halcyon` (renderer
+`preview`) skips `camera/depth_of_field` as `renderer preview lacks a
+required feature: ANARI_KHR_CAMERA_DEPTH_OF_FIELD` (matrix state `advertised,
+renderer lacks it`), and `-r quality` runs it. helide's renderer reports the
+device's list, so nothing changes there.
+
 `generate` without `--device` uses halcyon's `preview` renderer (unless `-r`
 names another), and helide's default renderer, with a notice, when halcyon
 can't be loaded (ADR-0005). It records the device, renderer and extensions in
 `ground_truth/reference.json`, and refuses (exit 2, nothing written) when that
-record names a different library, device subtype or renderer, unless
+record names a different library, device subtype or renderer (the record
+also holds the renderer's own extensions, which its Cases gated on), unless
 `--replace` clears `ground_truth/` first; the same device regenerating a slice
 keeps the rest (`RunOptions::replaceGroundTruth`,
 `RunSummary::referenceConflict`). `run` copies the identity into every Sidecar
@@ -197,6 +206,14 @@ ctsReport.py              reads the results tree too; retained only for the PDF
   It drives an `AccumulationTarget`, so stub frames unit-test it.
 - `FrameFormats.{h,cpp}` — resolves a Case's per-Channel output `ANARIDataType`
   from its `frame_<channel>_type` axis (color/albedo/normal); pure + unit-tested.
+- `RendererExtensions.{h,cpp}` — what a run gates Cases on (ADR-0005): the
+  selected renderer's own extensions (`queryRendererExtensions`: object
+  introspection, else the renderer's `extension` property) when it reports
+  any, else the device's (`gatingExtensions`, pure), which of a Case's
+  missing extensions only the renderer lacks (`rendererMissingFeatures`), the
+  skip reason naming the renderer (`featureSkipReason`), and the subtype
+  `default` creates (`resolveRendererSubtype`). `anariCts` fills
+  `RunOptions::device.rendererExtensions`; the Runner gates and records.
 - `RendererParams.{h,cpp}` — pure parsing of CLI `--renderer-param NAME=VALUE`
   overrides into ANARI-typed bytes (unit-tested). The runner resolves each
   name's type from device introspection (falling back to inference) and sets it
@@ -321,7 +338,9 @@ the light's footprint, the default render elsewhere).
 
 **Unit tests:** `tests/unit/test_cts_*.cpp` (catalog/expansion/filter/builder,
 metrics, relations, discrimination, frame accumulation, results/sidecar/workdir,
-report/html, runner, isolation; `motion` judges the motion and shutter Tests
+report/html, runner, isolation, renderer extensions (its halcyon case is
+hidden, `anariCatalogTests "[halcyon]"` with halcyon on the loader path);
+`motion` judges the motion and shutter Tests
 on synthetic images, as `optics` does the depth-of-field and stereo Tests;
 `volumes` reads a built NanoVDB grid back and judges the spatial field
 Tests on synthetic images;
@@ -464,4 +483,8 @@ and exact checks added `exact` assertions (`label`, `pixels` or
 `measurement`); no older Sidecar can hold either, so neither needed a bump.
 The Reference device added `reference` (whose Ground truth the run read) and
 `referenceMissingFeatures` (ADR-0005); an older Sidecar reads as "Reference
-unknown", which is what it was.
+unknown", which is what it was. Renderer-level gating added
+`device.rendererExtensions` (what the run's renderer reported) and
+`rendererMissingFeatures` (the missing extensions the device advertised but
+the renderer lacked); an older Sidecar gated on the device alone, which is
+what their absence means.

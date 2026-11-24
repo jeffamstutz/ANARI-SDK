@@ -188,6 +188,10 @@ anariCts query-metadata --filter frame    # descriptions and catalog metadata as
 device — a Test is skipped when the device is missing any of its required
 extensions. A Test whose Cases need different extensions is gated per Case:
 `check-properties` shows it as `[run ]  (3 of 5 Cases skipped)  missing: <ext>`.
+When the selected renderer (`-r`) reports its own extensions, Cases gate on
+those instead, and an extension the device has but the renderer lacks shows
+as `renderer <subtype> lacks: <ext>` (halcyon's `preview` lacks depth of
+field and accumulation, which its `quality` renderer has).
 
 ## Reporting
 

@@ -664,7 +664,11 @@ parameters and a line of description, no model, so each check holds under
 every reasonable reading. Depth of field was run on the installed devices
 that advertise it (halcyon, visrtx, barney, visionaray; results in ticket
 10's answer); stereo, which no installed device advertises, is validated by
-synthetic images (`tests/unit/test_cts_optics.cpp`).
+synthetic images (`tests/unit/test_cts_optics.cpp`). Cases gate on the run's
+renderer's own extensions when it reports any (ADR-0005), so halcyon's
+`preview`, which doesn't claim depth of field, skips these Tests as
+"renderer preview lacks ..."; `-r quality` runs them (6/6 at
+`--accumulation 256`).
 
 51. **Depth of field is judged by edge width, unit-free.** A bright square
     in a dark border (so its edges lie in its plane and the background is
