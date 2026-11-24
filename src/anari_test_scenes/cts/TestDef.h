@@ -91,8 +91,8 @@ class Siblings
     return m_channel;
   }
 
-  // The Case's axis values (shared by its siblings on every other axis), for
-  // an expectation that depends on them: values().get<float>("u", 2.f).
+  // The Case's axis values (its siblings share all but this axis's), for an
+  // expectation that depends on them: values().get<float>("u", 2.f).
   const BuildContext &values() const
   {
     return m_values;

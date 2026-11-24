@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <functional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -260,12 +261,21 @@ uint8_t encodedOf(float linear)
       std::lround(srgbEncodedValue(std::clamp(linear, 0.f, 1.f)) * 255.f));
 }
 
-// Judged only a few pixels inside the slab's silhouette, where a pixel is
-// wholly slab or wholly background.
-ExpectedImage insideSlab(Image image)
+// An expected image the size of `base`: each colour component k (an index
+// into rgba) is `linear(k)`, encoded, and alpha is opaque. Judged only a few
+// pixels inside the slab's silhouette, where a pixel is wholly slab or wholly
+// background.
+ExpectedImage insideSlab(
+    const Image &base, const std::function<float(size_t k)> &linear)
 {
-  const uint32_t w = image.width, h = image.height;
-  return maskedBy(std::move(image), volume_scene::interiorMask(w, h, 0.f));
+  Image out = base;
+  for (size_t i = 0; i < out.rgba.size(); i += 4) {
+    for (size_t k = i; k < i + 3; ++k)
+      out.rgba[k] = encodedOf(linear(k));
+    out.rgba[i + 3] = 255;
+  }
+  return maskedBy(
+      std::move(out), volume_scene::interiorMask(base.width, base.height, 0.f));
 }
 
 // The u render over white, from the u render over black: per pixel and
@@ -274,13 +284,9 @@ ExpectedImage uOverWhite(const Siblings &s)
 {
   const float u = s.values().get<float>("u", 2.f);
   const float t = std::pow(1.f - kSlabOpacity, kSlabThickness / u);
-  Image out = s.at(kUBlack);
-  for (size_t i = 0; i < out.rgba.size(); i += 4) {
-    for (size_t c = 0; c < 3; ++c)
-      out.rgba[i + c] = encodedOf(linearOf(out.rgba[i + c]) + t);
-    out.rgba[i + 3] = 255;
-  }
-  return insideSlab(std::move(out));
+  const Image &uBlack = s.at(kUBlack);
+  return insideSlab(
+      uBlack, [&](size_t k) { return linearOf(uBlack.rgba[k]) + t; });
 }
 
 // The u/2 render over white, from the other three: per pixel and colour
@@ -294,18 +300,11 @@ ExpectedImage halfUOverWhite(const Siblings &s)
   if (uWhite.width != uBlack.width || uWhite.height != uBlack.height
       || halfBlack.width != uBlack.width || halfBlack.height != uBlack.height)
     throw std::runtime_error("the u and u/2 renders differ in size");
-  Image out = halfBlack;
-  for (size_t i = 0; i < out.rgba.size(); i += 4) {
-    for (size_t c = 0; c < 3; ++c) {
-      const float t = std::clamp(
-          linearOf(uWhite.rgba[i + c]) - linearOf(uBlack.rgba[i + c]),
-          0.f,
-          1.f);
-      out.rgba[i + c] = encodedOf(linearOf(halfBlack.rgba[i + c]) + t * t);
-    }
-    out.rgba[i + 3] = 255;
-  }
-  return insideSlab(std::move(out));
+  return insideSlab(halfBlack, [&](size_t k) {
+    const float t = std::clamp(
+        linearOf(uWhite.rgba[k]) - linearOf(uBlack.rgba[k]), 0.f, 1.f);
+    return linearOf(halfBlack.rgba[k]) + t * t;
+  });
 }
 
 void registerUnitDistanceTest(Catalog &catalog)
@@ -313,8 +312,8 @@ void registerUnitDistanceTest(Catalog &catalog)
   makeTest("volume", "unit_distance_transmittance")
       .description(
           "Checks a uniform slab's transmittance, solved per pixel from "
-          "renders over a black and a white background: (1 - opacity)^(L / "
-          "unitDistance), and squared by halving unitDistance.")
+          "renders over a black and a white background: (1 - opacity)^"
+          "(thickness / unitDistance), and squared by halving unitDistance.")
       .build(unitDistanceSlab)
       .camera([](BuildContext &ctx, const scenes::Bounds &) {
         auto c = ctx.newCamera(volume_scene::viewCamera(ViewAxis::Z));

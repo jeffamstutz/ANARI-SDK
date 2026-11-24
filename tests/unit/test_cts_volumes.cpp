@@ -706,12 +706,15 @@ TEST_CASE(
     CHECK(verdicts(r, "u_white") == noU);
   }
   // T biased as visionaray's (about 0.6 where the spec gives 0.5 at u = 2, as
-  // if the slab were 1.45 thick): the relation holds, the absolute T fails.
+  // if the slab were 1.45 thick): the relation holds, the absolute T fails
+  // at u = 2 and 3 (at 4 it misses by 9 levels, too close to τ to assert).
   {
     const auto r = f.judge(
         render([&](float u, bool half) { return beer(uOf(u, half), 1.45f); }));
     CHECK(verdicts(r, "halfU_white") == everyU);
-    CHECK(verdicts(r, "u_white") == noU);
+    const auto absolute = verdicts(r, "u_white");
+    CHECK_FALSE(absolute[0]);
+    CHECK_FALSE(absolute[1]);
   }
   // `opacity` read as the fraction absorbed per world unit, not per
   // unitDistance: T = 0.5^L whatever u is.

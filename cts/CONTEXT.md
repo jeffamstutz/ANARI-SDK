@@ -54,7 +54,7 @@ share one ground-truth image, written from the first value's Case.
 **Derived expectation**:
 What one value of an axis must render, as a pure image function over its
 sibling Cases (same values on every other axis), which may also read the
-Case's own values on those axes, with a one-line description:
+Case's own axis values (its BuildContext), with a one-line description:
 `.expectDerived(axis, value, description, fn)`, e.g. `sideBySide` is `left`
 and `right` side by side, or `imageRegion` set is the crop of the unset
 Case's frame. The Case is checked for Equivalence with the image (only the
@@ -231,8 +231,8 @@ filtered slice of it. Distinct from the pre-existing scene registry
 _Avoid_: test registry, scene registry (that name is the other one)
 
 **BuildContext**:
-The object the harness hands to a Test's `build()` carrying the current Case's
-resolved axis values, read typed-by-name (`get<int>("count", 1)`) or as a raw
+The object the harness hands to a Test's `build()` (and to its exact checks and
+Derived expectations) carrying the current Case's resolved axis values, read typed-by-name (`get<int>("count", 1)`) or as a raw
 `Any` (`value("color")`) for helpers that dispatch on the value's ANARI type.
 Backed by `helium::ParameterizedObject`.
 

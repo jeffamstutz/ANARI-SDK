@@ -908,18 +908,21 @@ informative; both checks below stand on 5.12.1.
     pixel and colour component in linear colour (L = 2, opacity 0.5: 0.5,
     0.63 and 0.71 at u = 2, 3 and 4), in the same interior mask. That is T
     solved per pixel against the spec's value; T(u/2) follows from it and
-    the relation. The default tolerance holds here too: τ = 8 levels is
-    |T - T_spec| up to 0.049 at u = 2 (the tightest; 0.055 at 3, 0.058 at 4)
-    on the most affected component, which is
-    - the slab marched up to 0.28 short or 0.30 long at u = 2 (about 14 %
+    the relation. The default tolerance holds here too: with the slab's
+    emission c (1 - T) in both renders, τ = 8 levels on the most affected
+    component lets T through within 0.054 below and 0.057 above T_spec at
+    u = 2 (the tightest; 0.060 / 0.059 at 3, 0.060 / 0.066 at 4), which is
+    - the slab marched up to 0.31 short or 0.33 long at u = 2 (about 15 %
       of its thickness, more than a cell, 0.25), so a device that clips the
       march to the bounds or jitters its first sample by up to a step
       passes;
     - about 7 times the spread of the deterministic devices (within 0.003 of
       T_spec, quantisation) and 1.8 times halcyon `quality`'s per-pixel
       Monte Carlo spread at `--accumulation 256` (0.028);
-    - under visionaray's bias at every u (0.104, 0.084 and 0.069 at u = 2,
-      3 and 4; measured below).
+    - well under visionaray's bias at u = 2 and 3 (0.104 and 0.084; measured
+      below), and just under it at 4 (0.069 against 0.066): a synthetic
+      slab biased as visionaray's misses by 16 and 12 levels at u = 2 and
+      3 but only 9 at 4, so the unit test asserts its failure at 2 and 3.
     Quantisation of the black render adds under a level. Unit tests run a
     march half a cell short as a positive, and as negatives a slab marched
     3 thick, T biased as visionaray's (as if 1.45 thick; the relation holds
