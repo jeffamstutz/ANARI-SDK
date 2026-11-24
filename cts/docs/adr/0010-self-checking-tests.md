@@ -826,11 +826,8 @@ Variant of the one-element array.
 
 `volume/volume` was not reworked: ticket 04 gave each of its axes an effect
 check, and all pass on helide and halcyon except `filter`
-(cts-device-findings 11). The `unitDistance` transmittance relation
-(Appendix C: halving it squares a slab's transmittance) was not added: it
-needs the emission and the background separated (two backgrounds behind the
-slab) in linear colour, and the effect check already fails a device that
-ignores the parameter.
+(cts-device-findings 11). The `unitDistance` transmittance relation was
+left to its own Test (ticket 25, below).
 
 Measured on 2026-11-23 at 256 (accumulation 16 unless stated): helide and
 halcyon run the 10 data-type and 4 extent Cases and pass them (the rest skip:
@@ -846,3 +843,62 @@ unstructured layout pixel for pixel alike (measured with wedges too), but its vo
 floor of about 10 levels per pixel at 4096 frames (the convergence guard
 passes), so 19 % of pixels differ from its own structuredRegular render: the
 equivalences can't be judged on it.
+
+## The `unitDistance` transmittance relation (ticket 25)
+
+`volume/volume`'s effect check fails a device that ignores `unitDistance`,
+not one that applies it with the wrong exponent. The spec's one exact
+statement about volume opacity is in 5.12.1 (normative): the volume is
+absorbing particles whose density opacity and `unitDistance` set, and "the
+fraction of light which is absorbed while traveling a `unitDistance` length
+through the volume will be `opacity`". Through a uniform slab of thickness L
+that makes the transmittance T(u) = (1 - opacity)^(L/u), so halving
+`unitDistance` squares it. Appendix C's ray march says the same but is
+informative; the relation stands on 5.12.1.
+
+61. **Transmittance is solved per pixel from two backgrounds.** A pixel
+    through the slab is E + T B in linear colour, whatever the slab emits
+    (E, which depends on how the device shades a volume) and whatever the
+    background (B) is, so a render over black and one over white give T =
+    P(white) - P(black) per pixel and colour component, with no assumption
+    about emission. `volume/unit_distance_transmittance` renders a uniform
+    field over [-1, 1]^3 (opacity 0.5, colour (0.4, 0.2, 0.1)) with the
+    volume equivalences' framing, down -z (thickness 2), over each
+    background, at `unitDistance` u and u/2 (the `render` axis), for u = 2,
+    3 and 4 (T(u) 0.5, 0.63 and 0.71; T(u/2) 0.25, 0.40 and 0.5). The u/2
+    render over white is a derived expectation of the other three: its
+    render over black plus T(u)^2, in linear colour (the Test's frame is
+    sRGB-encoded 8 bits, decoded and re-encoded), judged a few pixels inside
+    the silhouette (`interiorMask`), where no pixel is partly slab.
+62. **It checks the relation, not T itself.** The relation holds for any
+    thickness and step count a device marches, as long as they don't depend
+    on `unitDistance` (T(u) = a^(1/u) for any a), so it doesn't depend on
+    how a device clips the march to the bounds or jitters the first sample.
+    An absolute T would; the Test doesn't check it. One view is enough: the
+    field is uniform, so there is no layout across or along the view to
+    check (the two-view rule is about a field's layout).
+63. **Default tolerance, justified by the quantisation.** With each of the
+    three input pixels anywhere within half a level of its true value, the
+    expected pixel is off by at most 2.2 levels at these T and colours,
+    under τ = 8. The dim colour keeps the emission from swamping T over
+    white: on its most affected component, unitDistance ignored (T(u/2) =
+    T(u)) misses the expected image by 27-41 levels and absorbance scaled
+    linearly (1 - T(u/2) = 2 (1 - T(u))) by 13-65 levels (ranges over u).
+    Unit tests (`tests/unit/test_cts_volumes.cpp`) run those two and a
+    square root in the exponent as negatives on synthetic images, and a
+    slab of another thickness as a positive.
+
+Measured on 2026-11-24 at 256 (accumulation 16 unless stated): helide and
+halcyon (`preview`) pass all 12 Cases with every pixel within 1 level of
+the expected image (also at 200 on helide); halcyon `quality` passes at
+`--accumulation 256` (within 9 levels, a few pixels over τ); visrtx passes
+at 64. helide_gpu fails `2_halfU_white` (11 % of the masked pixels): it
+marches volume rays from the camera's position under an orthographic camera,
+so near the silhouette they leave the slab through its sides
+(cts-device-findings 16). visionaray obeys the relation on average (the
+expected image is within 0.3 levels of its render, mean over the slab), but
+its T varies from pixel to pixel by about 0.03 across a slab the spec makes
+uniform, and is about 0.6 where the spec's is 0.5 at u = 2 (an absolute T
+the Test doesn't check); `2_halfU_white` fails with 0.36 % of its pixels
+over τ (up to 12 levels), the same at `--accumulation` 1024 and 4096, so it
+is not noise.
