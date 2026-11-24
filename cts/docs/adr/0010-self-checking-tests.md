@@ -609,8 +609,10 @@ declares what it compares against Ground truth. What the conversion decided:
     ambient term and, where the Test doesn't vary it, `roughness 0.3`;
     `iridescenceThickness` is in nanometres (constant 400, a 100 to 800
     attribute, a sampler scaled to 800 through `outTransform`). A lobe changes
-    a highlight, a small part of the frame, so the lobe axes measured below
-    1 % carry an effect margin of 0.3 % (about 200 pixels; items 65 and 66).
+    a highlight, a small part of the frame, so the iridescence and specular
+    Tests frame the sphere as large as it fits, and the clearcoat axes, which
+    can't take that framing, carry an effect margin of 0.3 % (about 200
+    pixels; items 65 and 66).
     `thickness` and the attenuation axes are opted out everywhere, since no
     renderer in the SDK or visrtx shows them on a thin surface.
 44. **`noEffectCheckOn(axis, library, renderers, reason)`** opts an axis out
@@ -1018,7 +1020,8 @@ within 0.012 of the spec's, towards the silhouette up to 0.46 over.
 66. **The PBR lobe margin, measured.** On 2026-11-24 at 256x256 and
     `--accumulation 1024`, on halcyon `quality`, visrtx `quality` and
     visrtx's default renderer, the smallest effect per lobe axis over all its
-    pairs was:
+    pairs was (under the default framing; ticket 33, below, reframed the
+    iridescence and specular Tests):
 
     | Test | Axis | halcyon `quality` | visrtx `quality` | visrtx `default` |
     | --- | --- | ---: | ---: | ---: |
@@ -1051,14 +1054,16 @@ within 0.012 of the spec's, towards the silhouette up to 0.46 over.
     (sheen, transmission); on the clearcoat, iridescence and specular Tests
     the guard passes it (0.08-0.12 % between frames 16 and 32) and their
     images are within 0.20 % of the 1024-frame ones, under the margin.
-    halcyon `preview` and helide are deterministic. The margin stays 0.3 %,
-    between 0.2 % and the smallest effect, 0.41 %, on the five axes below
-    1 % somewhere: clearcoat, clearcoatRoughness, iridescence, specular and specularColor. The other
-    ten (all at least 1.9 %) went back to the default 1 %, which changed no
-    verdict on halcyon (`preview`, `quality`), helide (which opts every lobe
-    axis out) or visrtx. A highlight shifted by another cause (a different
-    light or normal) can still pass a 0.3 % check on these five axes; the
-    margin admits what the measurements allow, no more.
+    halcyon `preview` and helide are deterministic. Ticket 30 kept the
+    margin at 0.3 %, between 0.2 % and the smallest effect, 0.41 %, on the
+    five axes below 1 % somewhere: clearcoat, clearcoatRoughness,
+    iridescence, specular and specularColor. The other ten (all at least
+    1.9 %) went back to the default 1 %, which changed no verdict on halcyon
+    (`preview`, `quality`), helide (which opts every lobe axis out) or
+    visrtx. Since ticket 33 (below) only clearcoat and clearcoatRoughness
+    carry the margin. A highlight shifted by another cause (a different
+    light or normal) can still pass a 0.3 % check on them; the margin admits
+    what the measurements allow, no more.
 
     A no-op pair on each of those five axes (a constant equal to the spec's
     default against unset: clearcoat, clearcoatRoughness, iridescence and
@@ -1072,8 +1077,59 @@ within 0.012 of the spec's, towards the silhouette up to 0.46 over.
     converged or not.
     The no-op floor is therefore 0 and bounds nothing about residual noise;
     the floor of item 65 stays the guard's measure, at least 0.2 %. On a
-    renderer that is "not guarded" (item 30) the 0.3 % margin has only this
-    0 behind it.
+    renderer that is "not guarded" (item 30) the 0.3 % margin (now on the
+    two clearcoat axes only) has only this 0 behind it.
+
+    *Ticket 33 (2026-11-24): a framing that fills the frame, on two of the
+    three Tests.* A lobe lights the highlight and the rim of the sphere, and
+    the default framing (the camera 2.9 radii from the centre) leaves the
+    sphere about 31 % of the frame. The iridescence and specular Tests now
+    frame it as large as it fits: the camera looks down -z as before, from
+    1 / sin(fovy / 2) = 2 radii at the spec's default fovy, so the silhouette
+    touches the frame's edges (`sphereFillingCamera` in `material.cpp`). Their
+    margins are gone; they use the default 1 %. Measured as above (256x256,
+    `--accumulation 1024`), the smallest effect over all pairs, default
+    framing → filling framing:
+
+    | Axis | halcyon `quality` | visrtx `quality` | visrtx `default` |
+    | --- | ---: | ---: | ---: |
+    | iridescence | 0.54 → 1.69 % | 1.70 → 5.37 % | 1.41 → 4.47 % |
+    | specular | 0.81 → 2.44 % | 1.19 → 3.75 % | 0.999 → 2.95 % |
+    | specularColor | 0.61 → 1.67 % | 0.62 → 1.65 % | 0.60 → 1.64 % |
+
+    The smallest pairs are the same as before (attribute0 against the
+    constant 1, or against unset for specularColor). The Tests' other axes
+    rose with them (iridescenceIor 5.08 / 72.60 / 70.58 %, iridescenceThickness
+    13.57 / 10.55 % on visrtx and 8.87 % on halcyon `quality` apart from its
+    bound pairs, cts-device-findings 15). At 256 frames every figure is the
+    same; at 16, halcyon `quality` passes the guard on both Tests (0.13-0.16 %
+    between frames 16 and 32), its images are within 0.18 % of the 1024-frame
+    ones and its smallest effects are 1.70 % and 1.66 %.
+
+    The same framing would clear 1 % on the clearcoat axes too (clearcoat
+    0.41 → 1.22 % on halcyon `quality`, 4.65 % and 3.47 % on visrtx;
+    clearcoatRoughness 5.64 %, 0.83 → 2.56 % and 0.64 → 2.03 %), but it fails
+    visrtx's clearcoatNormal Case against Ground truth: halcyon `preview`
+    doesn't shade clearcoat, and the normal-mapped coat, now on more of the
+    frame, takes that Case's PSNR from 22.7 to 18.8 dB (`quality`) and from
+    23.9 to 19.9 dB (`default`), under the 20 dB threshold. The effect and
+    that PSNR both grow with the lobe's share of the frame, and the
+    framings measured between the two don't leave room for both: at 2.1
+    radii halcyon's clearcoat is already down to 1.00 %, while keeping the
+    PSNR at 20 dB on visrtx `quality` allows the lobe at most about 1.9
+    times its default share (2.5 times at 2 radii). Not tried: reworking
+    the bound values instead (a wider attribute range against the constant
+    for clearcoat; clearcoatRoughness's smallest pair on visrtx is the
+    sampler against 0.3). `pbr_clearcoat` keeps the default framing and its
+    two 0.3 % margins. The other lobe Tests keep the default framing as well:
+    their axes clear 1 % without it, and filling the frame takes the
+    Ground-truth PSNR of sheen, transmission and thickness Cases on halcyon
+    `quality` and visrtx, and of a normal-mapped metallic Case on helide,
+    under 20 dB in the same way.
+
+    No verdict changed on halcyon (`preview`, and `quality` at 16 and 256
+    frames), helide or visrtx (`quality` and `default` at 256), against
+    Ground truth generated from the reworked scenes.
 
 ## A sampled Case for frame accumulation (ticket 31)
 

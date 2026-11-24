@@ -464,10 +464,7 @@ TEST_CASE("effect-margin overrides sit in the gap and only where measured",
   }
   CHECK(overridden
       == std::set<std::string>{"material/pbr_clearcoat clearcoat",
-          "material/pbr_clearcoat clearcoatRoughness",
-          "material/pbr_iridescence iridescence",
-          "material/pbr_specular specular",
-          "material/pbr_specular specularColor"});
+          "material/pbr_clearcoat clearcoatRoughness"});
 }
 
 TEST_CASE("isSupported requires every feature to be present", "[cts][features]")

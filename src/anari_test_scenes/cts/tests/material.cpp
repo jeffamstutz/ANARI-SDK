@@ -372,6 +372,26 @@ void lobeRenderer(BuildContext &ctx, anari::Renderer r)
   anari::setParameter(ctx.device(), r, "ambientRadiance", 0.1f);
 }
 
+// The iridescence and specular lobes light only the highlight and the rim of
+// the sphere, so under the default framing (the sphere about a third of the
+// frame) their smallest effects fell below the default 1 %. Their Tests frame
+// the sphere as large as it fits: the camera looks down -z, as the default
+// framing does, from 1 / sin(fovy / 2) (2 at the spec's default fovy) from the
+// unit sphere's centre, so its silhouette touches the frame's edges (ADR-0010
+// 66). The other lobe Tests keep the default framing: a larger sphere also
+// lowers the Ground-truth PSNR of a Candidate that shades a lobe the Reference
+// doesn't, which fails visrtx's clearcoatNormal Case, and the other lobe axes
+// clear 1 % without it.
+anari::Camera sphereFillingCamera(BuildContext &ctx, const scenes::Bounds &)
+{
+  CameraProjection projection; // perspective, the spec's default fovy
+  projection.position =
+      float3(0.f, 0.f, 1.f / std::sin(0.5f * projection.fovy));
+  auto camera = ctx.newCamera(projection);
+  anari::commitParameters(ctx.device(), camera);
+  return camera;
+}
+
 // helide shades with its eye-light model and reads only a physicallyBased
 // material's baseColor and opacity; halcyon's preview renderer reads, beyond
 // them, only metallic, roughness, ior, emissive and normal (its README, Known
@@ -401,14 +421,14 @@ TestBuilder &notShadedByPreview(
   return test;
 }
 
-// A lobe adds light to a highlight or a rim of the sphere, a small part of the
-// frame, so a bound value that is only a little different from a constant can
-// change under the default 1 % of the pixels. The axes measured to do so carry
-// a margin of 0.3 % (about 200 pixels at 256x256), between the noise floor
-// (0.2 %, the equivalence maximum the convergence guard admits; measured 0)
-// and the smallest effect measured on them, 0.41 % (ADR-0010 65 and 66, which
-// has the measurements). Each call states its axes' smallest effect over all
-// pairs, at 256x256 and --accumulation 1024.
+// A clearcoat lobe adds light to the highlight and the rim of the sphere, a
+// small part of the default framing, so a bound value that is only a little
+// different from a constant can change under the default 1 % of the pixels.
+// The clearcoat axes carry a margin of 0.3 % (about 200 pixels at 256x256),
+// between the noise floor (0.2 %, the equivalence maximum the convergence
+// guard admits; measured 0) and the smallest effect measured on them, 0.41 %
+// (ADR-0010 65 and 66, which has the measurements). The call states its axes'
+// smallest effect over all pairs, at 256x256 and --accumulation 1024.
 constexpr double kLobeEffectMargin = 0.003;
 
 TestBuilder &lobeEffectMargins(
@@ -566,6 +586,8 @@ void registerMaterialTests(Catalog &catalog)
     // Smallest effect, halcyon quality / visrtx quality: clearcoat 0.41 % /
     // 1.63 % (attribute0 vs 1), clearcoatRoughness 2.05 % / 0.83 % (sampler
     // vs 0.3). clearcoatNormal (4.32 % / 17.65 %) clears the default 1 %.
+    // sphereFillingCamera would clear 1 % on both axes, but it fails
+    // visrtx's clearcoatNormal Case against Ground truth (ADR-0010 66).
     lobeEffectMargins(test, {"clearcoat", "clearcoatRoughness"});
     test.groundTruth("the shading of a PBR lobe has no analytic answer")
         .covers(kPbr)
@@ -697,6 +719,7 @@ void registerMaterialTests(Catalog &catalog)
               &kDielectricLobeScene);
         })
         .renderer(lobeRenderer)
+        .camera(sphereFillingCamera)
         .rendererParam("ignoreAmbientLighting", "false")
         .simplified()
         .permute("iridescence",
@@ -719,11 +742,6 @@ void registerMaterialTests(Catalog &catalog)
             "iridescenceThickness", sampler(1), "ANARI_KHR_SAMPLER_IMAGE1D");
     notShadedByPreviewOrHelide(
         test, {"iridescence", "iridescenceIor", "iridescenceThickness"});
-    // Smallest effect, halcyon quality / visrtx quality: iridescence 0.54 % /
-    // 1.70 % (attribute0 vs 1). iridescenceIor (1.92 % / 28.17 %) and
-    // iridescenceThickness (3.30 % / 3.51 %, halcyon's bound values aside:
-    // cts-device-findings 15) clear the default 1 %.
-    lobeEffectMargins(test, {"iridescence"});
     test.groundTruth("the shading of a PBR lobe has no analytic answer")
         .covers(kPbr)
         .requireFeatures(kSupportTriangle)
@@ -864,6 +882,7 @@ void registerMaterialTests(Catalog &catalog)
               &kDielectricLobeScene);
         })
         .renderer(lobeRenderer)
+        .camera(sphereFillingCamera)
         .rendererParam("ignoreAmbientLighting", "false")
         .simplified()
         .permute("specular",
@@ -880,10 +899,6 @@ void registerMaterialTests(Catalog &catalog)
         .requireFeatureFor(
             "specularColor", sampler(0), "ANARI_KHR_SAMPLER_IMAGE2D");
     notShadedByPreviewOrHelide(test, {"specular", "specularColor"});
-    // Smallest effect, halcyon quality / visrtx quality: specular 0.81 % /
-    // 1.19 % (attribute0 vs 1; 0.999 % on visrtx's default renderer),
-    // specularColor 0.61 % / 0.62 % (attribute0 vs unset).
-    lobeEffectMargins(test, {"specular", "specularColor"});
     test.groundTruth("the shading of a PBR lobe has no analytic answer")
         .covers(kPbr)
         .requireFeatures(kSupportTriangle)
