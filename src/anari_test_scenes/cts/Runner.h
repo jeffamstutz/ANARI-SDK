@@ -110,10 +110,11 @@ struct Runner
   // `referenceFeatures`. Refuses, writing nothing,
   // with RunSummary::referenceConflict set, when the record names a different
   // device, unless RunOptions::replaceGroundTruth clears ground_truth/ first.
-  // Does not score or write sidecars (ADR-0005). A shared (Variant) Ground
-  // truth file is written from its first Variant value's Case only, and the
-  // device's own Variants are checked for equivalence (a disagreement is
-  // reported, RunSummary::variantDisagreements). Skips `.noGroundTruth()`
+  // Fails every selected Case, rendering none, if the record can't be
+  // written. Does not score or write sidecars (ADR-0005). A shared (Variant)
+  // Ground truth file is written from its first Variant value's Case only,
+  // and the device's own Variants are checked for equivalence (a disagreement
+  // is reported, RunSummary::variantDisagreements). Skips `.noGroundTruth()`
   // Tests. Stops before the first Case, with RunSummary::deviceFailure set,
   // if the device can't render the probe frame.
   RunSummary generate(const Catalog &catalog,

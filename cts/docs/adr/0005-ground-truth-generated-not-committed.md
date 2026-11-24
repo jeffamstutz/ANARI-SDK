@@ -57,6 +57,16 @@ record and the files agree. The same device regenerating (e.g. a `--filter`
 slice) adds to and overwrites its own Ground truth as before. A workdir with no
 record (older than the record) is not checked.
 
+**Update (one name for halcyon's renderer; the record must be written):**
+with no `-r`, `generate` uses halcyon's `preview` renderer whether or not
+`--device halcyon` was given (`referenceRenderer()`). halcyon treats
+`default` as an alias for `preview`, but the check compares names, so
+`generate --device halcyon` recording `default` was refused in a workdir a
+plain `generate` had filled. Other devices still default to `default`. If
+`reference.json` can't be written, `generate` fails every selected Case and
+renders none (exit 1) rather than warning, since a workdir without a record
+would not be checked by later `generate`s.
+
 **Update (Cases gate on the run's renderer):** a renderer may report its own
 extensions (object introspection's `extension`, or the renderer's
 `extension` property), and may honour less than its device: halcyon's

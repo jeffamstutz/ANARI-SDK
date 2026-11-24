@@ -149,7 +149,8 @@ options:
   --width <n>          render width (default: 256)
   --height <n>         render height (default: 256)
   -r, --renderer <subtype>
-                       renderer subtype (default: default)
+                       renderer subtype (default: default; generate with
+                       halcyon: preview)
   --ambientRadiance <value>
                        baseline renderer ambientRadiance (default: 1)
   -p, --renderer-param NAME=VALUE
@@ -554,13 +555,10 @@ int cmdGenerate(const Options &o)
   // The default Reference device, or helide when it can't be loaded, so a
   // minimal SDK build still generates (ADR-0005).
   std::string deviceName = o.device;
-  std::string renderer = o.renderer;
   anari::Library lib = nullptr;
   anari::Device d = nullptr;
   if (deviceName.empty()) {
     deviceName = kDefaultReferenceLibrary;
-    if (!o.rendererGiven)
-      renderer = kDefaultReferenceRenderer;
     d = loadDevice(deviceName, lib, /*quiet=*/true);
     if (!d) {
       std::cout << "notice: the default Reference device '"
@@ -570,14 +568,14 @@ int cmdGenerate(const Options &o)
                 << "' instead (build halcyon with BUILD_HALCYON_DEVICE=ON, "
                    "which needs ISPC)\n";
       deviceName = kFallbackReferenceLibrary;
-      if (!o.rendererGiven)
-        renderer = kFallbackReferenceRenderer;
     }
   }
   if (!d)
     d = loadDevice(deviceName, lib);
   if (!d)
     return 2;
+  const std::string renderer =
+      o.rendererGiven ? o.renderer : referenceRenderer(deviceName);
   const auto features = deviceExtensions(lib, "default");
   const DeviceSpec device = runDeviceSpec(d, deviceName, renderer);
   warnIfDenoiseUnsupported(device, features, o.denoise);

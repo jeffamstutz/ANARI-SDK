@@ -381,6 +381,17 @@ TEST_CASE("the Reference record round-trips and is absent until written",
   std::filesystem::remove_all(root, ec);
 }
 
+TEST_CASE("generate names halcyon's renderer preview whenever -r is omitted",
+    "[cts][reference]")
+{
+  // halcyon's `default` is an alias for `preview`, but the record compares
+  // names, so `generate` and `generate --device halcyon` must record one.
+  CHECK(std::string(referenceRenderer(kDefaultReferenceLibrary)) == "preview");
+  CHECK(std::string(referenceRenderer("halcyon")) == "preview");
+  CHECK(std::string(referenceRenderer(kFallbackReferenceLibrary)) == "default");
+  CHECK(std::string(referenceRenderer("visrtx")) == "default");
+}
+
 // Artifact publication ///////////////////////////////////////////////////////
 
 TEST_CASE("ArtifactPublisher replaces a complete ground-truth set",

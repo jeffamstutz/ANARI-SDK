@@ -1466,6 +1466,37 @@ TEST_CASE("generate keeps one Reference device per workdir's Ground truth",
     CHECK(readFile(secondGt) == secondBytes);
   }
 
+  SECTION("plain generate and generate --device halcyon share a workdir")
+  {
+    // What cmdGenerate uses when -r is omitted: the defaulted device, then
+    // the device named with --device.
+    const DeviceSpec defaulted{kDefaultReferenceLibrary,
+        "default",
+        referenceRenderer(kDefaultReferenceLibrary)};
+    const DeviceSpec named{"halcyon", "default", referenceRenderer("halcyon")};
+    REQUIRE(generateAs(defaulted, true, Filter{"demo/"}).passed == 2);
+    const auto s = generateAs(named, false, Filter{"demo/first"});
+    CHECK(s.referenceConflict.empty());
+    CHECK(s.passed == 1);
+    const auto record = readReference(wd);
+    REQUIRE(record);
+    CHECK(record->library == "halcyon");
+    CHECK(record->renderer == "preview");
+  }
+
+  SECTION("a failed record write fails the generate")
+  {
+    // A directory where the record goes: the write fails, so later
+    // generates could not check this workdir's device.
+    std::filesystem::remove(wd.referenceRecordPath());
+    std::filesystem::create_directories(wd.referenceRecordPath());
+    const auto s = generateAs(opts.device, false, Filter{"demo/first"});
+    CHECK(s.referenceConflict.empty());
+    CHECK(s.passed == 0);
+    CHECK(s.failed == 1);
+    CHECK(s.total == 1);
+  }
+
   SECTION("replacing with the same device also starts afresh")
   {
     const auto s = generateAs(opts.device, true, Filter{"demo/first"});

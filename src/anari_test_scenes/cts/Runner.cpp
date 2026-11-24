@@ -688,9 +688,13 @@ RunSummary Runner::generate(const Catalog &catalog,
               << m_workdir.groundTruthDir().string() << "\n";
     return workdirFailureSummary(catalog, filter);
   }
-  if (!writeReference(m_workdir, reference))
-    std::cerr << "warning: could not write "
-              << m_workdir.referenceRecordPath().string() << "\n";
+  // Without the record, later generates can't refuse a different device.
+  if (!writeReference(m_workdir, reference)) {
+    std::cerr << "error: could not write "
+              << m_workdir.referenceRecordPath().string()
+              << " (the record of the Reference device)\n";
+    return workdirFailureSummary(catalog, filter);
+  }
   for (const TestDef *test : catalog.filter(filter))
     generateTest(*test, filter, summary);
   return summary;

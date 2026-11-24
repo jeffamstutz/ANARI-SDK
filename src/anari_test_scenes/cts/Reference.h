@@ -19,14 +19,19 @@ namespace cts {
 // helide stands in when halcyon can't be loaded (it is off by default in the
 // SDK's build).
 inline constexpr const char *kDefaultReferenceLibrary = "halcyon";
-inline constexpr const char *kDefaultReferenceRenderer = "preview";
 inline constexpr const char *kFallbackReferenceLibrary = "helide";
-inline constexpr const char *kFallbackReferenceRenderer = "default";
+
+// The renderer `generate` uses with `library` when -r names none: halcyon's
+// `preview` whether or not halcyon was named (its `default` is an alias for
+// `preview`, but the record compares names, so one name keeps `generate` and
+// `generate --device halcyon` in one workdir), else the device's `default`.
+const char *referenceRenderer(const std::string &library);
 
 // Write the device `generate` used, with the extensions it advertised and
 // those its renderer reported (its Cases gated on the latter when any), to
 // ground_truth/reference.json (Workdir::referenceRecordPath()), replacing any
-// earlier record. False on a filesystem error.
+// earlier record. False on a filesystem error; `generate` then fails, as a
+// workdir without a record isn't checked for a mixed Reference.
 bool writeReference(const Workdir &workdir, const DeviceSpec &reference);
 
 // The device the last `generate` used, if it left a record.

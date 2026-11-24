@@ -142,7 +142,9 @@ as needing `generate`. A workdir holds one device's Ground truth: `generate`
 with a different device, device subtype or renderer than the record names
 refuses (exit 2, nothing written) unless `--replace` is given, which clears
 `ground_truth/` first. The same device regenerating a `--filter` slice keeps
-the rest. The
+the rest. Without `-r`, halcyon's renderer is recorded as `preview` whether
+or not `--device halcyon` is given, so both forms share a workdir. If the
+record can't be written, `generate` fails (exit 1) without rendering. The
 ambient value is a baseline for ordinary Tests. A renderer Test that explicitly
 exercises `ambientRadiance` overrides it with the Case's axis value.
 
