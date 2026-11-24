@@ -13,6 +13,7 @@
 #include "../SurfaceBuilder.h"
 #include "../TestBuilder.h"
 #include "../TestDef.h"
+#include "../ViewBuilder.h"
 #include "../VolumeBuilder.h"
 #include "../WorldBuilder.h"
 #include "Categories.h"
@@ -433,7 +434,9 @@ BehaviorResult checkFrameCompletionCallback(anari::Device d,
 // colour; the world is the Case's own, so changing it is safe. The Test's
 // scene is a soup of triangles: their edges need sampling (antialiasing) on
 // any Monte Carlo renderer without needing an extension beyond the support
-// set. A renderer that converges in one render passes as converged.
+// set, and through the `depth_of_field` Case's lens (below) on any renderer
+// that implements depth of field. A renderer that converges in one render
+// passes as converged.
 class DeviceAccumulationTarget : public AccumulationTarget
 {
  public:
@@ -531,6 +534,45 @@ BehaviorResult checkProgressiveRendering(anari::Device d,
 {
   DeviceAccumulationTarget target(d, world, camera, renderer, w, h);
   return checkFrameAccumulation(target);
+}
+
+// frame/progressive_rendering's `lens` axis. The `pinhole` Case is the edge
+// scene above, which needs sampling only on a renderer that jitters pixel
+// positions. The `depth_of_field` Case views it through a thin lens focused
+// in front of every triangle (ADR-0010 67): a renderer that implements depth
+// of field samples its aperture, so its first render is noise that only
+// accumulation removes, whether or not it antialiases.
+constexpr const char *kLensAxis = "lens";
+constexpr const char *kPinhole = "pinhole";
+constexpr const char *kDepthOfField = "depth_of_field";
+// The lens, in fractions of the camera's distance to the scene's centre (the
+// triangles lie in one plane facing the camera). Focused at half that
+// distance, a thin lens of radius 0.05 of it blurs every edge by a disk 0.05
+// of the distance in radius, 0.043 of the frame's height at the default fovy
+// (11 pixels at 256), or half that if a device reads `apertureRadius` as a
+// diameter (ADR-0010 51).
+constexpr float kLensFocus = 0.5f;
+constexpr float kLensAperture = 0.05f;
+
+// The default framing (the Runner's, from the world's bounds), through the
+// Case's lens.
+anari::Camera progressiveCamera(BuildContext &ctx, const scenes::Bounds &bounds)
+{
+  const auto view = cameraFromBounds(bounds);
+  CameraProjection projection;
+  projection.type = CameraProjection::Type::Perspective;
+  projection.position = view.position;
+  projection.direction = view.direction;
+  projection.up = view.up;
+  auto d = ctx.device();
+  auto camera = ctx.newCamera(projection);
+  if (ctx.getString(kLensAxis, kPinhole) == kDepthOfField) {
+    const float distance = anari::math::length(view.at - view.position);
+    anari::setParameter(d, camera, "apertureRadius", kLensAperture * distance);
+    anari::setParameter(d, camera, "focusDistance", kLensFocus * distance);
+  }
+  anari::commitParameters(d, camera);
+  return camera;
 }
 
 // KHR_DATA_PARALLEL_MPI adds `mpiCommunicator` (VOID_POINTER) to the frame.
@@ -807,13 +849,19 @@ void registerFrameTests(Catalog &catalog)
   makeTest("frame", "progressive_rendering")
       .description(
           "Checks that frame accumulation converges across renders, restarts "
-          "after a world change, and reports a sane refinementProgress.")
+          "after a world change, and reports a sane refinementProgress, "
+          "through a pinhole and, where depth of field is advertised, "
+          "through a lens whose aperture needs sampling.")
       .build([](BuildContext &ctx) {
         return triangleSurfaceWorld(ctx, float3(0.7f, 0.5f, 0.3f), 8);
       })
+      .camera(progressiveCamera)
+      .permute(kLensAxis, {kPinhole, kDepthOfField})
       .behavior(checkProgressiveRendering)
       .covers("ANARI_KHR_FRAME_ACCUMULATION")
       .requireFeatures(kSupportMatteTriangle)
+      .requireFeatureFor(
+          kLensAxis, Any(kDepthOfField), "ANARI_KHR_CAMERA_DEPTH_OF_FIELD")
       .registerInto(catalog);
 
   makeTest("frame", "frame_mpi_communicator_parameter")
