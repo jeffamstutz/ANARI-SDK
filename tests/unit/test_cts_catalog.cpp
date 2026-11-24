@@ -441,10 +441,10 @@ TEST_CASE("every built-in Test has a human-readable description",
   }
 }
 
-// ADR-0010 item 65: an effect-margin override is set between the noise floor
+// ADR-0010 65: an effect-margin override is set between the noise floor
 // a converged Candidate may still carry (the equivalence maximum, which the
 // convergence guard admits) and the default effect minimum, and only on the
-// axes whose measured effect needs it (item 66).
+// axes whose measured effect needs it (66).
 TEST_CASE("effect-margin overrides sit in the gap and only where measured",
     "[cts][catalog][margin]")
 {

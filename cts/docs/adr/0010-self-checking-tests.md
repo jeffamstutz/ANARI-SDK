@@ -993,7 +993,7 @@ within 0.012 of the spec's, towards the silhouette up to 0.46 over.
     | | normal | 26.99 % | 26.04 % | 25.60 % |
     | `pbr_sheen` | sheenColor | 11.57 % | 12.57 % | 11.45 % |
     | | sheenRoughness | 11.15 % | 12.02 % | 11.62 % |
-    | `pbr_specular` | specular | 0.81 % | 1.19 % | 1.00 % |
+    | `pbr_specular` | specular | 0.81 % | 1.19 % | 0.999 % |
     | | specularColor | 0.61 % | 0.62 % | 0.60 % |
     | `pbr_transmission` | transmission | 18.08 % | 18.39 % | 14.56 % |
 
@@ -1003,15 +1003,18 @@ within 0.012 of the spec's, towards the silhouette up to 0.46 over.
 
     The same Cases changed 0 pixels between frames N and 2N on both devices
     at `--accumulation` 256 and 1024 (the guard's measure), so the noise
-    floor is the guard's 0.2 %. For scale, halcyon `quality` at 16 frames
-    differs from its 1024-frame image by up to 0.98 % of pixels on these
-    Tests and visrtx `quality` by up to 8.5 %, which the guard fails as not
-    converged. The margin stays 0.3 %, between 0.2 % and the smallest effect,
-    0.41 %, on the five axes below 1 % somewhere: clearcoat,
-    clearcoatRoughness, iridescence, specular and specularColor. The other
+    floor is the guard's 0.2 %. At the default 16 frames visrtx `quality`
+    is far from converged (up to 8.5 % of pixels from its 1024-frame image)
+    and the guard fails it. halcyon `quality` there differs from its
+    1024-frame image by up to 0.98 %, but only on axes far above the margin
+    (sheen, transmission); on the clearcoat, iridescence and specular Tests
+    the guard passes it (0.08-0.12 % between frames 16 and 32) and their
+    images are within 0.20 % of the 1024-frame ones, under the margin.
+    halcyon `preview` and helide are deterministic. The margin stays 0.3 %,
+    between 0.2 % and the smallest effect, 0.41 %, on the five axes below
+    1 % somewhere: clearcoat, clearcoatRoughness, iridescence, specular and specularColor. The other
     ten (all at least 1.9 %) went back to the default 1 %, which changed no
     verdict on halcyon (`preview`, `quality`), helide (which opts every lobe
     axis out) or visrtx. A highlight shifted by another cause (a different
     light or normal) can still pass a 0.3 % check on these five axes; the
     margin admits what the measurements allow, no more.
-
