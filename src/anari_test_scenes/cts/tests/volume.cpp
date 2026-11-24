@@ -6,12 +6,14 @@
 #include "../VolumeBuilder.h"
 #include "../WorldBuilder.h"
 #include "Categories.h"
+#include "FrameTypeAxis.h"
 #include "SubjectShown.h"
 #include "VolumeScene.h"
 // std
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -170,6 +172,131 @@ anari::World cellCenteredWorld(BuildContext &ctx, ViewAxis view)
   anari::release(d, field);
   anari::release(d, vol);
   return world;
+}
+
+// ---- the unitDistance transmittance relation -------------------------------
+//
+// The spec (5.12.1): the fraction of light absorbed while travelling
+// `unitDistance` through the volume is `opacity`, the particles' density
+// being set by the two. Through a uniform slab of thickness L the
+// transmittance is then T(u) = (1 - opacity)^(L / u), so halving `unitDistance`
+// squares it: T(u/2) = T(u)^2 (Appendix C's ray march, informative, gives the
+// same). A pixel through the slab is E + T B in linear colour, whatever the
+// slab emits (E) or the background is (B), so two backgrounds, black and
+// white, give T per pixel: T = P(white) - P(black). The u/2 render over white
+// must then be its render over black plus T(u)^2.
+
+// The slab: a uniform field over [-1, 1]^3, seen down -z (thickness 2) with
+// the volume Tests' framing (VolumeScene.h). The opacity and unitDistances
+// keep T within [0.25, 0.71], where the 8-bit images resolve it well, and the
+// dim colour keeps the emission from swamping T over white (ADR-0010).
+constexpr float kSlabOpacity = 0.5f;
+const float3 kSlabColor(0.4f, 0.2f, 0.1f);
+
+// The `render` axis: unitDistance u or u/2, over a black or a white
+// background. The last is derived from the other three.
+const char *const kUBlack = "u_black";
+const char *const kUWhite = "u_white";
+const char *const kHalfUBlack = "halfU_black";
+const char *const kHalfUWhite = "halfU_white";
+
+anari::World unitDistanceSlab(BuildContext &ctx)
+{
+  auto d = ctx.device();
+  constexpr uint32_t n = 9;
+  auto field = anari::newObject<anari::SpatialField>(d, "structuredRegular");
+  anari::setParameter(d, field, "origin", float3(-1.f));
+  anari::setParameter(d, field, "spacing", float3(2.f / float(n - 1)));
+  std::vector<float> data(size_t(n) * n * n, 0.5f);
+  anari::setParameterArray3D(d, field, "data", data.data(), n, n, n);
+  anari::commitParameters(d, field);
+
+  const std::string render = ctx.getString("render", kUBlack);
+  const bool half = render == kHalfUBlack || render == kHalfUWhite;
+  const float u = ctx.get<float>("u", 2.f);
+
+  auto vol = anari::newObject<anari::Volume>(d, "transferFunction1D");
+  anari::setParameter(d, vol, "value", field);
+  anari::setParameter(d, vol, "color", kSlabColor);
+  anari::setParameter(d, vol, "opacity", kSlabOpacity);
+  anari::setParameter(d, vol, "unitDistance", half ? 0.5f * u : u);
+  const float range[2] = {0.f, 1.f};
+  anariSetParameter(d, vol, "valueRange", ANARI_FLOAT32_BOX1, range);
+  anari::commitParameters(d, vol);
+
+  WorldContents wc;
+  wc.volumes = {vol};
+  auto world = assembleWorld(d, wc);
+  anari::release(d, field);
+  anari::release(d, vol);
+  return world;
+}
+
+// The u/2 render over white, from the other three (sRGB-encoded 8-bit, the
+// Test's colour format): per pixel and colour component, in linear colour,
+// P(u/2, black) + T(u)^2 with T(u) = P(u, white) - P(u, black). Judged only
+// a few pixels inside the slab's silhouette, where a pixel is wholly slab or
+// wholly background.
+ExpectedImage halfUOverWhite(const Siblings &s)
+{
+  const Image &uBlack = s.at(kUBlack);
+  const Image &uWhite = s.at(kUWhite);
+  const Image &halfBlack = s.at(kHalfUBlack);
+  if (uWhite.width != uBlack.width || uWhite.height != uBlack.height
+      || halfBlack.width != uBlack.width || halfBlack.height != uBlack.height)
+    throw std::runtime_error("the u and u/2 renders differ in size");
+  Image out = halfBlack;
+  for (size_t i = 0; i < out.rgba.size(); i += 4) {
+    for (size_t c = 0; c < 3; ++c) {
+      const float t = std::clamp(srgbDecodedValue(uWhite.rgba[i + c] / 255.f)
+              - srgbDecodedValue(uBlack.rgba[i + c] / 255.f),
+          0.f,
+          1.f);
+      const float v = std::clamp(
+          srgbDecodedValue(halfBlack.rgba[i + c] / 255.f) + t * t, 0.f, 1.f);
+      out.rgba[i + c] = uint8_t(std::lround(srgbEncodedValue(v) * 255.f));
+    }
+    out.rgba[i + 3] = 255;
+  }
+  return maskedBy(std::move(out),
+      volume_scene::interiorMask(uBlack.width, uBlack.height, 0.f));
+}
+
+void registerUnitDistanceTest(Catalog &catalog)
+{
+  makeTest("volume", "unit_distance_transmittance")
+      .description(
+          "Checks that halving a volume's unitDistance squares a uniform "
+          "slab's transmittance, solved per pixel from renders over a black "
+          "and a white background.")
+      .build(unitDistanceSlab)
+      .camera([](BuildContext &ctx, const scenes::Bounds &) {
+        auto c = ctx.newCamera(volume_scene::viewCamera(ViewAxis::Z));
+        anari::commitParameters(ctx.device(), c);
+        return c;
+      })
+      .renderer([](BuildContext &ctx, anari::Renderer r) {
+        const std::string render = ctx.getString("render", kUBlack);
+        const bool white = render == kUWhite || render == kHalfUWhite;
+        anari::setParameter(ctx.device(),
+            r,
+            "background",
+            white ? float4(1.f, 1.f, 1.f, 1.f) : float4(0.f, 0.f, 0.f, 1.f));
+      })
+      // T(u) = 0.5^(2/u): 0.5, 0.63 and 0.71; at u/2 0.25, 0.40 and 0.5.
+      .permute("u", {2.f, 3.f, 4.f})
+      .permute("render", {kUBlack, kUWhite, kHalfUBlack, kHalfUWhite})
+      .expectDerived("render",
+          kHalfUWhite,
+          "the u/2 render over black plus T(u)^2, T(u) being the u render "
+          "over white minus over black (linear colour)",
+          halfUOverWhite)
+      .channels({Channel::Color})
+      .noGroundTruth()
+      .covers("ANARI_KHR_VOLUME_TRANSFER_FUNCTION1D")
+      .requireFeatures({"ANARI_KHR_SPATIAL_FIELD_STRUCTURED_REGULAR",
+          "ANARI_KHR_CAMERA_ORTHOGRAPHIC"})
+      .registerInto(catalog);
 }
 
 } // namespace
@@ -383,6 +510,8 @@ void registerVolumeTests(Catalog &catalog)
             "ANARI_KHR_CAMERA_ORTHOGRAPHIC"})
         .registerInto(catalog);
   }
+
+  registerUnitDistanceTest(catalog);
 }
 
 } // namespace cts

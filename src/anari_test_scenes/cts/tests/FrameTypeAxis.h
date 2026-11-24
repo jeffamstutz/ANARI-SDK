@@ -29,6 +29,12 @@ inline float srgbEncodedValue(float v)
                          : 1.055f * std::pow(v, 1.f / 2.4f) - 0.055f;
 }
 
+// The linear value of sRGB-encoded `e` (the inverse of srgbEncodedValue()).
+inline float srgbDecodedValue(float e)
+{
+  return e <= 0.04045f ? e / 12.92f : std::pow((e + 0.055f) / 1.055f, 2.4f);
+}
+
 // `linear` with its RGB encoded by the sRGB transfer function (alpha kept).
 inline Image srgbEncoded(const Image &linear)
 {

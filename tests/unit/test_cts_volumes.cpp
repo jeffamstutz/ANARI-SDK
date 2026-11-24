@@ -18,6 +18,7 @@
 #include "cts/Filter.h"
 #include "cts/Image.h"
 #include "cts/Relations.h"
+#include "cts/tests/FrameTypeAxis.h"
 #include "cts/tests/NanoVdbGrid.h"
 #include "cts/tests/VolumeScene.h"
 #include "cts/tests/fields.h"
@@ -615,4 +616,85 @@ TEST_CASE(
   // A surface 0.09 deeper (as visionaray's), or a sphere of the wrong radius.
   CHECK_FALSE(f.allPass(f.judge(render(fields::kSphereRadius, 0.09f), camera)));
   CHECK_FALSE(f.allPass(f.judge(render(0.7f, 0.f), camera)));
+}
+
+TEST_CASE("halving unitDistance must square a uniform slab's transmittance",
+    "[cts][volumes]")
+{
+  Fixture f("volume/unit_distance_transmittance");
+  // A device's slab: transmittance `t(u, half)` and emission c (1 - T), the
+  // Test's colour, over the Case's background, in linear colour; the frame is
+  // sRGB-encoded 8 bits, as the Test renders it.
+  using Transmittance = std::function<float(float u, bool half)>;
+  auto render = [](Transmittance t) {
+    return [t](const Values &v) {
+      const float u = std::stof(v.at("u"));
+      const std::string r = v.at("render");
+      const bool half = r.rfind("halfU", 0) == 0;
+      const float bg = r.find("white") != std::string::npos ? 1.f : 0.f;
+      const float T = t(u, half);
+      const float c[3] = {0.4f, 0.2f, 0.1f};
+      Image im = cts_test::solid(kSize, kSize, 0, 0, 0, 255);
+      for (uint32_t y = 0; y < kSize; ++y)
+        for (uint32_t x = 0; x < kSize; ++x) {
+          const float2 ab = pixelAcrossView(x, y, kSize, kSize);
+          const bool slab = std::abs(ab.x) <= 1.f && std::abs(ab.y) <= 1.f;
+          uint8_t px[3];
+          for (int k = 0; k < 3; ++k) {
+            const float lin = slab ? c[k] * (1.f - T) + T * bg : bg;
+            px[k] = uint8_t(std::lround(srgbEncodedValue(lin) * 255.f));
+          }
+          cts_test::setPixel(
+              im, x, y, cts_test::Rgba{px[0], px[1], px[2], 255});
+        }
+      return colorOnly(im);
+    };
+  };
+  // Every assertion holds (the u Cases over black are only ever the earlier
+  // partner of an effect, so they carry none of their own).
+  auto allHold = [](const SelfCheckResults &r) {
+    size_t evaluated = 0;
+    for (const auto &o : r.relations)
+      if (o.assertion.evaluated) {
+        INFO(o.assertion.detail);
+        if (!o.assertion.passed)
+          return false;
+        ++evaluated;
+      }
+    return evaluated > 0;
+  };
+  // Thickness 2, opacity 0.5.
+  auto beer = [](float d) { return std::pow(0.5f, 2.f / d); };
+  CHECK(allHold(f.judge(
+      render([&](float u, bool half) { return beer(half ? 0.5f * u : u); }))));
+
+  // The relation holds for any thickness and number of steps a device marches,
+  // as long as they don't depend on unitDistance.
+  CHECK(allHold(f.judge(render([&](float u, bool half) {
+    return std::pow(beer(half ? 0.5f * u : u), 1.2f);
+  }))));
+
+  // The u/2 render over white fails its derived expectation, at every u.
+  auto halfUWhiteFails = [&](const SelfCheckResults &r) {
+    for (const char *u : {"2", "3", "4"}) {
+      INFO("u " << u);
+      const size_t i = f.index({{"u", u}, {"render", "halfU_white"}});
+      bool failed = false;
+      for (const auto &o : r.relations)
+        if (o.caseIndex == i && o.assertion.kind == kEquivalenceAssertion
+            && o.assertion.evaluated && !o.assertion.passed)
+          failed = true;
+      CHECK(failed);
+    }
+  };
+  // unitDistance ignored: the u/2 slab is as transparent as the u one.
+  halfUWhiteFails(f.judge(render([&](float u, bool) { return beer(u); })));
+  // Absorbance scaled linearly: halving unitDistance doubles 1 - T.
+  halfUWhiteFails(f.judge(render([&](float u, bool half) {
+    return half ? std::max(0.f, 2.f * beer(u) - 1.f) : beer(u);
+  })));
+  // The exponent's unitDistance under a square root (u/2 gives T^sqrt(2)).
+  halfUWhiteFails(f.judge(render([&](float u, bool half) {
+    return half ? std::pow(beer(u), std::sqrt(2.f)) : beer(u);
+  })));
 }
