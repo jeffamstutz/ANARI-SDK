@@ -274,25 +274,9 @@ TEST_CASE("world-build helpers produce error-free worlds",
     }
   }
 
-  SECTION("a structuredRegular volume world builds cleanly")
-  {
-    status.errors = 0;
-    auto field = makeStructuredRegularField(d, {8, 8, 8});
-    auto volume = makeVolume(d, field);
-    WorldContents contents;
-    contents.volumes = {volume};
-    auto world = assembleWorld(d, contents);
-
-    CHECK(status.errors == 0);
-    INFO("last ANARI error: " << status.lastMessage);
-    CHECK(validBounds(worldBounds(d, world)));
-
-    anari::release(d, field);
-    anari::release(d, volume);
-    anari::release(d, world);
-  }
-
-  SECTION("the structuredRegular helper's field spans [-1, 1] on every axis")
+  SECTION(
+      "a structuredRegular volume world builds cleanly, its field over "
+      "[-1, 1] on every axis")
   {
     // Whatever the vertex count, its first vertex sits at -1 and its last at
     // 1 (helide's field bounds run from origin to origin + (n - 1) spacing).
@@ -307,13 +291,13 @@ TEST_CASE("world-build helpers produce error-free worlds",
       contents.volumes = {volume};
       auto world = assembleWorld(d, contents);
       const auto b = worldBounds(d, world);
+      INFO("last ANARI error: " << status.lastMessage);
       CHECK(status.errors == 0);
-      CHECK(b[0].x == Approx(-1.f));
-      CHECK(b[0].y == Approx(-1.f));
-      CHECK(b[0].z == Approx(-1.f));
-      CHECK(b[1].x == Approx(1.f));
-      CHECK(b[1].y == Approx(1.f));
-      CHECK(b[1].z == Approx(1.f));
+      for (int axis = 0; axis < 3; ++axis) {
+        INFO("axis=" << axis);
+        CHECK(b[0][axis] == Approx(-1.f));
+        CHECK(b[1][axis] == Approx(1.f));
+      }
       anari::release(d, field);
       anari::release(d, volume);
       anari::release(d, world);

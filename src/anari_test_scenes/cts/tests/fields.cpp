@@ -215,19 +215,8 @@ NanoVdbGridSpec rampGrid(ViewAxis view)
 anari::SpatialField newRampStructuredField(
     anari::Device d, ViewAxis view, uint32_t n, const char *filter)
 {
-  auto field = anari::newObject<anari::SpatialField>(d, "structuredRegular");
-  const float spacing = 2.f / float(n - 1);
-  std::vector<float> data;
-  data.reserve(size_t(n) * n * n);
-  for (uint32_t k = 0; k < n; ++k)
-    for (uint32_t j = 0; j < n; ++j)
-      for (uint32_t i = 0; i < n; ++i)
-        data.push_back(rampValue(view,
-            float3(
-                -1.f + i * spacing, -1.f + j * spacing, -1.f + k * spacing)));
-  anari::setParameter(d, field, "origin", float3(-1.f));
-  anari::setParameter(d, field, "spacing", float3(spacing));
-  anari::setParameterArray3D(d, field, "data", data.data(), n, n, n);
+  auto field = newStructuredRegularField(
+      d, {n, n, n}, [view](float3 p) { return rampValue(view, p); });
   if (filter)
     anari::setParameter(d, field, "filter", filter);
   return field;
@@ -961,8 +950,7 @@ void registerFieldTests(Catalog &catalog)
           "a one-element array.")
       .build([](BuildContext &ctx) {
         auto d = ctx.device();
-        // 33^3 vertices over [-1, 1]^3, each holding its distance from the
-        // origin.
+        // The distance from the origin, at 33^3 vertices.
         auto field = makeStructuredRegularField(d, {33, 33, 33});
         auto geom = anari::newObject<anari::Geometry>(d, "isosurface");
         anari::setParameter(d, geom, "field", field);

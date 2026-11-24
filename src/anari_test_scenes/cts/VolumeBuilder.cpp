@@ -20,11 +20,14 @@ anari::SpatialField newStructuredRegularField(
       anari::newObject<anari::SpatialField>(d, "structuredRegular");
   const FieldFn &function = field ? field : FieldFn(radialDistanceField);
   // Vertex i sits at origin + i x spacing and the field ends at the last
-  // one, so n vertices span [-1, 1] at spacing 2 / (n - 1).
-  const math::float3 spacing(
-      dimensions[0] > 1 ? 2.f / static_cast<float>(dimensions[0] - 1) : 0.f,
-      dimensions[1] > 1 ? 2.f / static_cast<float>(dimensions[1] - 1) : 0.f,
-      dimensions[2] > 1 ? 2.f / static_cast<float>(dimensions[2] - 1) : 0.f);
+  // one, so n vertices span [-1, 1] at spacing 2 / (n - 1). A lone vertex
+  // sits at -1; its spacing is only kept non-zero.
+  auto axisSpacing = [](uint32_t n) {
+    return n > 1 ? 2.f / static_cast<float>(n - 1) : 2.f;
+  };
+  const math::float3 spacing(axisSpacing(dimensions[0]),
+      axisSpacing(dimensions[1]),
+      axisSpacing(dimensions[2]));
   auto coordinate = [](uint32_t index, float axisSpacing) {
     return -1.f + static_cast<float>(index) * axisSpacing;
   };
