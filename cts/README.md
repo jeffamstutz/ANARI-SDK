@@ -167,8 +167,9 @@ they need images that have stopped changing: noise alone changes more than
 (ADR-0010) therefore keeps accumulating each Case those checks read for as
 many frames again as it rendered, and fails them with "not converged at N
 frames" when more than 0.2 % of the pixels still change. The fix is a higher
-`--accumulation`; the default, 16, is enough for a deterministic renderer
-(halcyon `preview`, helide). Counts measured at 256x256:
+`--accumulation`. halcyon `preview` and helide don't accumulate (they don't list
+`KHR_FRAME_ACCUMULATION`), so the count doesn't matter for them and their Cases record
+"not guarded". Counts measured at 256x256:
 
 | Renderer | `--accumulation` that passes the guard |
 | --- | --- |
