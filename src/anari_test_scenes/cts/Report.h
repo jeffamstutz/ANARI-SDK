@@ -111,6 +111,9 @@ enum class CoverageState
   // Advertised; its Cases skipped because the Reference device lacked an
   // extension they need, so it rendered no Ground truth for them.
   ReferenceLacks,
+  // Advertised by the device; its Cases skipped because the run's renderer
+  // didn't report it (a Case's rendererMissingFeatures names it).
+  RendererLacks,
   MissingSupport, // advertised; its Cases skipped for a support extension
   NotRun, // advertised and tested, but no Case of it is in the results
   AdvertisedNoTest, // advertised; the CTS has no Test for it

@@ -23,7 +23,8 @@ inline constexpr const char *kDefaultReferenceRenderer = "preview";
 inline constexpr const char *kFallbackReferenceLibrary = "helide";
 inline constexpr const char *kFallbackReferenceRenderer = "default";
 
-// Write the device `generate` used, with the extensions it advertised, to
+// Write the device `generate` used, with the extensions it advertised and
+// those its renderer reported (its Cases gated on the latter when any), to
 // ground_truth/reference.json (Workdir::referenceRecordPath()), replacing any
 // earlier record. False on a filesystem error.
 bool writeReference(const Workdir &workdir, const DeviceSpec &reference);

@@ -129,6 +129,7 @@ add_executable(anariCatalogTests
   test_cts_optics.cpp
   test_cts_parameter_coverage.cpp
   test_cts_relations.cpp
+  test_cts_renderer_extensions.cpp
   test_cts_rendererparams.cpp
   test_cts_report.cpp
   test_cts_results.cpp

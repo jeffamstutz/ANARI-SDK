@@ -12,6 +12,7 @@
 #include "FrameReadback.h"
 #include "Metrics.h"
 #include "Reference.h"
+#include "RendererExtensions.h"
 #include "Sidecar.h"
 #include "Value.h"
 #include "ViewBuilder.h"
@@ -305,8 +306,17 @@ void Runner::setCaseIsolation(std::shared_ptr<CaseIsolation> isolation)
   m_isolation = std::move(isolation);
 }
 
-void Runner::resolveCapabilities(const std::set<std::string> &features)
+void Runner::resolveCapabilities(const std::set<std::string> &deviceFeatures)
 {
+  // Every sidecar records what the device advertised (schema v3), so the
+  // report can tell "not advertised" from "advertised, but failed", and what
+  // the renderer reported, which the Cases gate on when it reported any.
+  m_options.device.extensions.assign(
+      deviceFeatures.begin(), deviceFeatures.end());
+  m_gating = gatingExtensions(m_options.device);
+  m_rendererSubtype =
+      resolveRendererSubtype(m_device, m_options.device.renderer);
+  const auto &features = m_gating;
   m_effectiveAccumulationFrames =
       (m_options.accumulationFrames > 1
           && features.count("ANARI_KHR_FRAME_ACCUMULATION"))
@@ -314,9 +324,6 @@ void Runner::resolveCapabilities(const std::set<std::string> &features)
       : 1;
   m_accumulationSupported = features.count("ANARI_KHR_FRAME_ACCUMULATION") > 0;
   m_denoiseEnabled = m_options.denoise;
-  // Every sidecar records what the device advertised (schema v3), so the
-  // report can tell "not advertised" from "advertised, but failed".
-  m_options.device.extensions.assign(features.begin(), features.end());
   m_rendererParamTypesResolved = false;
 }
 
@@ -336,21 +343,10 @@ const std::map<std::string, ANARIDataType> &Runner::rendererParamTypes()
   // "default" names a renderer subtype the device may not list as such
   // (halcyon lists `preview` and `quality`); the device's default is its
   // first.
-  const std::string &wanted = m_options.device.renderer;
-  const auto isRenderer = [](const auto &o) {
-    return o.type == ANARI_RENDERER;
-  };
-  const auto listsWanted = std::any_of(info.objects.begin(),
-      info.objects.end(),
-      [&](const auto &o) { return isRenderer(o) && o.subtype == wanted; });
-  bool first = true;
+  const std::string wanted =
+      resolveRendererSubtype(m_device, m_options.device.renderer);
   for (const auto &obj : info.objects) {
-    if (!isRenderer(obj))
-      continue;
-    const bool chosen = listsWanted
-        ? obj.subtype == wanted
-        : (wanted == "default" && std::exchange(first, false));
-    if (!chosen)
+    if (obj.type != ANARI_RENDERER || obj.subtype != wanted)
       continue;
     for (const auto &p : obj.parameters)
       m_rendererParamTypes[p.name] = p.type;
@@ -459,23 +455,25 @@ Runner::SceneObjects Runner::buildScene(
   return scene;
 }
 
-static std::string featureSkipReason(const std::vector<std::string> &missing)
+std::string Runner::featureSkipReason(const TestDef &test, const Case &c) const
 {
-  std::string reason = "device is missing a required feature:";
-  for (size_t i = 0; i < missing.size(); ++i)
-    reason += (i ? ", " : " ") + missing[i];
-  return reason;
+  const auto missing = missingFeatures(test, c, m_gating);
+  return cts::featureSkipReason(missing,
+      rendererMissingFeatures(m_options.device, missing),
+      m_rendererSubtype);
 }
 
-void Runner::writeFeatureSkip(const TestDef &test,
-    const Case &c,
-    const std::set<std::string> &features,
-    RunSummary &summary)
+void Runner::writeFeatureSkip(
+    const TestDef &test, const Case &c, RunSummary &summary)
 {
   CaseResult result = caseResult(test, c);
   result.verdict = Verdict::Skipped;
-  result.missingFeatures = missingFeatures(test, c, features);
-  result.skipReason = featureSkipReason(result.missingFeatures);
+  result.missingFeatures = missingFeatures(test, c, m_gating);
+  result.rendererMissingFeatures =
+      rendererMissingFeatures(m_options.device, result.missingFeatures);
+  result.skipReason = cts::featureSkipReason(result.missingFeatures,
+      result.rendererMissingFeatures,
+      m_rendererSubtype);
   recordResult(c, result, summary);
 }
 
@@ -667,7 +665,7 @@ RunSummary Runner::generate(const Catalog &catalog,
     const std::set<std::string> &referenceFeatures)
 {
   // What a run needs to tell a Case the Reference can't render from one
-  // generate wasn't run for.
+  // generate wasn't run for: the device's extensions and its renderer's.
   DeviceSpec reference = m_options.device;
   reference.extensions.assign(
       referenceFeatures.begin(), referenceFeatures.end());
@@ -696,7 +694,7 @@ RunSummary Runner::generate(const Catalog &catalog,
     std::cerr << "warning: could not write "
               << m_workdir.referenceRecordPath().string() << "\n";
   for (const TestDef *test : catalog.filter(filter))
-    generateTest(*test, filter, referenceFeatures, summary);
+    generateTest(*test, filter, summary);
   return summary;
 }
 
@@ -727,9 +725,9 @@ RunSummary Runner::run(const Catalog &catalog,
     clearDeviceFailure(m_workdir);
   for (const TestDef *test : catalog.filter(filter)) {
     if (test->behaviorCheck)
-      runBehaviorTest(*test, filter, candidateFeatures, summary);
+      runBehaviorTest(*test, filter, summary);
     else
-      runRenderTest(*test, filter, candidateFeatures, summary);
+      runRenderTest(*test, filter, summary);
   }
   return summary;
 }
@@ -782,10 +780,8 @@ Runner::CaseOutcome Runner::runCase(
       groundTruth.push_back(std::move(gt));
     }
     if (!haveGroundTruth && test.usesGroundTruth() && m_reference) {
-      const std::set<std::string> referenceFeatures(
-          m_reference->extensions.begin(), m_reference->extensions.end());
       result.referenceMissingFeatures =
-          missingFeatures(test, c, referenceFeatures);
+          missingFeatures(test, c, gatingExtensions(*m_reference));
     }
     if (!haveGroundTruth && test.usesGroundTruth()
         && !renderWithoutGroundTruth) {
@@ -890,10 +886,8 @@ Runner::CaseOutcome Runner::runCase(
   return out;
 }
 
-void Runner::runRenderTest(const TestDef &test,
-    const Filter &filter,
-    const std::set<std::string> &candidateFeatures,
-    RunSummary &summary)
+void Runner::runRenderTest(
+    const TestDef &test, const Filter &filter, RunSummary &summary)
 {
   const std::vector<Case> cases = expand(test);
   std::vector<bool> chosen(cases.size(), false);
@@ -903,12 +897,12 @@ void Runner::runRenderTest(const TestDef &test,
   if (!any)
     return;
 
-  if (!isSupported(test, candidateFeatures)) {
+  if (!isSupported(test, m_gating)) {
     for (size_t i = 0; i < cases.size(); ++i) {
       if (!chosen[i])
         continue;
       summary.total++;
-      writeFeatureSkip(test, cases[i], candidateFeatures, summary);
+      writeFeatureSkip(test, cases[i], summary);
     }
     return;
   }
@@ -940,13 +934,12 @@ void Runner::runRenderTest(const TestDef &test,
   // neither rendered nor related, as a selected Case or as a partner.
   std::vector<bool> gated(cases.size(), false);
   for (size_t i = 0; i < cases.size(); ++i) {
-    if (!toRender[i] || isSupported(test, cases[i], candidateFeatures))
+    if (!toRender[i] || isSupported(test, cases[i], m_gating))
       continue;
     gated[i] = true;
     toRender[i] = false;
     renders[i].state = CaseRender::State::Unsupported;
-    renders[i].error =
-        featureSkipReason(missingFeatures(test, cases[i], candidateFeatures));
+    renders[i].error = featureSkipReason(test, cases[i]);
   }
   for (size_t i = 0; i < cases.size(); ++i) {
     if (!toRender[i])
@@ -1021,7 +1014,7 @@ void Runner::runRenderTest(const TestDef &test,
   for (size_t i = 0; i < cases.size(); ++i) {
     if (chosen[i] && gated[i]) {
       summary.total++;
-      writeFeatureSkip(test, cases[i], candidateFeatures, summary);
+      writeFeatureSkip(test, cases[i], summary);
     } else if (chosen[i]) {
       summary.total++;
       m_scored.insert(cases[i].qualifiedId());
@@ -1046,10 +1039,8 @@ void Runner::runRenderTest(const TestDef &test,
   }
 }
 
-void Runner::generateTest(const TestDef &test,
-    const Filter &filter,
-    const std::set<std::string> &referenceFeatures,
-    RunSummary &summary)
+void Runner::generateTest(
+    const TestDef &test, const Filter &filter, RunSummary &summary)
 {
   const std::vector<Case> cases = expand(test);
   std::vector<bool> chosen(cases.size(), false);
@@ -1058,7 +1049,7 @@ void Runner::generateTest(const TestDef &test,
     count += (chosen[i] = matches(filter, test, cases[i])) ? 1 : 0;
   summary.total += count;
   // Behavioural and fully self-checked Tests have no Ground truth.
-  if (!test.usesGroundTruth() || !isSupported(test, referenceFeatures)) {
+  if (!test.usesGroundTruth() || !isSupported(test, m_gating)) {
     summary.skipped += count;
     return;
   }
@@ -1105,10 +1096,9 @@ void Runner::generateTest(const TestDef &test,
       continue;
     // A Case needing an extension the Reference device lacks has no Ground
     // truth (and the Candidate's run skips it, or fails it).
-    if (!isSupported(test, cases[i], referenceFeatures)) {
+    if (!isSupported(test, cases[i], m_gating)) {
       renders[i].state = CaseRender::State::Unsupported;
-      renders[i].error =
-          featureSkipReason(missingFeatures(test, cases[i], referenceFeatures));
+      renders[i].error = featureSkipReason(test, cases[i]);
       continue;
     }
     const CaseFrameSize size = frameSizeOf(test, cases[i]);
@@ -1186,18 +1176,16 @@ void Runner::generateTest(const TestDef &test,
   }
 }
 
-void Runner::runBehaviorTest(const TestDef &test,
-    const Filter &filter,
-    const std::set<std::string> &candidateFeatures,
-    RunSummary &summary)
+void Runner::runBehaviorTest(
+    const TestDef &test, const Filter &filter, RunSummary &summary)
 {
   for (const Case &c : expand(test)) {
     if (!selected(filter, test, c))
       continue;
     summary.total++;
 
-    if (!isSupported(test, c, candidateFeatures)) {
-      writeFeatureSkip(test, c, candidateFeatures, summary);
+    if (!isSupported(test, c, m_gating)) {
+      writeFeatureSkip(test, c, summary);
       continue;
     }
 

@@ -14,6 +14,7 @@
 #include "cts/HtmlReport.h"
 #include "cts/Isolation.h"
 #include "cts/Reference.h"
+#include "cts/RendererExtensions.h"
 #include "cts/RendererParams.h"
 #include "cts/Report.h"
 #include "cts/Runner.h"
@@ -301,16 +302,31 @@ std::set<std::string> deviceExtensions(
   return out;
 }
 
+// The run's device identity: `renderer` with the extensions it reports of
+// itself, which Cases gate on when it reports any (RendererExtensions.h).
+DeviceSpec runDeviceSpec(
+    anari::Device d, const std::string &library, const std::string &renderer)
+{
+  DeviceSpec spec{library, "default", renderer};
+  spec.rendererExtensions = queryRendererExtensions(d, renderer);
+  return spec;
+}
+
 // --denoise sets the renderer's "denoise" parameter unconditionally; warn (but
-// still proceed) when the device does not advertise ANARI_KHR_RENDERER_DENOISE,
-// since the parameter is then ignored or device-defined.
-void warnIfDenoiseUnsupported(const std::string &deviceName,
+// still proceed) when the run's renderer (or, when it reports nothing, the
+// device) does not report ANARI_KHR_RENDERER_DENOISE, since the parameter is
+// then ignored or device-defined.
+void warnIfDenoiseUnsupported(const DeviceSpec &device,
     const std::set<std::string> &features,
     bool denoiseRequested)
 {
-  if (denoiseRequested && !features.count("ANARI_KHR_RENDERER_DENOISE"))
-    std::cerr << "warning: device '" << deviceName
-              << "' does not report ANARI_KHR_RENDERER_DENOISE; setting the "
+  DeviceSpec withFeatures = device;
+  withFeatures.extensions.assign(features.begin(), features.end());
+  if (denoiseRequested
+      && !gatingExtensions(withFeatures).count("ANARI_KHR_RENDERER_DENOISE"))
+    std::cerr << "warning: device '" << device.library << "' (renderer "
+              << device.renderer
+              << ") does not report ANARI_KHR_RENDERER_DENOISE; setting the "
                  "renderer 'denoise' parameter anyway\n";
 }
 
@@ -479,7 +495,11 @@ int cmdCheckProperties(const Options &o)
   auto d = loadDevice(o.device, lib);
   if (!d)
     return 2;
-  const auto features = deviceExtensions(lib, "default");
+  DeviceSpec device = runDeviceSpec(d, o.device, o.renderer);
+  const auto advertised = deviceExtensions(lib, "default");
+  device.extensions.assign(advertised.begin(), advertised.end());
+  const auto features = gatingExtensions(device);
+  const std::string renderer = resolveRendererSubtype(d, o.renderer);
 
   auto catalog = buildCatalog();
   int runnable = 0, skipped = 0;
@@ -497,6 +517,7 @@ int cmdCheckProperties(const Options &o)
         if (std::find(missing.begin(), missing.end(), f) == missing.end())
           missing.push_back(f);
     }
+    const auto rendererMissing = rendererMissingFeatures(device, missing);
     const bool ok = skippedCases < cases.size();
     runnable += ok;
     skipped += !ok;
@@ -504,16 +525,30 @@ int cmdCheckProperties(const Options &o)
     if (ok && skippedCases > 0)
       std::cout << "  (" << skippedCases << " of " << cases.size()
                 << " Cases skipped)";
-    if (skippedCases > 0) {
-      std::cout << "  missing:";
-      for (const auto &f : missing)
+    // What the device lacks, then what only its renderer lacks.
+    auto print = [](const std::string &label,
+                     const std::vector<std::string> &features) {
+      if (features.empty())
+        return;
+      std::cout << "  " << label << ":";
+      for (const auto &f : features)
         std::cout << " " << f;
-    }
+    };
+    std::vector<std::string> deviceMissing;
+    for (const auto &f : missing)
+      if (std::find(rendererMissing.begin(), rendererMissing.end(), f)
+          == rendererMissing.end())
+        deviceMissing.push_back(f);
+    print("missing", deviceMissing);
+    print("renderer " + renderer + " lacks", rendererMissing);
     std::cout << "\n";
   }
   std::cout << "\n"
             << runnable << " runnable, " << skipped << " skipped on '"
-            << o.device << "'\n";
+            << o.device << "' (renderer " << renderer;
+  if (device.rendererExtensions.empty())
+    std::cout << ", which reports no extensions of its own";
+  std::cout << ")\n";
   anari::release(d, d);
   anari::unloadLibrary(lib);
   return 0;
@@ -549,7 +584,8 @@ int cmdGenerate(const Options &o)
   if (!d)
     return 2;
   const auto features = deviceExtensions(lib, "default");
-  warnIfDenoiseUnsupported(deviceName, features, o.denoise);
+  const DeviceSpec device = runDeviceSpec(d, deviceName, renderer);
+  warnIfDenoiseUnsupported(device, features, o.denoise);
 
   auto catalog = buildCatalog();
   RunOptions ro;
@@ -559,7 +595,7 @@ int cmdGenerate(const Options &o)
   ro.accumulationFrames = o.accumulationFrames;
   ro.denoise = o.denoise;
   ro.rendererParams = o.rendererParams;
-  ro.device = {deviceName, "default", renderer};
+  ro.device = device;
   ro.replaceGroundTruth = o.replaceGroundTruth;
   Runner runner(d, Workdir(o.workdir), ro);
 
@@ -604,7 +640,8 @@ int cmdRun(const Options &o)
   if (!d)
     return 2;
   const auto features = deviceExtensions(lib, "default");
-  warnIfDenoiseUnsupported(o.device, features, o.denoise);
+  const DeviceSpec device = runDeviceSpec(d, o.device, o.renderer);
+  warnIfDenoiseUnsupported(device, features, o.denoise);
 
   auto catalog = buildCatalog();
   RunOptions ro;
@@ -614,7 +651,7 @@ int cmdRun(const Options &o)
   ro.accumulationFrames = o.accumulationFrames;
   ro.denoise = o.denoise;
   ro.rendererParams = o.rendererParams;
-  ro.device = {o.device, "default", o.renderer};
+  ro.device = device;
   ro.deviceErrors = &g_status.errors;
 
   // A child process running one isolated Case: run just that Case and write

@@ -2737,6 +2737,111 @@ TEST_CASE("Runner skips only the Cases whose value needs a missing extension",
   anari::unloadLibrary(lib);
 }
 
+TEST_CASE("Runner gates on the renderer's own extensions when it reports any",
+    "[cts][runner][features][renderer_extensions][helide]")
+{
+  anari::Library lib = anari::loadLibrary("helide", statusFunc, nullptr);
+  if (!lib) {
+    WARN("helide library not available; skipping renderer gating test");
+    return;
+  }
+  anari::Device d = anari::newDevice(lib, "default");
+  REQUIRE(d != nullptr);
+  anari::commitParameters(d, d);
+
+  const auto root =
+      std::filesystem::temp_directory_path() / "cts_runner_renderer_gating";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+
+  Catalog catalog;
+  makeTest("demo", "renderer_gated")
+      .description("Value b of the axis needs an extension.")
+      .build(buildTriangleWorld)
+      .permute("ignored", {"a", "b"})
+      .requireFeatureFor("ignored", Any("b"), "ANARI_KHR_TEST_B")
+      .noEffectCheck("ignored", "the build ignores it")
+      .groundTruth("the test compares images")
+      .registerInto(catalog);
+  const auto at = [](const char *v) {
+    return caseOf(
+        "demo", "renderer_gated", {{"ignored", Any(v), AxisKind::Permutation}});
+  };
+
+  RunOptions opts;
+  opts.width = 64;
+  opts.height = 64;
+  // The device advertises ANARI_KHR_TEST_B; its renderer reports only X.
+  opts.device = {"helide", "default", "default"};
+  opts.device.rendererExtensions = {"X"};
+  const std::set<std::string> deviceFeatures{"ANARI_KHR_TEST_B", "X"};
+  const Workdir wd(root);
+
+  SECTION("a Case needing what only the device has skips as the renderer's")
+  {
+    Runner runner(d, wd, opts);
+    const auto summary =
+        runner.run(catalog, Filter{"demo/renderer_gated"}, deviceFeatures);
+    CHECK(summary.total == 2);
+    CaseResult rb;
+    REQUIRE(readSidecar(wd.sidecarPath(at("b")), rb));
+    CHECK(rb.verdict == Verdict::Skipped);
+    CHECK(rb.missingFeatures == std::vector<std::string>{"ANARI_KHR_TEST_B"});
+    CHECK(rb.rendererMissingFeatures
+        == std::vector<std::string>{"ANARI_KHR_TEST_B"});
+    // helide lists its "default" renderer, so that is its name.
+    CHECK(rb.skipReason
+        == "renderer default lacks a required feature: ANARI_KHR_TEST_B");
+    CHECK(rb.device.rendererExtensions == std::vector<std::string>{"X"});
+    CHECK(rb.device.extensions
+        == std::vector<std::string>{"ANARI_KHR_TEST_B", "X"});
+  }
+
+  SECTION("a renderer that reports nothing gates on the device's list")
+  {
+    opts.device.rendererExtensions.clear();
+    Runner runner(d, wd, opts);
+    runner.run(catalog, Filter{"demo/renderer_gated"}, {"X"});
+    CaseResult rb;
+    REQUIRE(readSidecar(wd.sidecarPath(at("b")), rb));
+    CHECK(rb.verdict == Verdict::Skipped);
+    CHECK(rb.rendererMissingFeatures.empty());
+    CHECK(rb.skipReason
+        == "device is missing a required feature: ANARI_KHR_TEST_B");
+  }
+
+  SECTION("generate records the renderer's list and gates on it")
+  {
+    {
+      Runner reference(d, wd, opts);
+      const auto s = reference.generate(
+          catalog, Filter{"demo/renderer_gated"}, deviceFeatures);
+      CHECK(s.passed == 1);
+      CHECK(s.skipped == 1);
+    }
+    const auto record = readReference(wd);
+    REQUIRE(record);
+    CHECK(record->rendererExtensions == std::vector<std::string>{"X"});
+    CHECK(record->extensions
+        == std::vector<std::string>{"ANARI_KHR_TEST_B", "X"});
+
+    // A Candidate that can run b reads it as the Reference renderer's gap.
+    RunOptions candidate = opts;
+    candidate.device = {"candidate", "default", "default"};
+    Runner runner(d, wd, candidate);
+    runner.run(catalog, Filter{"demo/renderer_gated"}, deviceFeatures);
+    CaseResult rb;
+    REQUIRE(readSidecar(wd.sidecarPath(at("b")), rb));
+    CHECK(rb.verdict == Verdict::Skipped);
+    CHECK(rb.referenceMissingFeatures
+        == std::vector<std::string>{"ANARI_KHR_TEST_B"});
+  }
+
+  std::filesystem::remove_all(root, ec);
+  anari::release(d, d);
+  anari::unloadLibrary(lib);
+}
+
 TEST_CASE(
     "An effect pair's only partner being skipped is not evaluated, not "
     "failed",

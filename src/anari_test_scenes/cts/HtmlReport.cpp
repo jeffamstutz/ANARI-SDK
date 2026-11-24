@@ -1298,7 +1298,7 @@ std::string generateHtml(const std::filesystem::path &workdir,
   os << "<header><div class=\"brand\">" << kAnariLogo
      << "<div><div class=\"title\">Conformance Test Suite</div>"
         "<div class=\"subtitle\">Image comparison — "
-        "device under test: <span class=\"kmono\">"
+        "Candidate: <span class=\"kmono\">"
      << htmlEscape(label)
      << "</span> · Reference device: <span class=\"kmono\">"
      << htmlEscape(referenceLabel) << "</span></div></div></div>";

@@ -18,6 +18,17 @@ using json = nlohmann::json;
 // The record's own version, independent of the Sidecar schema.
 constexpr int kReferenceRecordVersion = 1;
 
+// The strings of array `key`, or none.
+std::vector<std::string> strings(const json &j, const char *key)
+{
+  std::vector<std::string> out;
+  if (const auto e = j.find(key); e != j.end() && e->is_array())
+    for (const auto &s : *e)
+      if (s.is_string())
+        out.push_back(s.get<std::string>());
+  return out;
+}
+
 } // namespace
 
 bool writeReference(const Workdir &workdir, const DeviceSpec &reference)
@@ -28,6 +39,7 @@ bool writeReference(const Workdir &workdir, const DeviceSpec &reference)
   j["device"] = reference.device;
   j["renderer"] = reference.renderer;
   j["extensions"] = reference.extensions;
+  j["rendererExtensions"] = reference.rendererExtensions;
 
   const auto path = workdir.referenceRecordPath();
   std::error_code ec;
@@ -53,10 +65,9 @@ std::optional<DeviceSpec> readReference(const Workdir &workdir)
   reference.library = j.value("library", "");
   reference.device = j.value("device", "default");
   reference.renderer = j.value("renderer", "default");
-  if (const auto e = j.find("extensions"); e != j.end() && e->is_array())
-    for (const auto &ext : *e)
-      if (ext.is_string())
-        reference.extensions.push_back(ext.get<std::string>());
+  reference.extensions = strings(j, "extensions");
+  // Absent from a record older than it: the renderer reported none.
+  reference.rendererExtensions = strings(j, "rendererExtensions");
   if (reference.library.empty())
     return std::nullopt;
   return reference;

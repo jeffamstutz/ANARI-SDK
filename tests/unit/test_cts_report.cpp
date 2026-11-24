@@ -986,6 +986,50 @@ TEST_CASE("a Case the Reference device can't render reads as such",
   CHECK(doc.find("halcyon (default/preview)") != std::string::npos);
 }
 
+TEST_CASE("a Case its renderer can't run reads as the renderer's gap",
+    "[cts][report][coverage][renderer_extensions]")
+{
+  // The device advertises A_LENS and A_SUPPORT; its renderer reports
+  // neither.
+  const std::vector<std::string> advertised = {"A_LENS", "A_SUPPORT"};
+  auto lens =
+      coverageCase("lens", "A_LENS", Verdict::Skipped, advertised, {"A_LENS"});
+  lens.rendererMissingFeatures = {"A_LENS"};
+  lens.skipReason = "renderer preview lacks a required feature: A_LENS";
+  // Lacking a support extension is a missing support, as for the device.
+  auto support = coverageCase(
+      "support", "A_SUPPORTED", Verdict::Skipped, advertised, {"A_SUPPORT"});
+  support.device.extensions.push_back("A_SUPPORTED");
+  support.rendererMissingFeatures = {"A_SUPPORT"};
+  // The renderer's gap outranks a sibling Case missing its Ground truth.
+  auto noTruth = coverageCase("lens2", "A_LENS", Verdict::Skipped, advertised);
+  const auto results = keyed({lens, support, noTruth});
+  const auto rows = extensionCoverage(results, {}, {"A_LENS", "A_SUPPORTED"});
+  CHECK(row(rows, "A_LENS").state == CoverageState::RendererLacks);
+  CHECK(row(rows, "A_LENS").advertised);
+  CHECK(coverageStateLabel(row(rows, "A_LENS"))
+      == "advertised, renderer lacks it");
+  CHECK(row(rows, "A_SUPPORTED").state == CoverageState::MissingSupport);
+
+  // A device-level miss stays "not advertised".
+  auto absent = coverageCase(
+      "absent", "N_ABSENT", Verdict::Skipped, advertised, {"N_ABSENT"});
+  const auto other = extensionCoverage(keyed({absent}), {}, {"N_ABSENT"});
+  CHECK(row(other, "N_ABSENT").state == CoverageState::NotAdvertised);
+
+  std::ostringstream out;
+  writeTextSummary(out, "run", results, true, rows);
+  CHECK(out.str().find("advertised, renderer lacks it") != std::string::npos);
+  CHECK(out.str().find("renderer preview lacks a required feature: A_LENS")
+      != std::string::npos);
+  const std::string doc = generateHtml("/tmp/myrun", results, [&] {
+    HtmlOptions html;
+    html.coverage = rows;
+    return html;
+  }());
+  CHECK(doc.find("advertised, renderer lacks it") != std::string::npos);
+}
+
 TEST_CASE("runReference is the one Reference a run's Sidecars name",
     "[cts][report][reference]")
 {
@@ -1032,14 +1076,14 @@ TEST_CASE("an opted-out assertion keeps a row from reading plain passed",
 TEST_CASE("generateHtml shows a failed effect with both images and the mask",
     "[cts][html]")
 {
-  const auto root = std::filesystem::temp_directory_path() / "cts_htmlasrt_test";
+  const auto root =
+      std::filesystem::temp_directory_path() / "cts_htmlasrt_test";
   std::error_code ec;
   std::filesystem::remove_all(root, ec);
   const auto dir = root / "run" / "results" / "light" / "spot";
   REQUIRE(std::filesystem::create_directories(dir));
-  for (const char *f : {"moved.color.png",
-           "base.color.png",
-           "x.effect-0.mask.png"})
+  for (const char *f :
+      {"moved.color.png", "base.color.png", "x.effect-0.mask.png"})
     std::ofstream(dir / f) << "png";
 
   CaseResult moved = makeCase("light", "spot", "moved", Verdict::Failed);
@@ -1065,7 +1109,8 @@ TEST_CASE("generateHtml shows a failed effect with both images and the mask",
   CHECK(doc.find("src=\"results/light/spot/x.effect-0.mask.png\"")
       != std::string::npos);
   CHECK(doc.find("data-kinds=\"effect\"") != std::string::npos);
-  CHECK(doc.find("class=\"kindseg\" data-kind=\"effect\"") != std::string::npos);
+  CHECK(
+      doc.find("class=\"kindseg\" data-kind=\"effect\"") != std::string::npos);
   CHECK(doc.find("Ground truth not evaluated") != std::string::npos);
 
   std::filesystem::remove_all(root, ec);
@@ -1079,7 +1124,8 @@ TEST_CASE("generateHtml shows a failed equivalence with its expected image",
   std::filesystem::remove_all(root, ec);
   const auto dir = root / "run" / "results" / "camera" / "g";
   REQUIRE(std::filesystem::create_directories(dir));
-  for (const char *f : {"region.color.png", "region.exp.png", "region.mask.png"})
+  for (const char *f :
+      {"region.color.png", "region.exp.png", "region.mask.png"})
     std::ofstream(dir / f) << "png";
 
   CaseResult region = makeCase("camera", "g", "region", Verdict::Failed);
@@ -1101,10 +1147,11 @@ TEST_CASE("generateHtml shows a failed equivalence with its expected image",
   const std::string doc =
       generateHtml(root / "run", keyed({region}), HtmlOptions{});
   CHECK(doc.find("data-kind=\"equivalence\"") != std::string::npos);
-  CHECK(doc.find("the region&#39;s crop of the full frame") != std::string::npos);
+  CHECK(
+      doc.find("the region&#39;s crop of the full frame") != std::string::npos);
   CHECK(doc.find("<figcaption>expected</figcaption>") != std::string::npos);
-  CHECK(doc.find("src=\"results/camera/g/region.exp.png\"")
-      != std::string::npos);
+  CHECK(
+      doc.find("src=\"results/camera/g/region.exp.png\"") != std::string::npos);
   CHECK(doc.find("src=\"results/camera/g/region.mask.png\"")
       != std::string::npos);
   // `none` is not a Case of the run (a support render): no link.
@@ -1113,8 +1160,8 @@ TEST_CASE("generateHtml shows a failed equivalence with its expected image",
   std::filesystem::remove_all(root, ec);
 }
 
-TEST_CASE("generateHtml shows an opted-out axis and an unknown kind",
-    "[cts][html]")
+TEST_CASE(
+    "generateHtml shows an opted-out axis and an unknown kind", "[cts][html]")
 {
   CaseResult r = makeCase("light", "spot", "a", Verdict::Passed);
   Assertion opted;

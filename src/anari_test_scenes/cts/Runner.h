@@ -46,6 +46,9 @@ struct RunOptions
   // config, so a renderer Test that sets the same name still wins. Types
   // resolve against the device's declared parameter metadata.
   std::vector<RendererParam> rendererParams;
+  // The device's identity. Its `rendererExtensions`, when the caller fills
+  // them (queryRendererExtensions()), are what Cases gate on instead of the
+  // device's list; `extensions` is set from the list run()/generate() get.
   DeviceSpec device;
   // generate: clear ground_truth/ first, so a different Reference device
   // replaces the recorded one instead of being refused (ADR-0005).
@@ -101,7 +104,10 @@ struct Runner
 
   // Render every selected Case and save its channels under ground_truth/,
   // and record the Reference device (RunOptions::device, with
-  // `referenceFeatures`) beside them (Reference.h). Refuses, writing nothing,
+  // `referenceFeatures`, the extensions the device advertises) beside them
+  // (Reference.h). Cases gate on the renderer's own extensions when
+  // RunOptions::device lists any (RendererExtensions.h), else on
+  // `referenceFeatures`. Refuses, writing nothing,
   // with RunSummary::referenceConflict set, when the record names a different
   // device, unless RunOptions::replaceGroundTruth clears ground_truth/ first.
   // Does not score or write sidecars (ADR-0005). A shared (Variant) Ground
@@ -118,7 +124,9 @@ struct Runner
   // evaluate the self-checks between the Cases of each Test (ADR-0010), and
   // write result images plus a sidecar. A partner of a selected Case that the
   // filter excludes is rendered as a support render (images only). Cases
-  // whose required features are absent, or that have nothing to evaluate (no
+  // whose required features are absent (from the renderer's own extensions
+  // when RunOptions::device lists any, else from `candidateFeatures`, the
+  // device's; RendererExtensions.h), or that have nothing to evaluate (no
   // ground truth yet and no self-check), are recorded as skipped. If the
   // device can't render the probe frame, stops before the first Case with
   // RunSummary::deviceFailure set and records that in the results tree
@@ -180,16 +188,12 @@ struct Runner
 
   // Run a render Test: the per-Case phase for its selected Cases and their
   // partners, then the relational pass, then publication.
-  void runRenderTest(const TestDef &test,
-      const Filter &filter,
-      const std::set<std::string> &candidateFeatures,
-      RunSummary &summary);
+  void runRenderTest(
+      const TestDef &test, const Filter &filter, RunSummary &summary);
 
   // generate for one render Test.
-  void generateTest(const TestDef &test,
-      const Filter &filter,
-      const std::set<std::string> &referenceFeatures,
-      RunSummary &summary);
+  void generateTest(
+      const TestDef &test, const Filter &filter, RunSummary &summary);
 
   // Build a Case's world and camera (framed for `size`), then configure its
   // renderer. SceneObjects owns every handle and releases partial or complete
@@ -224,12 +228,14 @@ struct Runner
   std::optional<FrameSize> sizeOrSkip(
       const TestDef &test, const Case &c, CaseResult &result) const;
 
-  // Resolve the requested accumulation/denoise options against one device's
-  // advertised feature set. Accumulation is gated off when
-  // ANARI_KHR_FRAME_ACCUMULATION is absent; denoise is applied unconditionally
-  // (see RunOptions::denoise). Sets m_effectiveAccumulationFrames and
-  // m_denoiseEnabled. Called once at the start of generate()/run().
-  void resolveCapabilities(const std::set<std::string> &features);
+  // Record the device's advertised extensions in RunOptions::device, resolve
+  // what Cases gate on (m_gating: the renderer's own extensions when it
+  // reported any) and the renderer's subtype, and resolve the requested
+  // accumulation/denoise options against m_gating. Accumulation is gated off
+  // when ANARI_KHR_FRAME_ACCUMULATION is absent; denoise is applied
+  // unconditionally (see RunOptions::denoise). Called once at the start of
+  // generate()/run().
+  void resolveCapabilities(const std::set<std::string> &deviceFeatures);
 
   // Query the selected renderer subtype's declared parameter types once (on
   // first use), so CLI overrides and a Test's optional parameters parse into
@@ -253,12 +259,15 @@ struct Runner
   void setRendererParams(
       anari::Renderer renderer, const std::vector<RendererParam> &params);
 
+  // Why Case `c` is skipped for the required extensions absent from
+  // m_gating: the device's, or the renderer's (named by its subtype).
+  std::string featureSkipReason(const TestDef &test, const Case &c) const;
+
   // Write a "missing required feature" skip sidecar for a Case, naming the
-  // required features absent from `features`, and tally it.
-  void writeFeatureSkip(const TestDef &test,
-      const Case &c,
-      const std::set<std::string> &features,
-      RunSummary &summary);
+  // required features absent from m_gating and which of them the renderer
+  // lacks, and tally it.
+  void writeFeatureSkip(
+      const TestDef &test, const Case &c, RunSummary &summary);
 
   // A Case's result before it runs: its Test's and the run's identity, and
   // the Reference device the workdir records.
@@ -281,10 +290,8 @@ struct Runner
 
   // Run a behavioral Test (TestDef::behaviorCheck set): one Case at a time,
   // feature-gating then invoking the check and writing its verdict + detail.
-  void runBehaviorTest(const TestDef &test,
-      const Filter &filter,
-      const std::set<std::string> &candidateFeatures,
-      RunSummary &summary);
+  void runBehaviorTest(
+      const TestDef &test, const Filter &filter, RunSummary &summary);
 
   // Run one Case of a timed behavior Test through m_isolation and record how
   // it ended: the sidecar the isolated process wrote, or a failure if it
@@ -312,6 +319,10 @@ struct Runner
   std::shared_ptr<CaseIsolation> m_isolation;
   SelfCheckDefaults m_selfChecks;
 
+  // What Cases gate on (RendererExtensions.h gatingExtensions()), and the
+  // renderer subtype a skip names; set by resolveCapabilities().
+  std::set<std::string> m_gating;
+  std::string m_rendererSubtype;
   uint32_t m_effectiveAccumulationFrames{1};
   // Whether the device advertises KHR_FRAME_ACCUMULATION: the guard runs only
   // then (a device without accumulation has nothing that could still refine).

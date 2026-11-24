@@ -87,7 +87,8 @@ std::string toJson(const CaseResult &result)
   j["device"] = {{"library", result.device.library},
       {"device", result.device.device},
       {"renderer", result.device.renderer},
-      {"extensions", result.device.extensions}};
+      {"extensions", result.device.extensions},
+      {"rendererExtensions", result.device.rendererExtensions}};
   if (!result.reference.library.empty())
     j["reference"] = {{"library", result.reference.library},
         {"device", result.reference.device},
@@ -96,6 +97,7 @@ std::string toJson(const CaseResult &result)
   j["requiredFeatures"] = result.requiredFeatures;
   j["coveredFeatures"] = result.coveredFeatures;
   j["missingFeatures"] = result.missingFeatures;
+  j["rendererMissingFeatures"] = result.rendererMissingFeatures;
   j["catalogCoveredFeatures"] = result.catalogCoveredFeatures;
   j["verdict"] = verdictName(result.verdict);
   j["skipReason"] = result.skipReason;
@@ -242,6 +244,7 @@ bool fromJson(const std::string &text, CaseResult &out, bool *schemaMismatch)
     out.device.device = d->value("device", "default");
     out.device.renderer = d->value("renderer", "default");
     out.device.extensions = readStrings(*d, "extensions");
+    out.device.rendererExtensions = readStrings(*d, "rendererExtensions");
   }
   if (const auto r = j.find("reference"); r != j.end() && r->is_object()) {
     out.reference.library = r->value("library", "");
@@ -252,6 +255,7 @@ bool fromJson(const std::string &text, CaseResult &out, bool *schemaMismatch)
   out.requiredFeatures = readStrings(j, "requiredFeatures");
   out.coveredFeatures = readStrings(j, "coveredFeatures");
   out.missingFeatures = readStrings(j, "missingFeatures");
+  out.rendererMissingFeatures = readStrings(j, "rendererMissingFeatures");
   out.catalogCoveredFeatures = readStrings(j, "catalogCoveredFeatures");
   out.verdict = verdictFromName(j.value("verdict", "skipped"));
   out.skipReason = j.value("skipReason", "");

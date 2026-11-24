@@ -304,6 +304,32 @@ TEST_CASE("a sidecar round-trips the Reference device and what it lacks",
   CHECK(old.referenceMissingFeatures.empty());
 }
 
+TEST_CASE("a sidecar round-trips the renderer's extensions and what it lacks",
+    "[cts][sidecar][renderer_extensions]")
+{
+  CaseResult r;
+  r.verdict = Verdict::Skipped;
+  r.device = {"halcyon", "default", "default", {"ANARI_KHR_A", "ANARI_KHR_B"}};
+  r.device.rendererExtensions = {"ANARI_KHR_A"};
+  r.missingFeatures = {"ANARI_KHR_B"};
+  r.rendererMissingFeatures = {"ANARI_KHR_B"};
+  CaseResult back;
+  REQUIRE(fromJson(toJson(r), back));
+  CHECK(back.device.rendererExtensions
+      == std::vector<std::string>{"ANARI_KHR_A"});
+  CHECK(
+      back.rendererMissingFeatures == std::vector<std::string>{"ANARI_KHR_B"});
+
+  // An older v4 Sidecar gated on the device alone: both read as empty.
+  CaseResult old;
+  REQUIRE(fromJson(R"({"schemaVersion": 4, "verdict": "skipped",
+      "device": {"library": "helide", "extensions": ["ANARI_KHR_A"]},
+      "missingFeatures": ["ANARI_KHR_B"]})",
+      old));
+  CHECK(old.device.rendererExtensions.empty());
+  CHECK(old.rendererMissingFeatures.empty());
+}
+
 TEST_CASE("a Case without Ground truth says whether the Reference lacked it",
     "[cts][sidecar][reference]")
 {
@@ -341,6 +367,16 @@ TEST_CASE("the Reference record round-trips and is absent until written",
   CHECK(back->renderer == "preview");
   CHECK(back->extensions
       == std::vector<std::string>{"ANARI_KHR_A", "ANARI_KHR_B"});
+  // A renderer that reported nothing of its own records nothing.
+  CHECK(back->rendererExtensions.empty());
+
+  // The renderer's own list, which its Cases gated on, is recorded too.
+  DeviceSpec withRenderer = reference;
+  withRenderer.rendererExtensions = {"ANARI_KHR_A"};
+  REQUIRE(writeReference(wd, withRenderer));
+  const auto again = readReference(wd);
+  REQUIRE(again);
+  CHECK(again->rendererExtensions == std::vector<std::string>{"ANARI_KHR_A"});
 
   std::filesystem::remove_all(root, ec);
 }

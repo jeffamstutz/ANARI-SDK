@@ -229,6 +229,8 @@ const char *coverageStateName(CoverageState state)
     return "advertised, no Ground truth";
   case CoverageState::ReferenceLacks:
     return "advertised, Reference device lacks it";
+  case CoverageState::RendererLacks:
+    return "advertised, renderer lacks it";
   case CoverageState::MissingSupport:
     return "advertised, missing support";
   case CoverageState::NotRun:
@@ -304,6 +306,9 @@ std::vector<ExtensionCoverage> extensionCoverage(
   // Sidecar's fields decide it, not the reason's wording.
   std::set<const ExtensionCoverage *> noGroundTruth;
   std::set<const ExtensionCoverage *> referenceLacks;
+  // Rows with a Case skipped because the run's renderer lacked the row's own
+  // extension, which the device advertised.
+  std::set<const ExtensionCoverage *> rendererLacks;
   // Rows with a passed Case carrying an unevaluated (opted-out) assertion:
   // not every assertion was evaluated, so the row isn't plain "passed".
   std::set<const ExtensionCoverage *> partlyEvaluated;
@@ -322,6 +327,11 @@ std::vector<ExtensionCoverage> extensionCoverage(
       break;
     case Verdict::Skipped:
       ++c.skipped;
+      if (std::find(r.rendererMissingFeatures.begin(),
+              r.rendererMissingFeatures.end(),
+              c.extension)
+          != r.rendererMissingFeatures.end())
+        rendererLacks.insert(&c);
       if (!r.missingFeatures.empty())
         break;
       if (r.referenceMissingFeatures.empty())
@@ -353,6 +363,9 @@ std::vector<ExtensionCoverage> extensionCoverage(
       c.state = CoverageState::PassedWithoutGroundTruth;
     else if (c.passed > 0)
       c.state = CoverageState::Passed;
+    // The Candidate's own gap before the Ground truth's.
+    else if (rendererLacks.count(&c))
+      c.state = CoverageState::RendererLacks;
     else if (noGroundTruth.count(&c))
       c.state = CoverageState::NoGroundTruth;
     else if (referenceLacks.count(&c))

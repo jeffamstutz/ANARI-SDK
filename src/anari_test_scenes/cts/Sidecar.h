@@ -63,6 +63,12 @@ namespace cts {
 // workdir has no record of it), and `referenceMissingFeatures`, the required
 // extensions that device lacked, so it rendered no Ground truth for the Case.
 // An older Sidecar reads as "Reference unknown", which is what it was.
+//
+// Additive to v4, read with defaults (ADR-0005, renderer extensions):
+// `device.rendererExtensions`, what the run's renderer reported of itself,
+// and `rendererMissingFeatures`, the missing extensions the device advertised
+// but the renderer lacked. An older Sidecar gated on the device's list alone,
+// which is what their absence means.
 constexpr int kSidecarSchemaVersion = 4;
 
 // The skipReason of a Case skipped because it has no Ground truth. The report
@@ -95,6 +101,11 @@ struct DeviceSpec
   // The extensions the device advertised for the run (schema v3), sorted.
   // Empty when unrecorded (older sidecars). Not part of the identity.
   std::vector<std::string> extensions;
+  // The extensions the selected renderer reported of itself, sorted; the run
+  // gated its Cases on them (RendererExtensions.h). Empty when the renderer
+  // reported none, and the run gated on `extensions` (or when unrecorded,
+  // which is what an older Sidecar did). Not part of the identity.
+  std::vector<std::string> rendererExtensions;
 };
 
 // Whether two specs name the same device: library, device subtype and
@@ -231,6 +242,10 @@ struct CaseResult
   std::vector<std::string> requiredFeatures;
   std::vector<std::string> coveredFeatures;
   std::vector<std::string> missingFeatures;
+  // Of `missingFeatures`, those the device advertised but its renderer
+  // didn't report (RendererExtensions.h): the renderer lacks them, not the
+  // device. Empty from an older Sidecar, which gated on the device alone.
+  std::vector<std::string> rendererMissingFeatures;
   // What the run's whole Catalog covers (schema v3), sorted: the same in every
   // sidecar of a run.
   std::vector<std::string> catalogCoveredFeatures;

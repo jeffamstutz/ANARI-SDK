@@ -117,6 +117,7 @@ if (BUILD_CTS OR BUILD_TESTING)
     cts/ParameterBinding.cpp
     cts/Reference.cpp
     cts/Relations.cpp
+    cts/RendererExtensions.cpp
     cts/RendererParams.cpp
     cts/Report.cpp
     cts/Runner.cpp
