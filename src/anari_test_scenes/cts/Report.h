@@ -65,6 +65,9 @@ struct Summary
   // Failed Cases per failure kind (failureKinds()); a Case failing in two
   // ways counts under both.
   std::map<std::string, int> failuresByKind;
+  // Cases whose relational assertions ran without the convergence guard, per
+  // reason (CaseResult::notGuarded).
+  std::map<std::string, int> notGuarded;
   std::map<std::string, CategoryCounts> categories;
   std::vector<std::string> failures;
 };

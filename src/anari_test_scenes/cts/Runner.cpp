@@ -90,7 +90,10 @@ AccumulationResult accumulateFrame(
 // Render one channel of an already-assembled world with a caller-owned camera
 // and renderer. chFmt is the buffer format the Case requested for this channel
 // (the comparison image is always 8-bit RGBA; depth and IDs also keep their
-// raw values). depthScale deterministically maps depth to gray.
+// raw values). depthScale deterministically maps depth to gray. With `guard`
+// (an accumulated color channel only), the frame then keeps accumulating for
+// as many frames again and `guard` holds both images, or the render error
+// that stopped it; the channel's own values are unaffected.
 ChannelValues renderChannel(anari::Device d,
     anari::World world,
     anari::Camera camera,
@@ -100,7 +103,9 @@ ChannelValues renderChannel(anari::Device d,
     uint32_t h,
     float depthScale,
     ANARIDataType chFmt,
-    uint32_t accumulationFrames)
+    uint32_t accumulationFrames,
+    ConvergenceMeasurement *guard = nullptr,
+    double *guardMs = nullptr)
 {
   UniqueAnariObject<anari::Frame> frame(d, anari::newObject<anari::Frame>(d));
   const auto f = frame.get();
@@ -126,8 +131,9 @@ ChannelValues renderChannel(anari::Device d,
   // The frame is created fresh each call, so accumulation starts at sample 0;
   // rendering the same frame N times refines the image (matches
   // tests/frame.cpp's progressive-rendering check).
+  AccumulationResult accumulated;
   if (accumulate) {
-    accumulateFrame(d, f, accumulationFrames);
+    accumulated = accumulateFrame(d, f, accumulationFrames);
   } else {
     anari::render(d, f);
     anari::wait(d, f);
@@ -136,6 +142,32 @@ ChannelValues renderChannel(anari::Device d,
   auto readback = readFrameChannel(d, f, ch, w, h, depthScale);
   if (!readback)
     throw std::runtime_error(readback.detail);
+  if (guard && accumulate) {
+    guard->frames = accumulated.frames;
+    guard->extraFrames = accumulated.frames;
+    guard->refinementProgress = accumulated.progress;
+    guard->before = readback.image;
+    const auto start = std::chrono::steady_clock::now();
+    try {
+      for (uint32_t i = 0; i < guard->extraFrames; ++i) {
+        anari::render(d, f);
+        anari::wait(d, f);
+      }
+      auto after = readFrameChannel(d, f, ch, w, h, depthScale);
+      if (after)
+        guard->after = std::move(after.image);
+      else
+        guard->error = after.detail;
+    } catch (const std::exception &e) {
+      guard->error = e.what();
+    } catch (...) {
+      guard->error = "unknown exception";
+    }
+    if (guardMs)
+      *guardMs = std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now() - start)
+                     .count();
+  }
   return toChannelValues(ch, std::move(readback));
 }
 
@@ -531,7 +563,7 @@ std::vector<Image> Runner::renderImages(
 }
 
 Runner::RenderedChannels Runner::renderChannels(
-    const TestDef &test, const Case &c, FrameSize size)
+    const TestDef &test, const Case &c, FrameSize size, bool guard)
 {
   RenderedChannels out;
   SceneObjects scene = buildScene(test, c, size);
@@ -548,6 +580,8 @@ Runner::RenderedChannels Runner::renderChannels(
   out.channels.reserve(test.channels.size());
   for (Channel ch : test.channels) {
     const ANARIDataType chFmt = caseChannelFormat(c, ch);
+    const bool guarded = guard && ch == Channel::Color && !out.convergence;
+    ConvergenceMeasurement measurement;
     out.channels.push_back(renderChannel(m_device,
         scene.world.get(),
         scene.camera.get(),
@@ -557,76 +591,13 @@ Runner::RenderedChannels Runner::renderChannels(
         size.height,
         depthScale,
         chFmt,
-        m_effectiveAccumulationFrames));
+        m_effectiveAccumulationFrames,
+        guarded ? &measurement : nullptr,
+        guarded ? &out.guardMs : nullptr));
+    if (guarded)
+      out.convergence = std::move(measurement);
   }
   return out;
-}
-
-ConvergenceMeasurement Runner::measureConvergence(
-    const TestDef &test, const Case &c)
-{
-  ConvergenceMeasurement m;
-  try {
-    const CaseFrameSize frameSize = frameSizeOf(test, c);
-    if (!frameSize.resolved()) {
-      m.error = frameSize.skipReason;
-      return m;
-    }
-    const FrameSize size = frameSize.size;
-    SceneObjects scene = buildScene(test, c, size);
-    if (!scene.valid()) {
-      m.error = "world/camera/renderer build failed";
-      return m;
-    }
-    const float depthScale =
-        2.0f * anari::math::length(scene.bounds[1] - scene.bounds[0]);
-
-    UniqueAnariObject<anari::Frame> frame(
-        m_device, anari::newObject<anari::Frame>(m_device));
-    const auto f = frame.get();
-    anari::setParameter(m_device,
-        f,
-        "size",
-        anari::math::vec<uint32_t, 2>(size.width, size.height));
-    anari::setParameter(
-        m_device, f, "channel.color", caseChannelFormat(c, Channel::Color));
-    anari::setParameter(m_device, f, "renderer", scene.renderer.get());
-    anari::setParameter(m_device, f, "camera", scene.camera.get());
-    anari::setParameter(m_device, f, "world", scene.world.get());
-    // Accumulation is on even when the run renders once: the guard needs a
-    // frame it can keep refining.
-    anari::setParameter(m_device, f, "accumulation", true);
-    anari::commitParameters(m_device, f);
-
-    const auto first =
-        accumulateFrame(m_device, f, m_effectiveAccumulationFrames);
-    auto before = readFrameChannel(
-        m_device, f, Channel::Color, size.width, size.height, depthScale);
-    if (!before) {
-      m.error = before.detail;
-      return m;
-    }
-    m.frames = first.frames;
-    m.extraFrames = first.frames;
-    m.refinementProgress = first.progress;
-    for (uint32_t i = 0; i < m.extraFrames; ++i) {
-      anari::render(m_device, f);
-      anari::wait(m_device, f);
-    }
-    auto after = readFrameChannel(
-        m_device, f, Channel::Color, size.width, size.height, depthScale);
-    if (!after) {
-      m.error = after.detail;
-      return m;
-    }
-    m.before = std::move(before.image);
-    m.after = std::move(after.image);
-  } catch (const std::exception &e) {
-    m.error = e.what();
-  } catch (...) {
-    m.error = "unknown exception";
-  }
-  return m;
 }
 
 std::optional<FrameSize> Runner::sizeOrSkip(
@@ -651,6 +622,8 @@ CaseResult Runner::caseResult(const TestDef &test, const Case &c)
     r.reference = {
         m_reference->library, m_reference->device, m_reference->renderer};
   }
+  // Recorded: empty unless the relational pass finds the guard couldn't run.
+  r.notGuarded = std::string();
   return r;
 }
 
@@ -730,8 +703,10 @@ RunSummary Runner::run(const Catalog &catalog,
   return summary;
 }
 
-Runner::CaseOutcome Runner::runCase(
-    const TestDef &test, const Case &c, bool renderWithoutGroundTruth)
+Runner::CaseOutcome Runner::runCase(const TestDef &test,
+    const Case &c,
+    bool renderWithoutGroundTruth,
+    bool guard)
 {
   CaseOutcome out;
   CaseResult &result = out.result;
@@ -748,6 +723,7 @@ Runner::CaseOutcome Runner::runCase(
     result.assertions.clear();
     result.groundTruthEvaluated = false;
     out.artifacts.clear();
+    out.convergence.reset();
     out.render = {};
     out.render.state = CaseRender::State::Failed;
     out.render.error = detail;
@@ -790,10 +766,12 @@ Runner::CaseOutcome Runner::runCase(
     }
 
     const auto start = std::chrono::steady_clock::now();
-    RenderedChannels rendered = renderChannels(test, c, *size);
+    RenderedChannels rendered = renderChannels(test, c, *size, guard);
     const auto end = std::chrono::steady_clock::now();
     result.durationMs =
-        std::chrono::duration<double, std::milli>(end - start).count();
+        std::chrono::duration<double, std::milli>(end - start).count()
+        - rendered.guardMs;
+    out.convergence = std::move(rendered.convergence);
 
     if (rendered.channels.size() != test.channels.size()) {
       fail("render produced no image");
@@ -939,11 +917,23 @@ void Runner::runRenderTest(
     renders[i].state = CaseRender::State::Unsupported;
     renders[i].error = featureSkipReason(test, cases[i]);
   }
+  // The guard: relational assertions need a converged Candidate (ADR-0010).
+  // Each Case they read is measured in its own render, and recorded on itself
+  // (or, for a support render, on a selected Case that reads it); a Case that
+  // fails fails every relational assertion reading it. When the guard can't
+  // run, the Cases with an evaluated relational assertion record why. Exact
+  // checks carry their own tolerances and are not guarded.
+  const bool hasColor =
+      std::find(test.channels.begin(), test.channels.end(), Channel::Color)
+      != test.channels.end();
+  const std::string notGuarded = notGuardedReason(
+      m_accumulationSupported, m_effectiveAccumulationFrames, hasColor);
+  const bool guard = relations && notGuarded.empty();
   for (size_t i = 0; i < cases.size(); ++i) {
     if (!toRender[i])
       continue;
     outcomes[i] =
-        runCase(test, cases[i], relations || !test.exactChecks.empty());
+        runCase(test, cases[i], relations || !test.exactChecks.empty(), guard);
     renders[i] = outcomes[i].render;
   }
 
@@ -952,22 +942,23 @@ void Runner::runRenderTest(
   std::vector<bool> participated(cases.size(), false);
   auto relational =
       evaluateRelations(forRunDevice(test), cases, renders, m_selfChecks);
-  // The guard: relational assertions need a converged Candidate (ADR-0010).
-  // It is recorded on the baseline Case, or on the first selected Case when
-  // the filter excludes it, and a failure fails every relational assertion.
-  // Exact checks carry their own tolerances and are not guarded.
-  std::optional<Assertion> convergence;
-  size_t convergenceCase = 0;
-  if (m_accumulationSupported && hasEvaluatedRelation(relational)
-      && std::find(test.channels.begin(), test.channels.end(), Channel::Color)
-          != test.channels.end()) {
-    convergence =
-        judgeConvergence(measureConvergence(test, cases.front()), m_selfChecks);
-    failRelationsNotConverged(relational, *convergence);
-    while (!chosen[convergenceCase])
-      ++convergenceCase;
-    if (chosen[0])
-      convergenceCase = 0;
+  std::vector<CaseGuard> guards;
+  if (guard) {
+    std::vector<std::optional<ConvergenceMeasurement>> measurements;
+    std::vector<std::string> ids;
+    for (size_t i = 0; i < cases.size(); ++i) {
+      measurements.push_back(std::move(outcomes[i].convergence));
+      ids.push_back(cases[i].id());
+    }
+    guards =
+        guardRelations(relational, measurements, ids, chosen, m_selfChecks);
+  } else {
+    for (const auto &rel : relational) {
+      if (!rel.assertion.evaluated || !chosen[rel.caseIndex])
+        continue;
+      for (size_t k : rel.casesRead())
+        outcomes[k].result.notGuarded = notGuarded;
+    }
   }
   for (auto &rel : relational) {
     if (rel.assertion.evaluated)
@@ -1003,10 +994,9 @@ void Runner::runRenderTest(
     }
     outcome.result.assertions.push_back(std::move(a));
   }
-  if (convergence) {
-    outcomes[convergenceCase].result.assertions.push_back(
-        std::move(*convergence));
-    participated[convergenceCase] = true;
+  for (auto &g : guards) {
+    outcomes[g.recordOn].result.assertions.push_back(std::move(g.assertion));
+    participated[g.recordOn] = true;
   }
 
   for (size_t i = 0; i < cases.size(); ++i) {

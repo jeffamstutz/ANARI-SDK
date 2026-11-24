@@ -111,6 +111,8 @@ std::string toJson(const CaseResult &result)
   j["rendererParams"] = json::array();
   for (const auto &[name, value] : result.rendererParams)
     j["rendererParams"].push_back({{"name", name}, {"value", value}});
+  if (result.notGuarded)
+    j["notGuarded"] = *result.notGuarded;
 
   // Ordered array so axis declaration order survives the round-trip.
   j["axes"] = json::array();
@@ -291,6 +293,8 @@ bool fromJson(const std::string &text, CaseResult &out, bool *schemaMismatch)
   out.groundTruthEvaluated =
       j.value("groundTruthEvaluated", !out.channels.empty());
   out.groundTruthReason = j.value("groundTruthReason", "");
+  if (const auto ng = j.find("notGuarded"); ng != j.end() && ng->is_string())
+    out.notGuarded = ng->get<std::string>();
   if (const auto rp = j.find("rendererParams"); rp != j.end() && rp->is_array())
     for (const auto &p : *rp)
       out.rendererParams.emplace_back(

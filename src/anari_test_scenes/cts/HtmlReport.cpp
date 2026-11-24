@@ -838,6 +838,8 @@ void appendConfigTable(std::ostringstream &os, const CaseResult &r)
     rowKV("Renderer parameters", params);
   }
   rowKV("Detail", r.detail);
+  if (r.notGuarded && !r.notGuarded->empty())
+    rowKV("Convergence guard", "not guarded: " + *r.notGuarded);
   rowKV("Duration", dur);
   os << "<div class=\"r\"><span class=\"kk\">Ground truth</span><span "
         "class=\"vv\" style=\"color:var(--link);\">"
@@ -1352,6 +1354,19 @@ std::string generateHtml(const std::filesystem::path &workdir,
         "<div class=\"v kmono\">"
      << s.passedWithoutGroundTruth
      << "</div><div class=\"sub\">Ground truth not evaluated</div></div>";
+  if (!s.notGuarded.empty()) {
+    // Cases whose relational checks ran without the convergence guard.
+    int notGuarded = 0;
+    std::string reasons;
+    for (const auto &[reason, n] : s.notGuarded) {
+      notGuarded += n;
+      reasons += (reasons.empty() ? "" : "; ") + reason;
+    }
+    os << "<div class=\"stat\"><div class=\"k\">Not guarded</div>"
+          "<div class=\"v kmono\">"
+       << notGuarded << "</div><div class=\"sub\">" << htmlEscape(reasons)
+       << "</div></div>";
+  }
   os << "<div class=\"stat\"><div class=\"k\">Categories</div><div class=\"v "
         "kmono\">"
      << s.categories.size()

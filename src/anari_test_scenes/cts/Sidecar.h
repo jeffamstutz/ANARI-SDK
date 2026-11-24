@@ -272,6 +272,12 @@ struct CaseResult
   std::vector<std::pair<Channel, std::string>> resultImages;
   // Self-checks attributed to this Case (schema v4).
   std::vector<Assertion> assertions;
+  // Why the convergence guard didn't run for this Case's relational
+  // assertions (notGuardedReason()); empty when it ran or they had nothing
+  // to guard. Absent (unrecorded) in a Sidecar older than ticket 32, whose
+  // run may have left them unguarded without saying so: additive in v4,
+  // since absence is not read as "guarded".
+  std::optional<std::string> notGuarded;
 
   // Whether it passed without the Ground-truth comparison its Test asks for
   // (the Ground truth was missing): its self-checks alone decided it.

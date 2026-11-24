@@ -113,6 +113,14 @@ struct RelationOutcome
   // expected image of the scored Channel and its mask, if it has one.
   Image expected;
   Image expectedMask;
+
+  // The Cases the assertion reads: its own, then its partners.
+  std::vector<size_t> casesRead() const
+  {
+    std::vector<size_t> read = {caseIndex};
+    read.insert(read.end(), partners.begin(), partners.end());
+    return read;
+  }
 };
 
 // Evaluate every effect and equivalence of a Test (ADR-0010):

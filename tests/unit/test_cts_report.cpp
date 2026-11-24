@@ -1209,3 +1209,27 @@ TEST_CASE("generateHtml shows exact and convergence findings", "[cts][html]")
   CHECK(doc.find("frames rendered 12, refinementProgress 0.500")
       != std::string::npos);
 }
+
+TEST_CASE("generateHtml counts and shows Cases that weren't guarded",
+    "[cts][html][convergence]")
+{
+  CaseResult r = makeCase("material", "pbr", "a", Verdict::Passed);
+  r.notGuarded = "the renderer lacks ANARI_KHR_FRAME_ACCUMULATION";
+  Assertion effect; // what ran unguarded
+  effect.kind = kEffectAssertion;
+  effect.axis = "specular";
+  effect.passed = true;
+  r.assertions = {effect};
+  CaseResult guarded = makeCase("material", "pbr", "b", Verdict::Passed);
+  const std::string doc =
+      generateHtml("/tmp/myrun", keyed({r, guarded}), HtmlOptions{});
+  // The summary's count, with the reason, and the Case's own row.
+  CHECK(doc.find("Not guarded") != std::string::npos);
+  CHECK(doc.find("not guarded: the renderer lacks "
+                 "ANARI_KHR_FRAME_ACCUMULATION")
+      != std::string::npos);
+
+  const std::string plain =
+      generateHtml("/tmp/myrun", keyed({guarded}), HtmlOptions{});
+  CHECK(plain.find("Not guarded") == std::string::npos);
+}

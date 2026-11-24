@@ -122,6 +122,8 @@ Summary summarize(const std::map<std::string, CaseResult> &results)
   Summary s;
   for (const auto &[key, r] : results) {
     ++s.total;
+    if (r.notGuarded && !r.notGuarded->empty())
+      ++s.notGuarded[*r.notGuarded];
     auto &cat = s.categories[r.category];
     switch (r.verdict) {
     case Verdict::Passed:
@@ -440,6 +442,9 @@ void writeTextSummary(std::ostream &out,
     }
     out << "\n";
   }
+  for (const auto &[reason, n] : s.notGuarded)
+    out << "  " << n << (n == 1 ? " Case" : " Cases")
+        << " not guarded against an unconverged image: " << reason << "\n";
   out << "  by category:\n";
   size_t width = 12;
   for (const auto &category : s.categories)
@@ -506,6 +511,8 @@ void writeTextSummary(std::ostream &out,
         out << " [mask " << a.maskImage << "]";
       out << ": " << a.detail << "\n";
     }
+    if (r.notGuarded && !r.notGuarded->empty())
+      out << "      not guarded: " << *r.notGuarded << "\n";
     if (!r.description.empty())
       out << "      Description: " << r.description << "\n";
   }

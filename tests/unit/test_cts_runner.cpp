@@ -916,6 +916,145 @@ TEST_CASE("Runner fails the effect of an axis the build ignores",
   anari::unloadLibrary(lib);
 }
 
+TEST_CASE("Runner guards every Case a relation reads, or records why not",
+    "[cts][runner][convergence][helide]")
+{
+  anari::Library lib = anari::loadLibrary("helide", statusFunc, nullptr);
+  if (!lib) {
+    WARN("helide library not available; skipping convergence guard test");
+    return;
+  }
+  anari::Device d = anari::newDevice(lib, "default");
+  REQUIRE(d != nullptr);
+  anari::commitParameters(d, d);
+
+  const auto root =
+      std::filesystem::temp_directory_path() / "cts_runner_guard_test";
+  std::error_code ec;
+  std::filesystem::remove_all(root, ec);
+
+  Catalog catalog;
+  makeTest("demo", "guarded")
+      .build(buildTriangleWorld)
+      .permute("primitiveCount", {4, 8, 12})
+      .noGroundTruth()
+      .registerInto(catalog);
+  makeTest("demo", "depth_only")
+      .build(buildTriangleWorld)
+      .permute("primitiveCount", {4, 8})
+      .channels({Channel::Depth})
+      .noGroundTruth()
+      .registerInto(catalog);
+
+  RunOptions opts;
+  opts.width = 64;
+  opts.height = 64;
+  opts.device = {"helide", "default", "default"};
+  const Workdir wd(root);
+  auto caseAt = [](int n) {
+    return caseOf(
+        "demo", "guarded", {{"primitiveCount", Any(n), AxisKind::Permutation}});
+  };
+  const std::vector<Case> cases = {caseAt(4), caseAt(8), caseAt(12)};
+  auto convergenceOf = [](const CaseResult &r) {
+    std::vector<Assertion> out;
+    for (const auto &a : r.assertions)
+      if (a.kind == kConvergenceAssertion)
+        out.push_back(a);
+    return out;
+  };
+  // helide doesn't advertise it; listing it makes the Runner accumulate, and
+  // helide's deterministic images pass the guard.
+  const std::set<std::string> accumulates = {"ANARI_KHR_FRAME_ACCUMULATION"};
+
+  SECTION("a renderer without KHR_FRAME_ACCUMULATION records why")
+  {
+    opts.accumulationFrames = 16;
+    Runner runner(d, wd, opts);
+    runner.run(catalog, Filter{"demo/guarded"}, {});
+    for (const auto &c : cases) {
+      CaseResult r;
+      REQUIRE(readSidecar(wd.sidecarPath(c), r));
+      CHECK(convergenceOf(r).empty());
+      REQUIRE(r.notGuarded);
+      CHECK(r.notGuarded->find("ANARI_KHR_FRAME_ACCUMULATION")
+          != std::string::npos);
+    }
+  }
+
+  SECTION("a one-frame run records why")
+  {
+    opts.accumulationFrames = 1;
+    Runner runner(d, wd, opts);
+    runner.run(catalog, Filter{"demo/guarded"}, accumulates);
+    for (const auto &c : cases) {
+      CaseResult r;
+      REQUIRE(readSidecar(wd.sidecarPath(c), r));
+      CHECK(convergenceOf(r).empty());
+      REQUIRE(r.notGuarded);
+      CHECK(r.notGuarded->find("--accumulation") != std::string::npos);
+    }
+  }
+
+  SECTION("a Test with no color Channel records why")
+  {
+    opts.accumulationFrames = 4;
+    Runner runner(d, wd, opts);
+    runner.run(catalog, Filter{"demo/depth_only"}, accumulates);
+    CaseResult r;
+    REQUIRE(
+        readSidecar(wd.sidecarPath(caseOf("demo",
+                        "depth_only",
+                        {{"primitiveCount", Any(8), AxisKind::Permutation}})),
+            r));
+    CHECK(convergenceOf(r).empty());
+    REQUIRE(r.notGuarded);
+    CHECK(r.notGuarded->find("no color Channel") != std::string::npos);
+  }
+
+  SECTION("each Case is guarded once, on itself")
+  {
+    opts.accumulationFrames = 4;
+    Runner runner(d, wd, opts);
+    const auto summary =
+        runner.run(catalog, Filter{"demo/guarded"}, accumulates);
+    CHECK(summary.failed == 0);
+    for (const auto &c : cases) {
+      CaseResult r;
+      REQUIRE(readSidecar(wd.sidecarPath(c), r));
+      REQUIRE(r.notGuarded);
+      CHECK(r.notGuarded->empty());
+      const auto guards = convergenceOf(r);
+      REQUIRE(guards.size() == 1);
+      CHECK(guards[0].passed);
+      CHECK(guards[0].framesRendered == 4);
+      CHECK(guards[0].relatedCases.empty());
+    }
+  }
+
+  SECTION("support renders' guards are recorded on the selected Case")
+  {
+    opts.accumulationFrames = 4;
+    Runner runner(d, wd, opts);
+    runner.run(catalog, Filter{"demo/guarded/" + cases[2].id()}, accumulates);
+    CaseResult r;
+    REQUIRE(readSidecar(wd.sidecarPath(cases[2]), r));
+    const auto guards = convergenceOf(r);
+    REQUIRE(guards.size() == 3);
+    std::set<std::string> named;
+    for (const auto &g : guards) {
+      CHECK(g.passed);
+      named.insert(g.relatedCases.empty() ? cases[2].id() : g.relatedCases[0]);
+    }
+    CHECK(named
+        == std::set<std::string>{cases[0].id(), cases[1].id(), cases[2].id()});
+  }
+
+  std::filesystem::remove_all(root, ec);
+  anari::release(d, d);
+  anari::unloadLibrary(lib);
+}
+
 TEST_CASE(
     "Runner renders each Case at its frame size and checks a derived crop",
     "[cts][runner][helide]")

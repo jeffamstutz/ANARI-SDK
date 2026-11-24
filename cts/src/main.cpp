@@ -162,8 +162,10 @@ options:
                        supports ANARI_KHR_FRAME_ACCUMULATION (default: 16; <=1
                        renders once; refinementProgress 1 stops earlier).
                        Relational checks fail "not converged" if the image is
-                       still refining: raise it until they pass
-  --no-accumulation    render each channel once (equivalent to --accumulation 1)
+                       still refining: raise it until they pass (a path
+                       tracer can need 256 or more; see the CTS README)
+  --no-accumulation    render each channel once (equivalent to --accumulation
+                       1; no convergence guard, recorded as "not guarded")
   --denoise            set the renderer "denoise" parameter (warns, but still
                        sets it, if the device lacks ANARI_KHR_RENDERER_DENOISE)
   --stdin              read newline-separated filter patterns from stdin (run)

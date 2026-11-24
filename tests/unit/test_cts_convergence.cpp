@@ -12,6 +12,9 @@
 #include "cts/Sidecar.h"
 #include "cts/TestBuilder.h"
 // std
+#include <map>
+#include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -113,64 +116,211 @@ TEST_CASE(
   CHECK(a.detail.find("contradicts itself") != std::string::npos);
 }
 
-TEST_CASE("a guard that could not render fails, it is never dropped",
+TEST_CASE("a guard that could not render names the render error",
     "[cts][convergence]")
 {
   ConvergenceMeasurement m;
-  m.frames = 1;
-  m.error = "world/camera/renderer build failed";
+  m.frames = 16;
+  m.error = "frame readback failed: no mapped data";
   const auto a = judgeConvergence(m);
+  // Never dropped, never passed; but it is no "not converged".
   CHECK_FALSE(a.passed);
   CHECK(a.evaluated);
-  CHECK(a.detail.find("not converged at 1 frame:") != std::string::npos);
-  CHECK(a.detail.find("build failed") != std::string::npos);
+  CHECK(a.detail.find("not converged") == std::string::npos);
+  CHECK(a.detail.find("render error") != std::string::npos);
+  CHECK(a.detail.find("frame readback failed: no mapped data")
+      != std::string::npos);
 }
 
-// Failing the relational assertions //////////////////////////////////////////
-
-TEST_CASE("a failed guard fails every evaluated relational assertion",
+TEST_CASE("the not-converged reason suggests a count for path tracers",
     "[cts][convergence]")
 {
-  std::vector<RelationOutcome> outcomes = {
-      passedRelation(kEffectAssertion), passedRelation(kEquivalenceAssertion)};
-  RelationOutcome optedOut;
-  optedOut.assertion.kind = kEffectAssertion;
-  optedOut.assertion.evaluated = false;
-  optedOut.assertion.detail = "opted out";
-  outcomes.push_back(optedOut);
-
-  const auto failed =
+  const auto a =
       judgeConvergence(measurement(gradient(32, 32), gradient(32, 32, 40)));
-  failRelationsNotConverged(outcomes, failed);
-
-  for (size_t i = 0; i < 2; ++i) {
-    CHECK_FALSE(outcomes[i].assertion.passed);
-    CHECK(outcomes[i].assertion.detail.find("not converged at 16 frames")
-        != std::string::npos);
-    // The check's own finding is kept.
-    CHECK(outcomes[i].assertion.detail.find("fine") != std::string::npos);
-  }
-  CHECK_FALSE(outcomes[2].assertion.evaluated);
-  CHECK(outcomes[2].assertion.detail == "opted out");
-  CHECK(hasEvaluatedRelation(outcomes));
+  CHECK(a.detail.find("path tracer") != std::string::npos);
+  CHECK(a.detail.find("256") != std::string::npos);
 }
 
-TEST_CASE("a passed guard leaves the relational assertions alone",
+// When the guard can't run ///////////////////////////////////////////////////
+
+TEST_CASE(
+    "the guard runs when the renderer accumulates over several frames "
+    "of a color Channel",
     "[cts][convergence]")
 {
-  std::vector<RelationOutcome> outcomes = {passedRelation(kEffectAssertion)};
-  failRelationsNotConverged(
-      outcomes, judgeConvergence(measurement(gradient(8, 8), gradient(8, 8))));
+  CHECK(notGuardedReason(true, 16, true).empty());
+  CHECK(notGuardedReason(true, 2, true).empty());
+}
+
+TEST_CASE("a renderer without KHR_FRAME_ACCUMULATION is not guarded",
+    "[cts][convergence]")
+{
+  const auto reason = notGuardedReason(false, 16, true);
+  CHECK(reason.find("ANARI_KHR_FRAME_ACCUMULATION") != std::string::npos);
+  // It wins over the other reasons: raising the count can't help.
+  CHECK(notGuardedReason(false, 1, false) == reason);
+}
+
+TEST_CASE("a run of one frame is not guarded", "[cts][convergence]")
+{
+  for (uint32_t frames : {0u, 1u}) {
+    const auto reason = notGuardedReason(true, frames, true);
+    CHECK(reason.find("--accumulation") != std::string::npos);
+    CHECK(reason.find("--no-accumulation") != std::string::npos);
+  }
+}
+
+TEST_CASE("a Test with no color Channel is not guarded", "[cts][convergence]")
+{
+  const auto reason = notGuardedReason(true, 16, false);
+  CHECK(reason.find("no color Channel") != std::string::npos);
+}
+
+// Guarding the relational assertions /////////////////////////////////////////
+
+namespace {
+
+// An evaluated, passed relation of `kind` on Case `at` reading `partners`.
+RelationOutcome relation(
+    const char *kind, size_t at, std::vector<size_t> partners)
+{
+  RelationOutcome o = passedRelation(kind);
+  o.caseIndex = at;
+  o.partners = std::move(partners);
+  return o;
+}
+
+ConvergenceMeasurement stable()
+{
+  return measurement(gradient(32, 32), gradient(32, 32));
+}
+
+ConvergenceMeasurement refining()
+{
+  return measurement(gradient(32, 32), gradient(32, 32, 40));
+}
+
+const std::vector<std::string> kIds = {"base", "a", "b", "c"};
+const std::vector<bool> kAllSelected(4, true);
+
+} // namespace
+
+TEST_CASE("every Case a relation reads is guarded once", "[cts][convergence]")
+{
+  // a and b each read base; c reads nothing evaluated.
+  std::vector<RelationOutcome> outcomes = {
+      relation(kEffectAssertion, 1, {0}), relation(kEffectAssertion, 2, {0})};
+  std::vector<std::optional<ConvergenceMeasurement>> m = {
+      stable(), stable(), stable(), stable()};
+  const auto guards = guardRelations(outcomes, m, kIds, kAllSelected);
+  REQUIRE(guards.size() == 3);
+  CHECK(guards[0].caseIndex == 0);
+  CHECK(guards[1].caseIndex == 1);
+  CHECK(guards[2].caseIndex == 2);
+  for (const auto &g : guards) {
+    CHECK(g.recordOn == g.caseIndex);
+    CHECK(g.assertion.kind == kConvergenceAssertion);
+    CHECK(g.assertion.passed);
+  }
+  CHECK(outcomes[0].assertion.passed);
+  CHECK(outcomes[1].assertion.passed);
+}
+
+TEST_CASE(
+    "a non-baseline Case that keeps changing fails the relations that "
+    "read it",
+    "[cts][convergence]")
+{
+  // The baseline converges; Case b, which only the second effect reads, keeps
+  // changing: a device whose slow Case the baseline guard missed.
+  std::vector<RelationOutcome> outcomes = {relation(kEffectAssertion, 1, {0}),
+      relation(kEffectAssertion, 2, {0}),
+      relation(kEquivalenceAssertion, 3, {2})};
+  std::vector<std::optional<ConvergenceMeasurement>> m = {
+      stable(), stable(), refining(), stable()};
+  const auto guards = guardRelations(outcomes, m, kIds, kAllSelected);
+
+  REQUIRE(guards.size() == 4);
+  CHECK(guards[0].assertion.passed);
+  CHECK(guards[1].assertion.passed);
+  CHECK_FALSE(guards[2].assertion.passed);
+  CHECK(guards[2].recordOn == 2);
+  CHECK(guards[3].assertion.passed);
+
+  // a reads only base and a: untouched.
   CHECK(outcomes[0].assertion.passed);
   CHECK(outcomes[0].assertion.detail == "fine");
+  // b's own effect fails on b's guard, the check's finding kept.
+  CHECK_FALSE(outcomes[1].assertion.passed);
+  CHECK(outcomes[1].assertion.detail.find("not converged at 16 frames")
+      != std::string::npos);
+  CHECK(outcomes[1].assertion.detail.find("fine") != std::string::npos);
+  // c's equivalence reads b: it fails and names b.
+  CHECK_FALSE(outcomes[2].assertion.passed);
+  CHECK(outcomes[2].assertion.detail.find("Case b") != std::string::npos);
+  CHECK(
+      outcomes[2].assertion.detail.find("not converged") != std::string::npos);
 }
 
-TEST_CASE("only unevaluated outcomes need no guard", "[cts][convergence]")
+TEST_CASE("a guard's render error fails the relations with that error",
+    "[cts][convergence]")
 {
-  RelationOutcome optedOut;
+  std::vector<RelationOutcome> outcomes = {relation(kEffectAssertion, 1, {0})};
+  ConvergenceMeasurement broken;
+  broken.frames = 16;
+  broken.error = "device lost";
+  std::vector<std::optional<ConvergenceMeasurement>> m = {
+      broken, stable(), std::nullopt, std::nullopt};
+  guardRelations(outcomes, m, kIds, kAllSelected);
+  CHECK_FALSE(outcomes[0].assertion.passed);
+  CHECK(outcomes[0].assertion.detail.find("device lost") != std::string::npos);
+  CHECK(
+      outcomes[0].assertion.detail.find("not converged") == std::string::npos);
+}
+
+TEST_CASE("an unselected partner's guard is recorded on a selected reader",
+    "[cts][convergence]")
+{
+  // Only a is selected; base is a support render.
+  std::vector<RelationOutcome> outcomes = {relation(kEffectAssertion, 1, {0})};
+  std::vector<std::optional<ConvergenceMeasurement>> m = {
+      refining(), stable(), std::nullopt, std::nullopt};
+  const std::vector<bool> selected = {false, true, false, false};
+  const auto guards = guardRelations(outcomes, m, kIds, selected);
+  REQUIRE(guards.size() == 2);
+  CHECK(guards[0].caseIndex == 0);
+  CHECK(guards[0].recordOn == 1);
+  CHECK(guards[0].assertion.relatedCases == std::vector<std::string>{"base"});
+  CHECK(guards[0].assertion.detail.find("Case base") != std::string::npos);
+  CHECK(guards[1].recordOn == 1);
+  CHECK(guards[1].assertion.relatedCases.empty());
+  CHECK_FALSE(outcomes[0].assertion.passed);
+}
+
+TEST_CASE(
+    "opted-out relations are neither guarded nor failed", "[cts][convergence]")
+{
+  RelationOutcome optedOut = relation(kEffectAssertion, 1, {0});
   optedOut.assertion.evaluated = false;
-  CHECK_FALSE(hasEvaluatedRelation({optedOut}));
-  CHECK_FALSE(hasEvaluatedRelation({}));
+  optedOut.assertion.detail = "opted out";
+  std::vector<RelationOutcome> outcomes = {optedOut};
+  std::vector<std::optional<ConvergenceMeasurement>> m = {
+      refining(), refining(), std::nullopt, std::nullopt};
+  CHECK(guardRelations(outcomes, m, kIds, kAllSelected).empty());
+  CHECK(outcomes[0].assertion.detail == "opted out");
+}
+
+TEST_CASE("a Case with no measurement is not guarded", "[cts][convergence]")
+{
+  // A partner that failed to render has no measurement; the relation already
+  // fails for it.
+  std::vector<RelationOutcome> outcomes = {relation(kEffectAssertion, 1, {0})};
+  std::vector<std::optional<ConvergenceMeasurement>> m = {
+      std::nullopt, stable(), std::nullopt, std::nullopt};
+  const auto guards = guardRelations(outcomes, m, kIds, kAllSelected);
+  REQUIRE(guards.size() == 1);
+  CHECK(guards[0].caseIndex == 1);
+  CHECK(outcomes[0].assertion.passed);
 }
 
 // The Sidecar and the report /////////////////////////////////////////////////
@@ -216,4 +366,44 @@ TEST_CASE("an older Sidecar assertion defaults the convergence fields",
   REQUIRE(fromJson(toJson(r), back));
   CHECK(back.assertions[0].framesRendered == 0);
   CHECK_FALSE(back.assertions[0].refinementProgress);
+}
+
+TEST_CASE("'not guarded' round-trips through the Sidecar and is reported",
+    "[cts][convergence]")
+{
+  CaseResult r;
+  r.category = "demo";
+  r.test = "t";
+  r.caseId = "c";
+  r.verdict = Verdict::Failed;
+  r.notGuarded = notGuardedReason(false, 16, true);
+  CaseResult back;
+  REQUIRE(fromJson(toJson(r), back));
+  CHECK(back.notGuarded == r.notGuarded);
+
+  // A guarded Case records an empty reason; an older Sidecar records none,
+  // which is not read as guarded.
+  CaseResult plain;
+  plain.category = "demo";
+  plain.test = "t";
+  plain.caseId = "d";
+  plain.notGuarded = std::string();
+  CaseResult plainBack;
+  REQUIRE(fromJson(toJson(plain), plainBack));
+  REQUIRE(plainBack.notGuarded);
+  CHECK(plainBack.notGuarded->empty());
+  CaseResult older = plain;
+  older.notGuarded.reset();
+  CaseResult olderBack;
+  REQUIRE(fromJson(toJson(older), olderBack));
+  CHECK_FALSE(olderBack.notGuarded);
+
+  std::map<std::string, CaseResult> results = {
+      {"demo/t/c", back}, {"demo/t/d", plainBack}};
+  const Summary s = summarize(results);
+  CHECK(s.notGuarded == std::map<std::string, int>{{*r.notGuarded, 1}});
+  std::ostringstream text;
+  writeTextSummary(text, "wd", results, true, {}, nullptr);
+  CHECK(text.str().find("not guarded") != std::string::npos);
+  CHECK(text.str().find(*r.notGuarded) != std::string::npos);
 }

@@ -185,13 +185,19 @@ struct Runner
     CaseResult result;
     std::vector<ImageArtifact> artifacts;
     CaseRender render;
+    // The convergence guard's measurement of the Case's color image, when
+    // runCase was asked to guard it and the Case rendered.
+    std::optional<ConvergenceMeasurement> convergence;
   };
 
   // The per-Case phase: build, render, compare against Ground truth.
   // `renderWithoutGroundTruth`: render even when the Ground truth is missing
-  // (the Case takes part in self-checks). Never throws.
-  CaseOutcome runCase(
-      const TestDef &test, const Case &c, bool renderWithoutGroundTruth);
+  // (the Case takes part in self-checks). `guard`: measure the color image's
+  // convergence after it is read (renderChannels). Never throws.
+  CaseOutcome runCase(const TestDef &test,
+      const Case &c,
+      bool renderWithoutGroundTruth,
+      bool guard = false);
 
   // Run a render Test: the per-Case phase for its selected Cases and their
   // partners, then the relational pass, then publication.
@@ -214,11 +220,18 @@ struct Runner
   {
     std::vector<ChannelValues> channels;
     std::optional<CameraProjection> camera;
+    // With `guard`: the color image's convergence measurement, and the time
+    // the guard's extra frames took (not the Case's render time).
+    std::optional<ConvergenceMeasurement> convergence;
+    double guardMs{0.0};
   };
 
-  // Render a Case's channels at `size`.
+  // Render a Case's channels at `size`. With `guard` (the run accumulates
+  // several frames), the color frame keeps accumulating for as many frames
+  // again once its image is read, for the convergence guard (ADR-0010): the
+  // Case's own image is the one measured.
   RenderedChannels renderChannels(
-      const TestDef &test, const Case &c, FrameSize size);
+      const TestDef &test, const Case &c, FrameSize size, bool guard = false);
   // ... their comparison images only.
   std::vector<Image> renderImages(
       const TestDef &test, const Case &c, FrameSize size);
@@ -227,11 +240,6 @@ struct Runner
   CaseFrameSize frameSizeOf(const TestDef &test, const Case &c) const;
   // The Case's frame size, recorded in `result`; or empty, with `result`
   // skipped for the reason, when it isn't whole pixels at the run's size.
-  // The convergence guard's measurement (ConvergenceGuard.h): the Case's color
-  // channel after the run's accumulation, then after as many frames again.
-  // Never throws; a failure is in ConvergenceMeasurement::error.
-  ConvergenceMeasurement measureConvergence(const TestDef &test, const Case &c);
-
   std::optional<FrameSize> sizeOrSkip(
       const TestDef &test, const Case &c, CaseResult &result) const;
 
@@ -331,8 +339,9 @@ struct Runner
   std::set<std::string> m_gatingExtensions;
   std::string m_rendererSubtype;
   uint32_t m_effectiveAccumulationFrames{1};
-  // Whether the device advertises KHR_FRAME_ACCUMULATION: the guard runs only
-  // then (a device without accumulation has nothing that could still refine).
+  // Whether the renderer lists KHR_FRAME_ACCUMULATION (the device, when the
+  // renderer reports no list): the guard runs only then, and only when the
+  // run accumulates more than one frame (notGuardedReason()).
   bool m_accumulationSupported{false};
   // Qualified ids of the Cases this Runner scored, so a later support render
   // doesn't overwrite their images.
