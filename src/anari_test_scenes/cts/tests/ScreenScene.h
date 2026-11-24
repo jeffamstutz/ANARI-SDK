@@ -23,12 +23,12 @@ namespace cts {
 using Triangle = std::array<math::float3, 3>;
 
 // The Layout's equilateral triangle (equilateralTriangle()) in the plane
-// z = 0, centred at screen (sx, sy); `halfSize` (its circumradius) is in screen
-// units (the frame is 1 across).
-inline Triangle screenTriangle(float sx, float sy, float halfSize)
+// z = 0, centred at screen (sx, sy), with circumradius `screenRadius` in screen
+// units (the frame is 1 across, world units are twice screen units).
+inline Triangle screenTriangle(float sx, float sy, float screenRadius)
 {
   return equilateralTriangle(
-      math::float3(2.f * sx - 1.f, 2.f * sy - 1.f, 0.f), 2.f * halfSize);
+      math::float3(2.f * sx - 1.f, 2.f * sy - 1.f, 0.f), 2.f * screenRadius);
 }
 
 // The vertices of `triangles` as a triangle soup.
