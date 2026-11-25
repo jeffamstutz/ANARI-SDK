@@ -407,7 +407,9 @@ rework the scene rather than loosen it (`.effectMargin`) when a change is too
 subtle. An `.effectMargin` or `.equivalenceTolerance` override needs its
 measurements on two devices written beside it (ADR-0010 65 for margins, its
 "Volume equivalence" section (ticket 08) for tolerances; the PBR lobe margin,
-ADR-0010 66, is the example). Opt an axis out (`.noEffectCheck(axis, reason)`, or `.noEffectCheckOn(axis,
+ADR-0010 66, is the example). On a PBR lobe Test, a framing that enlarges the
+lobe also lowers the Ground-truth PSNR of a device that shades it, since the
+Reference device doesn't (ADR-0010 68): measure both. Opt an axis out (`.noEffectCheck(axis, reason)`, or `.noEffectCheckOn(axis,
 library, renderers, reason)` for a device known not to render the parameter) only when its
 effect can't be judged by image difference.
 
