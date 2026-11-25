@@ -1112,8 +1112,8 @@ within 0.012 of the spec's, towards the silhouette up to 0.46 over.
     0.41 → 1.22 % on halcyon `quality`, 4.65 % and 3.47 % on visrtx;
     clearcoatRoughness 5.64 %, 0.83 → 2.56 % and 0.64 → 2.03 %), but it fails
     visrtx's clearcoatNormal Case against Ground truth: halcyon `preview`
-    doesn't shade clearcoat (item 68), and the normal-mapped coat, now on more of the
-    frame, takes that Case's PSNR from 22.7 to 18.8 dB (`quality`) and from
+    doesn't shade clearcoat (item 68), and the normal-mapped coat, now on
+    more of the frame, takes that Case's PSNR from 22.7 to 18.8 dB (`quality`) and from
     23.9 to 19.9 dB (`default`), under the 20 dB threshold. The effect and
     that PSNR both grow with the lobe's share of the frame, and the
     framings measured between the two don't leave room for both: at 2.1
@@ -1181,8 +1181,8 @@ within 0.012 of the spec's, towards the silhouette up to 0.46 over.
     and `pbr_transmission` (transmission); these are the axes
     `notShadedByPreview` names in `material.cpp`. Their Ground-truth images
     hold no lobe, so the comparison checks the sphere's base shading and
-    framing and nothing about the lobe. What verifies the lobe there is the
-    effect checks (items 2 and 66): each value of a lobe axis must change the
+    framing and nothing about the lobe. The effect checks are what verify
+    the lobe there (items 2 and 66): each value of a lobe axis must change the
     Candidate's own image. The Case is scored against Ground truth, not
     reported as "Reference device lacks it" (ADR-0005), and a
     Candidate that shades the lobe correctly loses PSNR in proportion to
@@ -1197,25 +1197,28 @@ within 0.012 of the spec's, towards the silhouette up to 0.46 over.
     not a device finding.
 
     Measured on 2026-11-24 at 256x256 and `--accumulation 256` against
-    Ground truth freshly generated with halcyon `preview` (the scenes of
-    `df3f901d`: `pbr_iridescence` and `pbr_specular` fill the frame,
-    `pbr_clearcoat` keeps the default framing), the lowest PSNR of the color
-    Channel over every Case of each Test, against the 20 dB threshold (the
-    lowest SSIM, against 0.70, in brackets), and the Case it came from:
+    Ground truth freshly generated with halcyon `preview` (`pbr_iridescence`
+    and `pbr_specular` fill the frame, `pbr_clearcoat` keeps the default
+    framing; ticket 33), the lowest PSNR of the color Channel over every
+    Case of each Test, against the 20 dB threshold, the Case it came from
+    and that Case's SSIM (against 0.70) in brackets:
 
     | Test | visrtx `quality` | visrtx `default` | halcyon `quality` |
     | --- | ---: | ---: | ---: |
-    | `pbr_iridescence` | 22.47 dB [0.921], `1_2_400` | 23.15 dB [0.937], `1_2_400` | 27.30 dB [0.965], `1_none_none` |
-    | `pbr_specular` | 27.26 dB [0.944], `1_ref_sampler_0` | 27.42 dB [0.957], `none_0.98-0.5-0.44` | 27.30 dB [0.961], `none_0.98-0.5-0.44` |
+    | `pbr_iridescence` | 22.47 dB [0.921], `1_2_400` | 23.15 dB [0.937], `1_2_400` | 27.30 dB [0.970], `1_none_none`\* |
+    | `pbr_specular` | 27.26 dB [0.944], `1_ref_sampler_0` | 27.42 dB [0.971], `none_0.98-0.5-0.44` | 27.30 dB [0.970], `none_0.98-0.5-0.44` |
     | `pbr_clearcoat` | 22.72 dB [0.850], `1_0.3_ref_sampler_1` | 23.86 dB [0.864], `1_0.3_ref_sampler_1` | 29.59 dB [0.949], `1_0.3_ref_sampler_1` |
+
+    \* `none_none_400` ties it.
 
     The tightest is visrtx `quality` on `pbr_iridescence`, 2.5 dB over the
     threshold, on the Case with iridescence 1, `iridescenceIor` 2 and a
-    400 nm film; `pbr_clearcoat`'s lowest
-    is its clearcoatNormal-sampler Case, as before ticket 33 (22.7 and
-    23.9 dB). Every Case passed Ground truth and the convergence guard;
-    halcyon `quality`'s only failures were its two bound
-    iridescenceThickness effect pairs (cts-device-findings 15).
+    400 nm film; `pbr_clearcoat`'s lowest is its clearcoatNormal-sampler
+    Case, unchanged from item 66. The lowest SSIM of any Case is 0.850, on
+    that Case on visrtx `quality`. Every Case passed Ground truth and the convergence
+    guard; halcyon `quality`'s only failures were the iridescenceThickness
+    effect checks of its two bound-thickness Cases, three pairs
+    (cts-device-findings 15).
     `pbr_sheen` and `pbr_transmission` were not measured here; ticket 33
     saw their Ground-truth PSNR fall under 20 dB on halcyon `quality` and
     visrtx when the sphere filled the frame, so they keep the default
